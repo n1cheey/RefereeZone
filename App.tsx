@@ -113,9 +113,22 @@ const App: React.FC = () => {
 
     void syncSession();
 
+    const refreshSessionAfterAuthChange = () => {
+      window.setTimeout(() => {
+        if (!isMounted) {
+          return;
+        }
+
+        void syncSession().catch((error) => {
+          console.error('Failed to refresh session after auth change', error);
+          applyResolvedUser(readCachedUser());
+        });
+      }, 0);
+    };
+
     const {
       data: { subscription },
-    } = subscribeToAuthChanges(async (_event, session) => {
+    } = subscribeToAuthChanges((_event, session) => {
       if (!isMounted) {
         return;
       }
@@ -125,13 +138,7 @@ const App: React.FC = () => {
         return;
       }
 
-      try {
-        const user = await getCurrentUserProfile();
-        applyResolvedUser(user);
-      } catch (error) {
-        console.error('Failed to refresh session after auth change', error);
-        applyResolvedUser(readCachedUser());
-      }
+      refreshSessionAfterAuthChange();
     });
 
     const handlePageShow = () => {
