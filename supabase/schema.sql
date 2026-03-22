@@ -86,6 +86,21 @@ create table if not exists public.ranking_performance (
   updated_at timestamptz not null default now()
 );
 
+create index if not exists profiles_role_full_name_idx
+  on public.profiles (role, full_name);
+
+create index if not exists nominations_created_by_match_idx
+  on public.nominations (created_by, match_date, match_time);
+
+create index if not exists nomination_referees_nomination_slot_idx
+  on public.nomination_referees (nomination_id, slot_number);
+
+create index if not exists nomination_referees_referee_status_idx
+  on public.nomination_referees (referee_id, status);
+
+create index if not exists reports_nomination_referee_author_idx
+  on public.reports (nomination_id, referee_id, author_id);
+
 alter table public.allowed_access enable row level security;
 alter table public.profiles enable row level security;
 alter table public.nominations enable row level security;

@@ -36,7 +36,7 @@ interface DashboardProps {
   onUpdateUser: (user: User) => void;
 }
 
-const POLL_INTERVAL_MS = 15000;
+const POLL_INTERVAL_MS = 45000;
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpdateUser }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -50,6 +50,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [actionAssignmentId, setActionAssignmentId] = useState<string | null>(null);
   const [replaceActionKey, setReplaceActionKey] = useState<string | null>(null);
   const [replaceSelections, setReplaceSelections] = useState<Record<string, string>>({});
+  const dashboardLoadPromiseRef = useRef<Promise<void> | null>(null);
   const [form, setForm] = useState({
     gameCode: '',
     teams: '',
@@ -89,26 +90,43 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     };
 
     const loadData = async (showLoader: boolean) => {
-      if (showLoader) {
-        setIsLoadingAssignments(true);
+      if (dashboardLoadPromiseRef.current) {
+        await dashboardLoadPromiseRef.current;
+        return;
       }
 
+      const request = (async () => {
+        if (showLoader) {
+          setIsLoadingAssignments(true);
+        }
+
+        try {
+          if (user.role === 'Instructor') {
+            await loadInstructorData();
+          } else if (user.role === 'Referee') {
+            await loadRefereeData();
+          }
+          if (isMounted) {
+            setDashboardError('');
+          }
+        } catch (error) {
+          if (isMounted) {
+            setDashboardError(error instanceof Error ? error.message : 'Failed to load dashboard data.');
+          }
+        } finally {
+          if (isMounted && showLoader) {
+            setIsLoadingAssignments(false);
+          }
+        }
+      })();
+
+      dashboardLoadPromiseRef.current = request;
+
       try {
-        if (user.role === 'Instructor') {
-          await loadInstructorData();
-        } else if (user.role === 'Referee') {
-          await loadRefereeData();
-        }
-        if (isMounted) {
-          setDashboardError('');
-        }
-      } catch (error) {
-        if (isMounted) {
-          setDashboardError(error instanceof Error ? error.message : 'Failed to load dashboard data.');
-        }
+        await request;
       } finally {
-        if (isMounted && showLoader) {
-          setIsLoadingAssignments(false);
+        if (dashboardLoadPromiseRef.current === request) {
+          dashboardLoadPromiseRef.current = null;
         }
       }
     };

@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient';
 
-const API_TIMEOUT_MS = 20000;
+const API_TIMEOUT_MS = 30000;
 
 export class ApiRequestError extends Error {
   status?: number;

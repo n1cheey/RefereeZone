@@ -21,6 +21,9 @@ const ROLE_PREFIX = {
 const BAKU_TIMEZONE = 'Asia/Baku';
 const BAKU_OFFSET = '+04:00';
 let googleGenAiModulePromise = null;
+const CURRENT_USER_CACHE_TTL_MS = 30000;
+const currentUserCache = new Map();
+const currentUserRequestCache = new Map();
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -59,9 +62,7 @@ const buildLicenseNumber = (role, sequence) => `ABL-${ROLE_PREFIX[role]}-${Strin
 
 const getApiPath = (event) => {
   const sourcePath = event.path || new URL(event.rawUrl).pathname;
-  const normalized = sourcePath
-    .replace(/^\/\.netlify\/functions\/api/, '')
-    .replace(/^\/api/, '');
+  const normalized = sourcePath.replace(/^\/api/, '');
 
   return normalized || '/';
 };
@@ -108,6 +109,14 @@ const createClients = () => {
     }),
   };
 };
+
+const mapOfficialDirectoryItem = (row) => ({
+  id: row.id,
+  fullName: row.full_name,
+  email: row.email,
+  licenseNumber: row.license_number || 'Pending',
+  role: row.role,
+});
 
 const sortByMatchAsc = (left, right) => {
   const leftKey = `${left.matchDate}T${left.matchTime}`;
@@ -469,17 +478,42 @@ const getCurrentUser = async (admin, event) => {
     throw new HttpError(401, 'Authentication required.');
   }
 
-  const { data, error } = await admin.auth.getUser(token);
-  if (error || !data.user) {
-    throw new HttpError(401, 'Invalid or expired session.');
+  const cachedUser = currentUserCache.get(token);
+  if (cachedUser && cachedUser.expiresAt > Date.now()) {
+    return cachedUser.profile;
   }
 
-  const profile = await loadProfileById(admin, data.user.id);
-  if (!profile) {
-    throw new HttpError(401, 'Profile is missing for the authenticated user.');
+  const existingRequest = currentUserRequestCache.get(token);
+  if (existingRequest) {
+    return existingRequest;
   }
 
-  return profile;
+  const request = (async () => {
+    const { data, error } = await admin.auth.getUser(token);
+    if (error || !data.user) {
+      throw new HttpError(401, 'Invalid or expired session.');
+    }
+
+    const profile = await loadProfileById(admin, data.user.id);
+    if (!profile) {
+      throw new HttpError(401, 'Profile is missing for the authenticated user.');
+    }
+
+    currentUserCache.set(token, {
+      expiresAt: Date.now() + CURRENT_USER_CACHE_TTL_MS,
+      profile,
+    });
+
+    return profile;
+  })();
+
+  currentUserRequestCache.set(token, request);
+
+  try {
+    return await request;
+  } finally {
+    currentUserRequestCache.delete(token);
+  }
 };
 
 const getGeminiClient = async () => {
@@ -658,16 +692,87 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
 };
 
 const getInstructorDashboardData = async (admin, instructorId) => {
-  await requireRole(admin, instructorId, 'Instructor');
+  const currentUser = await requireProfileById(admin, instructorId);
+  if (currentUser.role !== 'Instructor') {
+    throw new HttpError(403, 'Only Instructor accounts can load this dashboard.');
+  }
 
-  const [referees, nominations, assignments] = await Promise.all([
-    listReferees(admin, { id: instructorId }),
-    getInstructorNominationsData(admin, instructorId),
-    getRefereeAssignmentsData(admin, instructorId),
+  const [{ data: officialRows, error: officialsError }, { data: nominationRows, error: nominationsError }, { data: ownAssignmentRows, error: ownAssignmentsError }] = await Promise.all([
+    admin
+      .from('profiles')
+      .select('id, full_name, email, license_number, role')
+      .in('role', ['Referee', 'Instructor'])
+      .order('role', { ascending: true })
+      .order('full_name', { ascending: true }),
+    admin
+      .from('nominations')
+      .select('*')
+      .eq('created_by', instructorId)
+      .order('match_date', { ascending: true })
+      .order('match_time', { ascending: true }),
+    admin.from('nomination_referees').select('*').eq('referee_id', instructorId),
   ]);
 
+  const officials = ensureData(officialRows || [], officialsError, 'Failed to load referees.').map(mapOfficialDirectoryItem);
+  const officialMap = new Map(officials.map((official) => [official.id, official]));
+  const nominationsSource = ensureData(nominationRows || [], nominationsError, 'Failed to load instructor nominations.');
+  const ownAssignmentsSource = ensureData(ownAssignmentRows || [], ownAssignmentsError, 'Failed to load referee nominations.');
+
+  const nominationIds = nominationsSource.map((nomination) => nomination.id);
+  const nominationAssignments = nominationIds.length ? await listAssignmentsByNominationIds(admin, nominationIds) : [];
+  const ownVisibleAssignments = ownAssignmentsSource.filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
+  const ownAssignmentNominationIds = [...new Set(ownVisibleAssignments.map((assignment) => assignment.nomination_id))];
+  const ownNominations = ownAssignmentNominationIds.length
+    ? await listNominationsByIds(admin, ownAssignmentNominationIds)
+    : [];
+  const ownNominationMap = new Map(ownNominations.map((nomination) => [nomination.id, nomination]));
+
+  const nominations = nominationsSource.map((nomination) => ({
+    id: nomination.id,
+    gameCode: nomination.game_code || 'ABL-NEW',
+    teams: nomination.teams,
+    matchDate: nomination.match_date,
+    matchTime: nomination.match_time,
+    venue: nomination.venue,
+    createdAt: nomination.created_at,
+    referees: nominationAssignments
+      .filter((assignment) => assignment.nomination_id === nomination.id)
+      .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+      .map((assignment) => ({
+        slotNumber: Number(assignment.slot_number),
+        refereeId: assignment.referee_id,
+        refereeName: officialMap.get(assignment.referee_id)?.fullName || 'Unknown referee',
+        status: assignment.status,
+        respondedAt: assignment.responded_at || null,
+      })),
+  }));
+
+  const assignments = ownVisibleAssignments
+    .map((assignment) => {
+      const nomination = ownNominationMap.get(assignment.nomination_id);
+      if (!nomination) {
+        return null;
+      }
+
+      return {
+        id: assignment.id,
+        nominationId: nomination.id,
+        gameCode: nomination.game_code || 'ABL-NEW',
+        teams: nomination.teams,
+        matchDate: nomination.match_date,
+        matchTime: nomination.match_time,
+        venue: nomination.venue,
+        slotNumber: Number(assignment.slot_number),
+        status: assignment.status,
+        respondedAt: assignment.responded_at || null,
+        instructorName: officialMap.get(nomination.created_by)?.fullName || currentUser.full_name,
+      };
+    })
+    .filter(Boolean)
+    .sort(sortByMatchAsc);
+
   return {
-    referees,
+    referees: officials,
     nominations,
     assignments,
   };

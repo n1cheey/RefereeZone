@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, startTransition, useEffect, useState } from 'react';
+import React, { Suspense, lazy, startTransition, useEffect, useRef, useState } from 'react';
 import { User } from './types';
 import Login from './components/Login';
 import { getCurrentUserProfile, logoutUser, subscribeToAuthChanges } from './services/authService';
@@ -14,6 +14,7 @@ const AccessManager = lazy(() => import('./components/AccessManager'));
 type View = 'login' | 'dashboard' | 'nominations' | 'ranking' | 'reports' | 'news' | 'members' | 'access';
 
 const AUTH_LOADING_TIMEOUT_MS = 4000;
+const SESSION_SYNC_COOLDOWN_MS = 60000;
 const STORAGE_KEY = 'abl-current-user-cache';
 
 const normalizeStoredUser = (value: unknown): User | null => {
@@ -64,6 +65,8 @@ const LoadingScreen = ({ label }: { label: string }) => (
 );
 
 const App: React.FC = () => {
+  const sessionSyncPromiseRef = useRef<Promise<void> | null>(null);
+  const lastSessionSyncAtRef = useRef(0);
   const [currentUser, setCurrentUser] = useState<User | null>(() =>
     typeof window === 'undefined' ? null : readCachedUser(),
   );
@@ -102,26 +105,52 @@ const App: React.FC = () => {
       applyResolvedUser(readCachedUser());
     };
 
-    const syncSession = async () => {
-      const user = await getCurrentUserProfile();
-      applyResolvedUser(user);
+    const syncSession = async (force = false) => {
+      const cachedUser = readCachedUser();
+      const now = Date.now();
+
+      if (!force && cachedUser && now - lastSessionSyncAtRef.current < SESSION_SYNC_COOLDOWN_MS) {
+        return;
+      }
+
+      if (sessionSyncPromiseRef.current) {
+        return sessionSyncPromiseRef.current;
+      }
+
+      const request = (async () => {
+        lastSessionSyncAtRef.current = now;
+        const user = await getCurrentUserProfile();
+        applyResolvedUser(user);
+      })();
+
+      sessionSyncPromiseRef.current = request;
+
+      try {
+        await request;
+      } finally {
+        if (sessionSyncPromiseRef.current === request) {
+          sessionSyncPromiseRef.current = null;
+        }
+      }
     };
 
     loadingTimeoutId = window.setTimeout(() => {
       applyResolvedUser(readCachedUser());
     }, AUTH_LOADING_TIMEOUT_MS);
 
-    void syncSession().catch((error) => {
-      restoreCachedSession(error, 'Failed to restore session');
-    });
+    if (!readCachedUser()) {
+      void syncSession(true).catch((error) => {
+        restoreCachedSession(error, 'Failed to restore session');
+      });
+    }
 
-    const refreshSessionAfterAuthChange = () => {
+    const refreshSessionAfterAuthChange = (force = false) => {
       window.setTimeout(() => {
         if (!isMounted) {
           return;
         }
 
-        void syncSession().catch((error) => {
+        void syncSession(force).catch((error) => {
           restoreCachedSession(error, 'Failed to refresh session after auth change');
         });
       }, 0);
@@ -131,6 +160,10 @@ const App: React.FC = () => {
       data: { subscription },
     } = subscribeToAuthChanges((event, session) => {
       if (!isMounted) {
+        return;
+      }
+
+      if (event === 'INITIAL_SESSION') {
         return;
       }
 
@@ -144,7 +177,9 @@ const App: React.FC = () => {
         return;
       }
 
-      refreshSessionAfterAuthChange();
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        refreshSessionAfterAuthChange(true);
+      }
     });
 
     const handlePageShow = () => {
@@ -157,11 +192,11 @@ const App: React.FC = () => {
         setCurrentUser(cachedUser);
         setCurrentView('dashboard');
         setIsAuthLoading(false);
-      } else {
-        setIsAuthLoading(true);
+        return;
       }
 
-      void syncSession().catch((error) => {
+      setIsAuthLoading(true);
+      void syncSession(true).catch((error) => {
         restoreCachedSession(error, 'Failed to restore session after pageshow');
       });
     };
