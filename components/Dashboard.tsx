@@ -23,9 +23,8 @@ import {
 import {
   createNomination,
   deleteNomination,
-  getInstructorNominations,
+  getInstructorDashboard,
   getRefereeNominations,
-  getReferees,
   replaceNominationReferee,
   respondToNomination,
 } from '../services/nominationService';
@@ -65,19 +64,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
   useEffect(() => {
     let isMounted = true;
+    let intervalId: number | null = null;
 
     const loadInstructorData = async () => {
-      const [refereeResponse, nominationsResponse] = await Promise.all([
-        getReferees(user.id),
-        getInstructorNominations(user.id),
-      ]);
+      const response = await getInstructorDashboard(user.id);
 
       if (!isMounted) {
         return;
       }
 
-      setReferees(refereeResponse.referees);
-      setInstructorNominations(nominationsResponse.nominations);
+      setReferees(response.referees);
+      setInstructorNominations(response.nominations);
+      setRefereeAssignments(response.assignments);
     };
 
     const loadRefereeData = async () => {
@@ -97,7 +95,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
       try {
         if (user.role === 'Instructor') {
-          await Promise.all([loadInstructorData(), loadRefereeData()]);
+          await loadInstructorData();
         } else if (user.role === 'Referee') {
           await loadRefereeData();
         }
@@ -115,14 +113,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       }
     };
 
-    loadData(true);
-    const intervalId = window.setInterval(() => {
-      loadData(false);
-    }, POLL_INTERVAL_MS);
+    const startPolling = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          void loadData(false);
+        }
+      }, POLL_INTERVAL_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadData(false);
+        startPolling();
+        return;
+      }
+
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    void loadData(true);
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       isMounted = false;
-      window.clearInterval(intervalId);
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [user.id, user.role]);
 
@@ -162,12 +187,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   };
 
   const refreshInstructorData = async () => {
-    const [refereeResponse, nominationsResponse] = await Promise.all([
-      getReferees(user.id),
-      getInstructorNominations(user.id),
-    ]);
-    setReferees(refereeResponse.referees);
-    setInstructorNominations(nominationsResponse.nominations);
+    const response = await getInstructorDashboard(user.id);
+    setReferees(response.referees);
+    setInstructorNominations(response.nominations);
+    setRefereeAssignments(response.assignments);
   };
 
   const refreshRefereeData = async () => {

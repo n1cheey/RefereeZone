@@ -657,6 +657,22 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
     .sort(sortByMatchAsc);
 };
 
+const getInstructorDashboardData = async (admin, instructorId) => {
+  await requireRole(admin, instructorId, 'Instructor');
+
+  const [referees, nominations, assignments] = await Promise.all([
+    listReferees(admin, { id: instructorId }),
+    getInstructorNominationsData(admin, instructorId),
+    getRefereeAssignmentsData(admin, instructorId),
+  ]);
+
+  return {
+    referees,
+    nominations,
+    assignments,
+  };
+};
+
 const buildRankingState = async (admin) => {
   const refereeResponse = await admin
     .from('profiles')
@@ -1711,9 +1727,13 @@ const routeRequest = async (event) => {
     });
   }
 
-  if (method === 'GET' && path === '/referees') {
-    return json(200, { referees: await listReferees(admin, currentUser) });
-  }
+    if (method === 'GET' && path === '/referees') {
+      return json(200, { referees: await listReferees(admin, currentUser) });
+    }
+
+    if (method === 'GET' && path === `/dashboard/instructor/${currentUser.id}`) {
+      return json(200, await getInstructorDashboardData(admin, currentUser.id));
+    }
 
   if (method === 'GET' && path === '/members') {
     return json(200, { members: await listMembers(admin, currentUser) });

@@ -5,8 +5,18 @@ const JSON_HEADERS = {
   'Content-Type': 'application/json',
 };
 
+export interface InstructorDashboardResponse {
+  referees: RefereeDirectoryItem[];
+  nominations: InstructorNomination[];
+  assignments: RefereeNomination[];
+}
+
 export function getReferees(instructorId: string) {
   return apiRequest<{ referees: RefereeDirectoryItem[] }>(`/api/referees?instructorId=${encodeURIComponent(instructorId)}`);
+}
+
+export function getInstructorDashboard(instructorId: string) {
+  return apiRequest<InstructorDashboardResponse>(`/api/dashboard/instructor/${encodeURIComponent(instructorId)}`);
 }
 
 export function getInstructorNominations(instructorId: string) {
