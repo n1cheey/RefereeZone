@@ -13,7 +13,7 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, showBack = true }) => {
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#f9e9d4_0%,#f4f6fa_28%,#eef2f7_100%)]">
+    <div className="min-h-screen bg-[#57131b]">
       <header className="sticky top-0 z-50 border-b border-[#6b1b24] bg-[#57131b] text-white shadow-[0_18px_35px_rgba(42,10,14,0.28)]">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">
@@ -43,7 +43,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, show
           )}
         </div>
       </header>
-      <main className="px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
+      <main className="min-h-[calc(100vh-69px)] bg-[radial-gradient(circle_at_top,#f9e9d4_0%,#f4f6fa_28%,#eef2f7_100%)] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
         <div className="mx-auto w-full max-w-7xl">{children}</div>
       </main>
     </div>
