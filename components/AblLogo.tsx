@@ -25,11 +25,12 @@ const AblLogo: React.FC<AblLogoProps> = ({ mode = 'stacked', className = '' }) =
         >
           <circle cx="80" cy="80" r="55" fill="#E8A044" />
           <path d="M31 80h98" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M80 25c-12 15-19 35-19 55s7 40 19 55" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M80 25c12 15 19 35 19 55s-7 40-19 55" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M58 36c10 6 18 16 22 28" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M102 36c-10 6-18 16-22 28" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M108 101c-11 2-21 9-29 20" fill="none" stroke="#C8943E" strokeWidth="11" strokeLinecap="round" opacity="0.95" />
+          <path d="M80 25c-12 15-19 35-19 55s7 40 19 55" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M80 25c12 15 19 35 19 55s-7 40-19 55" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M59 36c8 7 15 17 21 30" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M101 36c-8 7-15 17-21 30" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M59 124c8-7 15-17 21-30" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M101 124c-8-7-15-17-21-30" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
 
         {!isIconOnly && (
@@ -40,8 +41,8 @@ const AblLogo: React.FC<AblLogoProps> = ({ mode = 'stacked', className = '' }) =
                 isCompact ? 'mt-1 text-sm leading-snug text-white/88' : 'mt-3 text-[15px] leading-tight text-white/88'
               }`}
             >
-              <div>Azerbaycan</div>
-              <div>Basketbol Liqası</div>
+              <div>Azerbaijan</div>
+              <div>Basketball League</div>
             </div>
           </div>
         )}

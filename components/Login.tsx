@@ -49,7 +49,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(232,160,68,0.24),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.08),transparent_34%)]" />
           <div className="relative">
             <div className="inline-flex rounded-full border border-white/15 bg-white/8 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.28em] text-white/75">
-              Azerbaijan Basketball Liqası
+              Azerbaijan Basketball League
             </div>
             <div className="mt-12 max-w-md">
               <AblLogo mode="stacked" className="w-[220px] rounded-[28px] shadow-[0_24px_60px_rgba(0,0,0,0.25)]" />
