@@ -24,12 +24,12 @@ const AblLogo: React.FC<AblLogoProps> = ({ mode = 'stacked', className = '' }) =
           className={`${isIconOnly ? 'h-full w-full max-h-12 max-w-12' : isCompact ? 'h-20 w-20 flex-none' : 'h-28 w-28'}`}
         >
           <circle cx="80" cy="80" r="55" fill="#E8A044" />
-          <path d="M80 25c13 13 21 33 21 55s-8 42-21 55" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M80 25C67 38 59 58 59 80s8 42 21 55" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M25 80h110" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M45 44c14 5 27 14 35 26" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M115 44c-14 5-27 14-35 26" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
-          <path d="M123 101c-17 2-33 11-43 25" fill="none" stroke="#B88233" strokeWidth="10" strokeLinecap="round" opacity="0.95" />
+          <path d="M31 80h98" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
+          <path d="M80 25c-12 15-19 35-19 55s7 40 19 55" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
+          <path d="M80 25c12 15 19 35 19 55s-7 40-19 55" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
+          <path d="M58 36c10 6 18 16 22 28" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
+          <path d="M102 36c-10 6-18 16-22 28" fill="none" stroke="#6A2A1E" strokeWidth="4.5" strokeLinecap="round" />
+          <path d="M108 101c-11 2-21 9-29 20" fill="none" stroke="#C8943E" strokeWidth="11" strokeLinecap="round" opacity="0.95" />
         </svg>
 
         {!isIconOnly && (

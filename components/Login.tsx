@@ -61,20 +61,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               </p>
             </div>
           </div>
-          <div className="relative grid grid-cols-3 gap-3 text-sm text-white/78">
-            <div className="rounded-2xl border border-white/12 bg-white/8 px-4 py-4">
-              <div className="text-2xl font-black text-white">3</div>
-              <div className="mt-1 text-xs uppercase tracking-[0.22em]">Match Officials</div>
-            </div>
-            <div className="rounded-2xl border border-white/12 bg-white/8 px-4 py-4">
-              <div className="text-2xl font-black text-white">24h</div>
-              <div className="mt-1 text-xs uppercase tracking-[0.22em]">Report Window</div>
-            </div>
-            <div className="rounded-2xl border border-white/12 bg-white/8 px-4 py-4">
-              <div className="text-2xl font-black text-white">RLS</div>
-              <div className="mt-1 text-xs uppercase tracking-[0.22em]">Supabase Security</div>
-            </div>
-          </div>
         </section>
 
         <section className="flex items-center justify-center px-5 py-8 sm:px-8 lg:px-12">
