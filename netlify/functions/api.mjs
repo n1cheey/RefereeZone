@@ -34,6 +34,10 @@ const json = (statusCode, body) => ({
   statusCode,
   headers: {
     'Content-Type': 'application/json',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   },
   body: JSON.stringify(body),
 });
@@ -47,6 +51,9 @@ const clampScore = (score) => {
 
   return Math.max(0, Math.min(100, numeric));
 };
+
+const isStrongEnoughPassword = (password) =>
+  password.length >= 10 && /[A-Za-z]/.test(password) && /\d/.test(password);
 
 const buildLicenseNumber = (role, sequence) => `ABL-${ROLE_PREFIX[role]}-${String(sequence).padStart(4, '0')}`;
 
@@ -1544,6 +1551,10 @@ const registerUser = async (admin, body) => {
 
   if (!email || !password || !fullName) {
     throw new HttpError(400, 'Fill in full name, e-mail and password.');
+  }
+
+  if (!isStrongEnoughPassword(password)) {
+    throw new HttpError(400, 'Password must be at least 10 characters and include letters and numbers.');
   }
 
   if (!ROLE_OPTIONS.includes(role)) {

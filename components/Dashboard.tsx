@@ -672,12 +672,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         {navItems.map((item) => (
           <button
             key={item.id}
             onClick={() => onNavigate(item.id)}
-            className={`${item.color} p-5 rounded-2xl flex flex-col items-center justify-center gap-3 transition-transform active:scale-95 shadow-sm`}
+            className={`${item.color} rounded-2xl p-5 flex flex-col items-center justify-center gap-3 transition-transform active:scale-95 shadow-sm min-h-36`}
           >
             <div className="p-3 bg-white rounded-xl shadow-sm">
               <item.icon size={28} className={item.iconColor} />

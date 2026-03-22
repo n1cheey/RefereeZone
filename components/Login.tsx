@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { User, UserRole } from '../types';
-import { generateRefereeLogo } from '../services/geminiService';
 import { loginUser, registerUser } from '../services/authService';
+import AblLogo from './AblLogo';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -15,26 +15,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<UserRole>('Referee');
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [isGeneratingLogo, setIsGeneratingLogo] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-
-  useEffect(() => {
-    async function fetchLogo() {
-      setIsGeneratingLogo(true);
-      try {
-        const url = await generateRefereeLogo();
-        setLogoUrl(url);
-      } catch {
-        setLogoUrl(null);
-      } finally {
-        setIsGeneratingLogo(false);
-      }
-    }
-
-    fetchLogo();
-  }, []);
 
   const toggleMode = () => {
     setIsRegister((prev) => !prev);
@@ -42,8 +24,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setErrorMessage('');
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setIsSubmitting(true);
     setErrorMessage('');
 
@@ -54,129 +36,162 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
       onLogin(response.user);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Произошла ошибка авторизации.');
+      setErrorMessage(error instanceof Error ? error.message : 'Authentication failed.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50">
-      <div className="w-full max-w-sm space-y-8">
-        <div className="text-center">
-          <div className="flex justify-center mb-6">
-            <div className="relative w-36 h-36 rounded-full border-4 border-[#581c1c] overflow-hidden shadow-2xl bg-white flex items-center justify-center">
-              {isGeneratingLogo ? (
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-8 h-8 border-4 border-[#f39200] border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-[10px] font-bold text-[#581c1c] uppercase animate-pulse">Creating Identity...</span>
-                </div>
-              ) : logoUrl ? (
-                <img src={logoUrl} alt="Azerbaijan Basketball Referees" className="w-full h-full object-cover" />
-              ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-center">
-                  <div className="w-20 h-20 rounded-full bg-[#f39200] border-2 border-[#581c1c] relative overflow-hidden flex items-center justify-center">
-                    <div className="absolute w-full h-0.5 bg-[#581c1c] top-1/2 -translate-y-1/2"></div>
-                    <div className="absolute h-full w-0.5 bg-[#581c1c] left-1/2 -translate-x-1/2"></div>
-                    <div className="absolute w-full h-full border-[3px] border-[#581c1c] rounded-full -left-1/2"></div>
-                    <div className="absolute w-full h-full border-[3px] border-[#581c1c] rounded-full -right-1/2"></div>
-                  </div>
-                  <div className="absolute top-2 text-[6px] font-black text-[#581c1c] tracking-widest uppercase">Azerbaijan</div>
-                  <div className="absolute bottom-2 text-[5px] font-black text-[#581c1c] tracking-tighter uppercase leading-none">Referees Committee</div>
-                </div>
-              )}
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#f7dfc0_0%,#f4f6fa_32%,#edf2f7_100%)] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto grid min-h-[calc(100vh-3rem)] max-w-6xl overflow-hidden rounded-[32px] border border-white/70 bg-white/70 shadow-[0_30px_90px_rgba(52,23,28,0.15)] backdrop-blur lg:grid-cols-[1.1fr_0.9fr]">
+        <section className="relative hidden overflow-hidden bg-[#57131b] p-10 text-white lg:flex lg:flex-col lg:justify-between">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(232,160,68,0.24),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.08),transparent_34%)]" />
+          <div className="relative">
+            <div className="inline-flex rounded-full border border-white/15 bg-white/8 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.28em] text-white/75">
+              Azerbaijan Basketball Liqası
+            </div>
+            <div className="mt-12 max-w-md">
+              <AblLogo mode="stacked" className="w-[220px] rounded-[28px] shadow-[0_24px_60px_rgba(0,0,0,0.25)]" />
+              <h1 className="mt-10 text-5xl font-black leading-[0.95] tracking-tight">
+                RefZone Control Center
+              </h1>
+              <p className="mt-5 text-base leading-7 text-white/72">
+                Secure nominations, reports, rankings and member administration for the ABL refereeing staff.
+              </p>
             </div>
           </div>
-          <h2 className="text-3xl font-black text-[#581c1c] tracking-tight">REFZONE</h2>
-          <p className="text-slate-500 font-medium text-sm mt-1">Official Azerbaijan Referees Portal</p>
-        </div>
+          <div className="relative grid grid-cols-3 gap-3 text-sm text-white/78">
+            <div className="rounded-2xl border border-white/12 bg-white/8 px-4 py-4">
+              <div className="text-2xl font-black text-white">3</div>
+              <div className="mt-1 text-xs uppercase tracking-[0.22em]">Match Officials</div>
+            </div>
+            <div className="rounded-2xl border border-white/12 bg-white/8 px-4 py-4">
+              <div className="text-2xl font-black text-white">24h</div>
+              <div className="mt-1 text-xs uppercase tracking-[0.22em]">Report Window</div>
+            </div>
+            <div className="rounded-2xl border border-white/12 bg-white/8 px-4 py-4">
+              <div className="text-2xl font-black text-white">RLS</div>
+              <div className="mt-1 text-xs uppercase tracking-[0.22em]">Supabase Security</div>
+            </div>
+          </div>
+        </section>
 
-        <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-          {isRegister && (
-            <>
+        <section className="flex items-center justify-center px-5 py-8 sm:px-8 lg:px-12">
+          <div className="w-full max-w-md space-y-8">
+            <div className="text-center lg:text-left">
+              <div className="flex justify-center lg:hidden">
+                <AblLogo mode="stacked" className="w-[150px] rounded-[24px] shadow-[0_18px_40px_rgba(87,19,27,0.18)]" />
+              </div>
+              <div className="mt-6 text-[11px] font-bold uppercase tracking-[0.3em] text-[#57131b]/55">ABL RefZone</div>
+              <h2 className="mt-3 text-3xl font-black tracking-tight text-[#57131b] sm:text-4xl">
+                {isRegister ? 'Create Official Account' : 'Sign In'}
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-slate-500">
+                {isRegister
+                  ? 'Registration is available only for e-mails and roles approved by Instructor.'
+                  : 'Use your approved ABL account to access nominations, reports and rankings.'}
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {isRegister && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      autoComplete="name"
+                      className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm shadow-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#581c1c]"
+                      placeholder="Full name"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Role</label>
+                    <select
+                      required
+                      size={4}
+                      value={role}
+                      onChange={(e) => setRole(e.target.value as UserRole)}
+                      className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm shadow-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#581c1c]"
+                    >
+                      {roles.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-2 text-xs text-slate-400">
+                      Registration works only for e-mails that were added to the allowed access list with the same role.
+                    </p>
+                  </div>
+                </>
+              )}
+
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Full Name</label>
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Email Address</label>
                 <input
-                  type="text"
+                  type="email"
                   required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  className="block w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#581c1c] focus:border-transparent transition-all outline-none"
-                  placeholder="Full name"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm shadow-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#581c1c]"
+                  placeholder="Email"
                 />
               </div>
+
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Role</label>
-                <select
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Password</label>
+                <input
+                  type="password"
                   required
-                  size={4}
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as UserRole)}
-                  className="block w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#581c1c] focus:border-transparent transition-all outline-none bg-white"
-                >
-                  {roles.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-2 text-xs text-slate-400">
-                  Зарегистрироваться смогут только e-mail, которые добавлены в отдельную базу разрешённых адресов.
-                </p>
+                  minLength={10}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={isRegister ? 'new-password' : 'current-password'}
+                  className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm shadow-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#581c1c]"
+                  placeholder="••••••••••"
+                />
+                {isRegister && (
+                  <p className="mt-2 text-xs text-slate-400">
+                    Minimum 10 characters. Use a mix of letters and numbers for better security.
+                  </p>
+                )}
               </div>
-            </>
-          )}
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email Address</label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="block w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#581c1c] focus:border-transparent transition-all outline-none"
-              placeholder="Email"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="block w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#581c1c] focus:border-transparent transition-all outline-none"
-              placeholder="••••••••"
-            />
-          </div>
 
-          {errorMessage && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {errorMessage}
+              {errorMessage && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {errorMessage}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full rounded-2xl bg-[#57131b] px-4 py-4 text-sm font-black text-white shadow-lg shadow-[#57131b]/20 transition-all hover:bg-[#481016] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {isSubmitting ? 'PROCESSING...' : isRegister ? 'REGISTER' : 'SIGN IN'}
+              </button>
+            </form>
+
+            <div className="text-center pt-2 lg:text-left">
+              <button
+                onClick={toggleMode}
+                className="text-sm font-bold text-[#f39200] transition-colors hover:text-[#581c1c]"
+              >
+                {isRegister ? 'Already have an account? Sign in' : 'New official? Request registration'}
+              </button>
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full bg-[#581c1c] text-white py-4 px-4 rounded-xl font-black shadow-lg shadow-[#581c1c]/20 hover:bg-[#4a1717] active:scale-[0.98] transition-all disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? 'PROCESSING...' : isRegister ? 'REGISTER' : 'SIGN IN'}
-          </button>
-        </form>
-
-        <div className="text-center pt-2">
-          <button
-            onClick={toggleMode}
-            className="text-sm font-bold text-[#f39200] hover:text-[#581c1c] transition-colors"
-          >
-            {isRegister ? 'Already have an account? Sign in' : 'New official? Request registration'}
-          </button>
-        </div>
-      </div>
-
-      <div className="absolute bottom-8 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-        Azerbaijan Basketball Referees Union
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-xs leading-6 text-slate-500">
+              Passwords are handled by Supabase Auth and are not readable from the application database.
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
