@@ -12,6 +12,7 @@ import AccessManager from './components/AccessManager';
 import { getCurrentUserProfile, logoutUser, subscribeToAuthChanges } from './services/authService';
 
 type View = 'login' | 'dashboard' | 'nominations' | 'ranking' | 'reports' | 'news' | 'members' | 'access';
+const AUTH_LOADING_TIMEOUT_MS = 4000;
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -20,18 +21,36 @@ const App: React.FC = () => {
 
   useEffect(() => {
     let isMounted = true;
+    let loadingTimeoutId: number | null = null;
 
-    const syncSession = async () => {
-      const user = await getCurrentUserProfile();
-
+    const applyResolvedUser = (user: User | null) => {
       if (!isMounted) {
         return;
+      }
+
+      if (loadingTimeoutId !== null) {
+        window.clearTimeout(loadingTimeoutId);
+        loadingTimeoutId = null;
       }
 
       setCurrentUser(user);
       setCurrentView(user ? 'dashboard' : 'login');
       setIsAuthLoading(false);
     };
+
+    const syncSession = async () => {
+      try {
+        const user = await getCurrentUserProfile();
+        applyResolvedUser(user);
+      } catch (error) {
+        console.error('Failed to restore session', error);
+        applyResolvedUser(null);
+      }
+    };
+
+    loadingTimeoutId = window.setTimeout(() => {
+      applyResolvedUser(null);
+    }, AUTH_LOADING_TIMEOUT_MS);
 
     void syncSession();
 
@@ -43,24 +62,32 @@ const App: React.FC = () => {
       }
 
       if (!session) {
-        setCurrentUser(null);
-        setCurrentView('login');
-        setIsAuthLoading(false);
+        applyResolvedUser(null);
         return;
       }
 
-      const user = await getCurrentUserProfile();
-      if (!isMounted) {
-        return;
+      try {
+        const user = await getCurrentUserProfile();
+        applyResolvedUser(user);
+      } catch (error) {
+        console.error('Failed to refresh session after auth change', error);
+        applyResolvedUser(null);
       }
-
-      setCurrentUser(user);
-      setCurrentView(user ? 'dashboard' : 'login');
-      setIsAuthLoading(false);
     });
+
+    const handlePageShow = () => {
+      setIsAuthLoading(true);
+      void syncSession();
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
 
     return () => {
       isMounted = false;
+      if (loadingTimeoutId !== null) {
+        window.clearTimeout(loadingTimeoutId);
+      }
+      window.removeEventListener('pageshow', handlePageShow);
       subscription.unsubscribe();
     };
   }, []);
