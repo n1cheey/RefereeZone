@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { GoogleGenAI } from '@google/genai';
 
 const DEFAULT_PHOTO_URL = 'https://picsum.photos/seed/referee/300/300';
 const ROLE_OPTIONS = ['Instructor', 'Table', 'Referee', 'Stuff'];
@@ -455,6 +456,85 @@ const getCurrentUser = async (admin, event) => {
   }
 
   return profile;
+};
+
+const getGeminiClient = () => {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new HttpError(500, 'GEMINI_API_KEY is missing.');
+  }
+
+  return new GoogleGenAI({ apiKey });
+};
+
+const generateAiTips = async (category) => {
+  const fallback = 'Keep focusing on positioning and clear communication with the crew.';
+
+  try {
+    const ai = getGeminiClient();
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Generate 3 short, professional refereeing tips for a ${category} level basketball official in Azerbaijan. Keep it concise and practical.`,
+      config: {
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
+
+    return response.text || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const generateAiSummary = async (reportsCount, avgScore) => {
+  const fallback = 'Your consistency in game management is highly valued by the league committee.';
+
+  try {
+    const ai = getGeminiClient();
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Write a 2-sentence performance summary for a basketball referee who has completed ${reportsCount} matches with an average feedback score of ${avgScore}%.`,
+      config: {
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
+
+    return response.text || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const generateAiLogo = async () => {
+  try {
+    const ai = getGeminiClient();
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: [
+        {
+          text: "A professional circular logo for 'Azerbaijan Basketball Referees'. The logo should feature a basketball and a referee whistle. Use a color palette of deep burgundy (#581c1c) and basketball orange (#f39200). The text 'Azerbaijan Basketball Referees' should be incorporated into the circular border in a clean, modern sans-serif font. High-end sports branding style, minimalist and bold.",
+        },
+      ],
+      config: {
+        imageConfig: {
+          aspectRatio: '1:1',
+        },
+      },
+    });
+
+    for (const candidate of response.candidates || []) {
+      for (const part of candidate.content?.parts || []) {
+        if (part.inlineData) {
+          return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        }
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 };
 
 const getInstructorNominationsData = async (admin, instructorId) => {
@@ -1544,6 +1624,24 @@ const routeRequest = async (event) => {
     return json(201, {
       message: 'Registration completed.',
       user,
+    });
+  }
+
+  if (method === 'POST' && path === '/ai/tips') {
+    return json(200, {
+      text: await generateAiTips(String(body.category || 'Referee')),
+    });
+  }
+
+  if (method === 'POST' && path === '/ai/summary') {
+    return json(200, {
+      text: await generateAiSummary(Number(body.reportsCount || 0), Number(body.avgScore || 0)),
+    });
+  }
+
+  if (method === 'POST' && path === '/ai/logo') {
+    return json(200, {
+      imageUrl: await generateAiLogo(),
     });
   }
 
