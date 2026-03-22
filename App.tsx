@@ -81,9 +81,15 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await logoutUser();
-    setCurrentUser(null);
-    setCurrentView('login');
+    try {
+      await logoutUser();
+    } catch (error) {
+      console.error('Logout failed', error);
+    } finally {
+      setCurrentUser(null);
+      setCurrentView('login');
+      setIsAuthLoading(false);
+    }
   };
 
   const renderView = () => {
