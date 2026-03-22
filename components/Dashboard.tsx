@@ -20,7 +20,6 @@ import {
   UserPlus,
   Trash2,
 } from 'lucide-react';
-import { generateRefTips } from '../services/geminiService';
 import {
   createNomination,
   deleteNomination,
@@ -41,7 +40,6 @@ interface DashboardProps {
 const POLL_INTERVAL_MS = 15000;
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpdateUser }) => {
-  const [aiTip, setAiTip] = useState<string>('Loading referee tips...');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [referees, setReferees] = useState<RefereeDirectoryItem[]>([]);
   const [instructorNominations, setInstructorNominations] = useState<InstructorNomination[]>([]);
@@ -64,22 +62,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     referee3: '',
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    const timeoutId = window.setTimeout(() => {
-      generateRefTips(user.role).then((tip) => {
-        if (isMounted) {
-          setAiTip(tip);
-        }
-      });
-    }, 150);
-
-    return () => {
-      isMounted = false;
-      window.clearTimeout(timeoutId);
-    };
-  }, [user.role]);
 
   useEffect(() => {
     let isMounted = true;
@@ -115,7 +97,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
       try {
         if (user.role === 'Instructor') {
-          await loadInstructorData();
+          await Promise.all([loadInstructorData(), loadRefereeData()]);
         } else if (user.role === 'Referee') {
           await loadRefereeData();
         }
@@ -201,7 +183,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
     const refereeIds = [form.referee1, form.referee2, form.referee3];
     if (new Set(refereeIds).size !== 3 || refereeIds.some((item) => !item)) {
-      setDashboardError('Choose 3 different referees.');
+      setDashboardError('Choose 3 different officials.');
       setIsSubmittingCreate(false);
       return;
     }
@@ -352,13 +334,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       </div>
 
-      <div className="mb-6 p-4 bg-amber-50 rounded-xl border-l-4 border-[#f97316]">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-amber-800 font-bold text-xs uppercase tracking-wider">Ref Assistant AI</span>
-        </div>
-        <p className="text-amber-900 text-sm italic">"{aiTip}"</p>
-      </div>
-
       {dashboardError && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {dashboardError}
@@ -468,10 +443,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                       onChange={(e) => updateFormField(`referee${slot}` as keyof typeof form, e.target.value)}
                       className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
                     >
-                      <option value="">Select referee</option>
+                      <option value="">Select official</option>
                       {referees.map((referee) => (
                         <option key={referee.id} value={referee.id}>
-                          {referee.fullName}
+                          {`${referee.fullName} (${referee.role})`}
                         </option>
                       ))}
                     </select>
@@ -522,10 +497,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                               onChange={(e) => setReplaceSelections((prev) => ({ ...prev, [replaceKey]: e.target.value }))}
                               className="min-w-64 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500"
                             >
-                              <option value="">Select replacement referee</option>
+                              <option value="">Select replacement official</option>
                               {options.map((option) => (
                                 <option key={option.id} value={option.id}>
-                                  {option.fullName}
+                                  {`${option.fullName} (${option.role})`}
                                 </option>
                               ))}
                             </select>
@@ -611,12 +586,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       )}
 
-      {user.role === 'Referee' && (
+      {(user.role === 'Referee' || user.role === 'Instructor') && (
         <div className="space-y-5 mb-8">
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <div className="flex items-center gap-2 mb-4">
               <Bell size={18} className="text-[#581c1c]" />
-              <h3 className="text-base font-bold text-slate-900">Upcoming Game</h3>
+              <h3 className="text-base font-bold text-slate-900">
+                {user.role === 'Instructor' ? 'My Game Assignments' : 'Upcoming Game'}
+              </h3>
             </div>
             {isLoadingAssignments ? (
               <p className="text-sm text-slate-500">Loading assignments...</p>

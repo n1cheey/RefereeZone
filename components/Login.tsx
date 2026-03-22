@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User, UserRole } from '../types';
 import { loginUser, registerUser } from '../services/authService';
-import AblLogo from './AblLogo';
+import loginLogo from '../img/login.webp';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -52,9 +52,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               Azerbaijan Basketball League
             </div>
             <div className="mt-12 max-w-md">
-              <AblLogo mode="stacked" className="w-[220px] rounded-[28px] shadow-[0_24px_60px_rgba(0,0,0,0.25)]" />
+              <img
+                src={loginLogo}
+                alt="ABL logo"
+                className="w-[320px] max-w-full rounded-[32px] shadow-[0_24px_60px_rgba(0,0,0,0.25)]"
+              />
               <h1 className="mt-10 text-5xl font-black leading-[0.95] tracking-tight">
-                RefZone Control Center
+                ABL Hakimlərin platforması
               </h1>
               <p className="mt-5 text-base leading-7 text-white/72">
                 Secure nominations, reports, rankings and member administration for the ABL refereeing staff.
@@ -67,7 +71,11 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           <div className="w-full max-w-md space-y-8">
             <div className="text-center lg:text-left">
               <div className="flex justify-center lg:hidden">
-                <AblLogo mode="stacked" className="w-[150px] rounded-[24px] shadow-[0_18px_40px_rgba(87,19,27,0.18)]" />
+                <img
+                  src={loginLogo}
+                  alt="ABL logo"
+                  className="w-[220px] max-w-full rounded-[28px] shadow-[0_18px_40px_rgba(87,19,27,0.18)]"
+                />
               </div>
               <div className="mt-6 text-[11px] font-bold uppercase tracking-[0.3em] text-[#57131b]/55">ABL RefZone</div>
               <h2 className="mt-3 text-3xl font-black tracking-tight text-[#57131b] sm:text-4xl">

@@ -424,6 +424,22 @@ const requireReferees = async (admin, refereeIds) => {
   return rows;
 };
 
+const requireAssignableOfficials = async (admin, refereeIds) => {
+  const rows = await listProfilesByIds(admin, refereeIds);
+
+  if (rows.length !== refereeIds.length) {
+    throw new HttpError(404, 'One or more officials were not found.');
+  }
+
+  rows.forEach((row) => {
+    if (!['Referee', 'Instructor'].includes(row.role)) {
+      throw new HttpError(400, 'Only Referee and Instructor users can be assigned.');
+    }
+  });
+
+  return rows;
+};
+
 const getNextLicenseNumber = async (admin, role) => {
   const { count, error } = await admin
     .from('profiles')
@@ -590,7 +606,10 @@ const getInstructorNominationsData = async (admin, instructorId) => {
 };
 
 const getRefereeAssignmentsData = async (admin, refereeId) => {
-  await requireRole(admin, refereeId, 'Referee');
+  const user = await requireProfileById(admin, refereeId);
+  if (!['Referee', 'Instructor'].includes(user.role)) {
+    throw new HttpError(403, 'Only Referee and Instructor accounts have game assignments.');
+  }
 
   const { data, error } = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
   const assignments = ensureData(data || [], error, 'Failed to load referee nominations.');
@@ -833,8 +852,9 @@ const listReferees = async (admin, currentUser) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const { data, error } = await admin
     .from('profiles')
-    .select('id, full_name, email, license_number')
-    .eq('role', 'Referee')
+    .select('id, full_name, email, license_number, role')
+    .in('role', ['Referee', 'Instructor'])
+    .order('role', { ascending: true })
     .order('full_name', { ascending: true });
 
   return ensureData(data || [], error, 'Failed to load referees.').map((row) => ({
@@ -842,6 +862,7 @@ const listReferees = async (admin, currentUser) => {
     fullName: row.full_name,
     email: row.email,
     licenseNumber: row.license_number || 'Pending',
+    role: row.role,
   }));
 };
 
@@ -997,7 +1018,9 @@ const createNomination = async (admin, currentUser, body) => {
     throw new HttpError(400, 'Fill in game number, teams, date, time and venue.');
   }
 
-  await requireReferees(admin, refereeIds);
+  const assignableOfficials = await requireAssignableOfficials(admin, refereeIds);
+  const officialMap = new Map(assignableOfficials.map((official) => [official.id, official]));
+  const respondedAt = new Date().toISOString();
 
   const { data: inserted, error } = await admin
     .from('nominations')
@@ -1017,12 +1040,18 @@ const createNomination = async (admin, currentUser, body) => {
   }
 
   const slotsResponse = await admin.from('nomination_referees').insert(
-    refereeIds.map((refereeId, index) => ({
-      nomination_id: inserted.id,
-      referee_id: refereeId,
-      slot_number: index + 1,
-      status: ASSIGNMENT_STATUS.PENDING,
-    })),
+    refereeIds.map((refereeId, index) => {
+      const assignedOfficial = officialMap.get(refereeId);
+      const isSelfAssignedInstructor = assignedOfficial?.id === currentUser.id && assignedOfficial.role === 'Instructor';
+
+      return {
+        nomination_id: inserted.id,
+        referee_id: refereeId,
+        slot_number: index + 1,
+        status: isSelfAssignedInstructor ? ASSIGNMENT_STATUS.ACCEPTED : ASSIGNMENT_STATUS.PENDING,
+        responded_at: isSelfAssignedInstructor ? respondedAt : null,
+      };
+    }),
   );
 
   if (slotsResponse.error) {
@@ -1037,7 +1066,8 @@ const createNomination = async (admin, currentUser, body) => {
 const replaceNominationReferee = async (admin, currentUser, nominationId, slotNumber, refereeId) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   await requireNominationOwner(admin, nominationId, currentUser.id);
-  await requireReferees(admin, [refereeId]);
+  const [assignedOfficial] = await requireAssignableOfficials(admin, [refereeId]);
+  const isSelfAssignedInstructor = assignedOfficial.id === currentUser.id && assignedOfficial.role === 'Instructor';
 
   const slot = await requireSingle(
     admin.from('nomination_referees').select('*').eq('nomination_id', nominationId).eq('slot_number', slotNumber),
@@ -1068,8 +1098,8 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
     .from('nomination_referees')
     .update({
       referee_id: refereeId,
-      status: ASSIGNMENT_STATUS.PENDING,
-      responded_at: null,
+      status: isSelfAssignedInstructor ? ASSIGNMENT_STATUS.ACCEPTED : ASSIGNMENT_STATUS.PENDING,
+      responded_at: isSelfAssignedInstructor ? new Date().toISOString() : null,
     })
     .eq('nomination_id', nominationId)
     .eq('slot_number', slotNumber);
@@ -1083,7 +1113,9 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
 };
 
 const respondToNomination = async (admin, currentUser, nominationId, response) => {
-  await requireRole(admin, currentUser.id, 'Referee');
+  if (!['Referee', 'Instructor'].includes(currentUser.role)) {
+    throw new HttpError(403, 'Only Referee and Instructor accounts can respond to nominations.');
+  }
 
   if (![ASSIGNMENT_STATUS.ACCEPTED, ASSIGNMENT_STATUS.DECLINED].includes(response)) {
     throw new HttpError(400, 'Response must be Accepted or Declined.');

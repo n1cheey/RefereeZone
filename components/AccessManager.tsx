@@ -10,6 +10,7 @@ interface AccessManagerProps {
 }
 
 const roleOptions: UserRole[] = ['Instructor', 'Table', 'Referee', 'Stuff'];
+const ACCESS_REFRESH_INTERVAL_MS = 10000;
 
 const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
   const [accessList, setAccessList] = useState<AllowedAccessItem[]>([]);
@@ -25,8 +26,11 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
   useEffect(() => {
     let isMounted = true;
 
-    const load = async () => {
-      setIsLoading(true);
+    const load = async (showLoader: boolean) => {
+      if (showLoader) {
+        setIsLoading(true);
+      }
+
       try {
         const response = await getAllowedAccess(user.id);
         if (isMounted) {
@@ -38,16 +42,20 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
           setErrorMessage(error instanceof Error ? error.message : 'Failed to load access list.');
         }
       } finally {
-        if (isMounted) {
+        if (isMounted && showLoader) {
           setIsLoading(false);
         }
       }
     };
 
-    load();
+    void load(true);
+    const intervalId = window.setInterval(() => {
+      void load(false);
+    }, ACCESS_REFRESH_INTERVAL_MS);
 
     return () => {
       isMounted = false;
+      window.clearInterval(intervalId);
     };
   }, [user.id]);
 
@@ -58,15 +66,17 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
     setSuccessMessage('');
 
     try {
-      await addAllowedAccess({
+      const response = await addAllowedAccess({
         instructorId: user.id,
         email,
         licenseNumber,
         role,
       });
 
-      const response = await getAllowedAccess(user.id);
-      setAccessList(response.accessList);
+      setAccessList((prev) => {
+        const next = prev.filter((item) => item.id !== response.access.id);
+        return [...next, response.access].sort((left, right) => left.email.localeCompare(right.email));
+      });
       setEmail('');
       setLicenseNumber('');
       setRole('Referee');
@@ -88,8 +98,7 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
         instructorId: user.id,
         accessId,
       });
-      const response = await getAllowedAccess(user.id);
-      setAccessList(response.accessList);
+      setAccessList((prev) => prev.filter((item) => item.id !== accessId));
       setSuccessMessage('Access deleted successfully.');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to delete access.');
@@ -177,6 +186,7 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
                     <div className="text-xs text-slate-400">{item.licenseNumber || 'Pending'}</div>
                   </div>
                   <button
+                    type="button"
                     onClick={() => handleDeleteAccess(item.id)}
                     disabled={deletingId === item.id}
                     className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60"

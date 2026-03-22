@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { ChevronLeft, LogOut } from 'lucide-react';
-import AblLogo from './AblLogo';
+import headerLogo from '../img/header.jpeg';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -25,7 +25,11 @@ const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, show
                 <ChevronLeft size={22} />
               </button>
             ) : (
-              <AblLogo mode="icon" className="h-11 w-11 flex-none rounded-2xl shadow-none" />
+              <img
+                src={headerLogo}
+                alt="ABL header logo"
+                className="h-11 w-11 flex-none rounded-2xl object-cover shadow-none"
+              />
             )}
             <div className="min-w-0">
               <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-white/70">ABL RefZone</div>

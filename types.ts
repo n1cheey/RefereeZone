@@ -23,6 +23,7 @@ export interface RefereeDirectoryItem {
   fullName: string;
   email: string;
   licenseNumber: string;
+  role: UserRole;
 }
 
 export interface AllowedAccessItem {
