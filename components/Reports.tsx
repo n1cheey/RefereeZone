@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Layout from './Layout';
 import { ReportDetail, ReportListItem, ReportStatus, User } from '../types';
+import { getNominationSlotLabel } from '../slotLabels';
 import { ArrowRight, CheckCircle, Clock, FileWarning, Plus, Trash2, X } from 'lucide-react';
 import { deleteReport, getReportDetail, getReports, saveReport } from '../services/reportsService';
 
@@ -196,7 +197,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
           <div className="text-xs font-bold uppercase text-[#581c1c]">{item.gameCode}</div>
           <h3 className="mt-1 text-xl font-bold text-slate-900">{item.teams}</h3>
           <p className="mt-2 text-sm text-slate-500">{item.matchDate} at {item.matchTime} • {item.venue}</p>
-          <p className="mt-1 text-sm text-slate-500">{`Referee ${item.slotNumber}: ${item.refereeName}`}</p>
+          <p className="mt-1 text-sm text-slate-500">{`${getNominationSlotLabel(item.slotNumber)}: ${item.refereeName}`}</p>
         </div>
 
         {selectedDetail.deadlineExceeded && selectedDetail.deadlineMessage && (

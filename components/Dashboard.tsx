@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination } from '../types';
+import { getNominationSlotLabel } from '../slotLabels';
 import Layout from './Layout';
 import {
   AlertTriangle,
@@ -460,7 +461,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                 </div>
                 {[1, 2, 3].map((slot) => (
                   <div key={slot}>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{`Referee ${slot}`}</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{getNominationSlotLabel(slot)}</label>
                     <select
                       required
                       value={form[`referee${slot}` as keyof typeof form]}
@@ -533,7 +534,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                               disabled={replaceActionKey === replaceKey || options.length === 0}
                               className="rounded-xl bg-amber-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
                             >
-                              {replaceActionKey === replaceKey ? 'Replacing...' : `Replace Referee ${referee.slotNumber}`}
+                              {replaceActionKey === replaceKey ? 'Replacing...' : `Replace ${getNominationSlotLabel(referee.slotNumber)}`}
                             </button>
                           </div>
                           {options.length === 0 && (
@@ -588,7 +589,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                     <div className="mt-4 grid gap-3 md:grid-cols-3">
                       {nomination.referees.map((referee) => (
                         <div key={`${nomination.id}-${referee.slotNumber}`} className="rounded-xl bg-slate-50 p-3">
-                          <div className="text-xs font-bold uppercase text-slate-500">{`Referee ${referee.slotNumber}`}</div>
+                          <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber)}</div>
                           <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
                           <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
                             referee.status === 'Accepted'
@@ -628,7 +629,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                     <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                       <div>
                         <div className="text-xs font-bold uppercase text-[#581c1c]">{assignment.gameCode}</div>
-                        <div className="text-xs font-bold uppercase text-[#581c1c]">{`Referee ${assignment.slotNumber}`}</div>
+                        <div className="text-xs font-bold uppercase text-[#581c1c]">{getNominationSlotLabel(assignment.slotNumber)}</div>
                         <h4 className="text-lg font-bold text-slate-900 mt-1">{assignment.teams}</h4>
                         <div className="grid gap-2 mt-3 text-sm text-slate-600 md:grid-cols-2">
                           <div className="flex items-center gap-2">

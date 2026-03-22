@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Layout from './Layout';
 import { User, InstructorNomination, RefereeNomination } from '../types';
+import { getNominationSlotLabel } from '../slotLabels';
 import { Calendar, CheckCircle2, Clock, MapPin, Trash2, XCircle } from 'lucide-react';
 import { deleteNomination, getInstructorNominations, getRefereeNominations, respondToNomination } from '../services/nominationService';
 
@@ -141,7 +142,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                   <div className="mt-4 grid gap-3 md:grid-cols-3">
                     {nomination.referees.map((referee) => (
                       <div key={`${nomination.id}-${referee.slotNumber}`} className="rounded-lg bg-slate-50 p-3">
-                        <div className="text-xs font-bold uppercase text-slate-500">{`Referee ${referee.slotNumber}`}</div>
+                        <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber)}</div>
                         <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
                         <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${
                           referee.status === 'Accepted'
@@ -171,7 +172,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             refereeAssignments.map((nom) => (
               <div key={nom.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="bg-[#581c1c]/5 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
-                  <span className="text-xs font-bold text-[#581c1c]">{`Referee ${nom.slotNumber}`}</span>
+                  <span className="text-xs font-bold text-[#581c1c]">{getNominationSlotLabel(nom.slotNumber)}</span>
                   <div className="flex items-center gap-2">
                     {nom.status === 'Accepted' && <span className="text-[10px] font-bold text-green-600 uppercase flex items-center gap-1"><CheckCircle2 size={10} /> Accepted</span>}
                     {nom.status === 'Declined' && <span className="text-[10px] font-bold text-red-600 uppercase flex items-center gap-1"><XCircle size={10} /> Declined</span>}
