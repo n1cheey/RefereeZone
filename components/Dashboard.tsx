@@ -65,7 +65,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    generateRefTips(user.role).then(setAiTip);
+    let isMounted = true;
+    const timeoutId = window.setTimeout(() => {
+      generateRefTips(user.role).then((tip) => {
+        if (isMounted) {
+          setAiTip(tip);
+        }
+      });
+    }, 150);
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timeoutId);
+    };
   }, [user.role]);
 
   useEffect(() => {
