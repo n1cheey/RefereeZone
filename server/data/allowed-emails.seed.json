@@ -1,0 +1,37 @@
+[
+  {
+    "email": "nikolas.osadchey@gmail.com",
+    "displayName": "ABL Instructor",
+    "role": "Instructor"
+  },
+  {
+    "email": "r1@abl.az",
+    "displayName": "",
+    "role": "Referee"
+  },
+  {
+    "email": "r2@abl.az",
+    "displayName": "",
+    "role": "Referee"
+  },
+  {
+    "email": "r3@abl.az",
+    "displayName": "",
+    "role": "Referee"
+  },
+  {
+    "email": "referee@abl.az",
+    "displayName": "ABL Referee",
+    "role": "Referee"
+  },
+  {
+    "email": "stuff@abl.az",
+    "displayName": "ABL Stuff",
+    "role": "Stuff"
+  },
+  {
+    "email": "table@abl.az",
+    "displayName": "ABL Table Official",
+    "role": "Table"
+  }
+]

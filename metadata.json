@@ -1,0 +1,7 @@
+{
+  "name": "ABL Referees",
+  "description": "The official mobile platform for Azerbaijan Basketball League referees to manage nominations, track rankings, and access reports.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
