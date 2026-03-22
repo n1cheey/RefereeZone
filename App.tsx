@@ -97,21 +97,23 @@ const App: React.FC = () => {
       });
     };
 
+    const restoreCachedSession = (error: unknown, context: string) => {
+      console.error(context, error);
+      applyResolvedUser(readCachedUser());
+    };
+
     const syncSession = async () => {
-      try {
-        const user = await getCurrentUserProfile();
-        applyResolvedUser(user);
-      } catch (error) {
-        console.error('Failed to restore session', error);
-        applyResolvedUser(null);
-      }
+      const user = await getCurrentUserProfile();
+      applyResolvedUser(user);
     };
 
     loadingTimeoutId = window.setTimeout(() => {
       applyResolvedUser(readCachedUser());
     }, AUTH_LOADING_TIMEOUT_MS);
 
-    void syncSession();
+    void syncSession().catch((error) => {
+      restoreCachedSession(error, 'Failed to restore session');
+    });
 
     const refreshSessionAfterAuthChange = () => {
       window.setTimeout(() => {
@@ -120,21 +122,25 @@ const App: React.FC = () => {
         }
 
         void syncSession().catch((error) => {
-          console.error('Failed to refresh session after auth change', error);
-          applyResolvedUser(readCachedUser());
+          restoreCachedSession(error, 'Failed to refresh session after auth change');
         });
       }, 0);
     };
 
     const {
       data: { subscription },
-    } = subscribeToAuthChanges((_event, session) => {
+    } = subscribeToAuthChanges((event, session) => {
       if (!isMounted) {
         return;
       }
 
       if (!session) {
-        applyResolvedUser(null);
+        if (event === 'SIGNED_OUT') {
+          applyResolvedUser(null);
+          return;
+        }
+
+        refreshSessionAfterAuthChange();
         return;
       }
 
@@ -155,7 +161,9 @@ const App: React.FC = () => {
         setIsAuthLoading(true);
       }
 
-      void syncSession();
+      void syncSession().catch((error) => {
+        restoreCachedSession(error, 'Failed to restore session after pageshow');
+      });
     };
 
     window.addEventListener('pageshow', handlePageShow);

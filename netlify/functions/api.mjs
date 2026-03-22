@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { GoogleGenAI } from '@google/genai';
 
 const DEFAULT_PHOTO_URL = 'https://picsum.photos/seed/referee/300/300';
 const ROLE_OPTIONS = ['Instructor', 'Table', 'Referee', 'Stuff'];
@@ -21,6 +20,7 @@ const ROLE_PREFIX = {
 };
 const BAKU_TIMEZONE = 'Asia/Baku';
 const BAKU_OFFSET = '+04:00';
+let googleGenAiModulePromise = null;
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -482,13 +482,15 @@ const getCurrentUser = async (admin, event) => {
   return profile;
 };
 
-const getGeminiClient = () => {
+const getGeminiClient = async () => {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
     throw new HttpError(500, 'GEMINI_API_KEY is missing.');
   }
 
+  googleGenAiModulePromise ||= import('@google/genai');
+  const { GoogleGenAI } = await googleGenAiModulePromise;
   return new GoogleGenAI({ apiKey });
 };
 
@@ -496,7 +498,7 @@ const generateAiTips = async (category) => {
   const fallback = 'Keep focusing on positioning and clear communication with the crew.';
 
   try {
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: `Generate 3 short, professional refereeing tips for a ${category} level basketball official in Azerbaijan. Keep it concise and practical.`,
@@ -515,7 +517,7 @@ const generateAiSummary = async (reportsCount, avgScore) => {
   const fallback = 'Your consistency in game management is highly valued by the league committee.';
 
   try {
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: `Write a 2-sentence performance summary for a basketball referee who has completed ${reportsCount} matches with an average feedback score of ${avgScore}%.`,
@@ -532,7 +534,7 @@ const generateAiSummary = async (reportsCount, avgScore) => {
 
 const generateAiLogo = async () => {
   try {
-    const ai = getGeminiClient();
+    const ai = await getGeminiClient();
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
       contents: [

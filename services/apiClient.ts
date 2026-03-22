@@ -1,6 +1,16 @@
 import { supabase } from './supabaseClient';
 
-const API_TIMEOUT_MS = 12000;
+const API_TIMEOUT_MS = 20000;
+
+export class ApiRequestError extends Error {
+  status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.status = status;
+  }
+}
 
 export async function apiRequest<T>(url: string, options: RequestInit = {}, auth = true): Promise<T> {
   const headers = new Headers(options.headers || {});
@@ -26,10 +36,10 @@ export async function apiRequest<T>(url: string, options: RequestInit = {}, auth
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        throw new Error('API request timed out. Please try again.');
+        throw new ApiRequestError('API request timed out. Please try again.');
       }
 
-      throw new Error('API server is unavailable.');
+      throw new ApiRequestError('API server is unavailable.');
     }
 
     const rawBody = await response.text();
@@ -44,7 +54,7 @@ export async function apiRequest<T>(url: string, options: RequestInit = {}, auth
     }
 
     if (!response.ok) {
-      throw new Error(data?.message || 'Request failed.');
+      throw new ApiRequestError(data?.message || 'Request failed.', response.status);
     }
 
     return data as T;
