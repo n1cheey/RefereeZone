@@ -28,7 +28,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, show
               <img
                 src={headerLogo}
                 alt="ABL header logo"
-                className="h-11 w-11 flex-none rounded-2xl bg-[#57131b] p-1 object-contain shadow-none"
+                className="h-14 w-auto flex-none rounded-lg object-contain shadow-none"
               />
             )}
             <div className="min-w-0">
