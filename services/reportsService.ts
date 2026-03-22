@@ -1,34 +1,16 @@
 import { ReportDetail, ReportListItem, ReportStatus } from '../types';
+import { apiRequest } from './apiClient';
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
 };
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  let response: Response;
-
-  try {
-    response = await fetch(url, options);
-  } catch {
-    throw new Error('Reports server is unavailable. Start `npm run server` or `npm run dev:full`.');
-  }
-
-  const rawBody = await response.text();
-  const data = rawBody ? JSON.parse(rawBody) : null;
-
-  if (!response.ok) {
-    throw new Error(data?.message || 'Request failed.');
-  }
-
-  return data as T;
-}
-
 export function getReports(userId: string) {
-  return request<{ reports: ReportListItem[] }>(`/api/reports?userId=${encodeURIComponent(userId)}`);
+  return apiRequest<{ reports: ReportListItem[] }>(`/api/reports?userId=${encodeURIComponent(userId)}`);
 }
 
 export function getReportDetail(userId: string, nominationId: string, refereeId: string) {
-  return request<{ report: ReportDetail }>(
+  return apiRequest<{ report: ReportDetail }>(
     `/api/reports/${encodeURIComponent(nominationId)}/${encodeURIComponent(refereeId)}?userId=${encodeURIComponent(userId)}`,
   );
 }
@@ -44,7 +26,7 @@ export function saveReport(payload: {
   teamwork: string;
   generally: string;
 }) {
-  return request<{ message: string; report: ReportDetail }>(
+  return apiRequest<{ message: string; report: ReportDetail }>(
     `/api/reports/${encodeURIComponent(payload.nominationId)}/${encodeURIComponent(payload.refereeId)}`,
     {
       method: 'POST',
@@ -59,7 +41,7 @@ export function deleteReport(payload: {
   nominationId: string;
   refereeId: string;
 }) {
-  return request<{ message: string }>(
+  return apiRequest<{ message: string }>(
     `/api/reports/${encodeURIComponent(payload.nominationId)}/${encodeURIComponent(payload.refereeId)}?userId=${encodeURIComponent(payload.userId)}`,
     {
       method: 'DELETE',

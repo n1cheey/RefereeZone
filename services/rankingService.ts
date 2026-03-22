@@ -4,36 +4,17 @@ import {
   RankingLeaderboardItem,
   RankingPerformanceProfile,
 } from '../types';
-
+import { apiRequest } from './apiClient';
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
 };
 
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  let response: Response;
-
-  try {
-    response = await fetch(url, options);
-  } catch {
-    throw new Error('Ranking server is unavailable. Start `npm run server` or `npm run dev:full`.');
-  }
-
-  const rawBody = await response.text();
-  const data = rawBody ? JSON.parse(rawBody) : null;
-
-  if (!response.ok) {
-    throw new Error(data?.message || 'Request failed.');
-  }
-
-  return data as T;
-}
-
 export function getRankingDashboard(userId: string) {
-  return request<RankingDashboardData>(`/api/rankings?userId=${encodeURIComponent(userId)}`);
+  return apiRequest<RankingDashboardData>(`/api/rankings?userId=${encodeURIComponent(userId)}`);
 }
 
 export function getRankingAdminData(instructorId: string) {
-  return request<{
+  return apiRequest<{
     leaderboard: RankingLeaderboardItem[];
     evaluations: RankingEvaluation[];
     performanceProfiles: RankingPerformanceProfile[];
@@ -49,7 +30,7 @@ export function createRankingEvaluation(payload: {
   score: number;
   note: string;
 }) {
-  return request<{ message: string }>('/api/rankings/evaluations', {
+  return apiRequest<{ message: string }>('/api/rankings/evaluations', {
     method: 'POST',
     headers: JSON_HEADERS,
     body: JSON.stringify(payload),
@@ -68,7 +49,7 @@ export function saveRankingPerformance(payload: {
   newPhilosophy: number;
   communication: number;
 }) {
-  return request<{ message: string }>('/api/rankings/performance', {
+  return apiRequest<{ message: string }>('/api/rankings/performance', {
     method: 'POST',
     headers: JSON_HEADERS,
     body: JSON.stringify(payload),

@@ -1,30 +1,71 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# ABL RefZone
 
-# Run and deploy your AI Studio app
+React/Vite frontend with Netlify Functions and Supabase for:
 
-This contains everything you need to run your app locally.
+- auth and role-based registration
+- nominations and referee responses
+- reports with `Draft / Submitted / Reviewed`
+- rankings
+- instructor admin tools
 
-View your app in AI Studio: https://ai.studio/apps/5ab9acb1-0006-43be-8ad6-5b5bc876fe7e
+## Supabase setup
 
-## Run Locally
+1. Open Supabase SQL Editor
+2. Run [supabase/schema.sql](/Users/nikol/Downloads/ABL/supabase/schema.sql)
+3. In `Authentication -> Users`, there is nothing else to create manually
 
-**Prerequisites:**  Node.js
+## Environment variables
 
+Create `.env.local` for local work:
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Add the e-mails that are allowed to register in `server/data/allowed-emails.seed.json`
-4. Run the app and auth server:
-   `npm run dev:full`
+```env
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-secret-key
+GEMINI_API_KEY=your-gemini-api-key
+```
 
-## Auth and Database
+For Netlify add the same variables in `Site configuration -> Environment variables`.
 
-- The auth API runs on `http://localhost:3001`
-- User accounts are stored in SQLite in `server/data/auth.sqlite`
-- Registration checks a separate `allowed_emails` table before creating a user
-- Login uses the `users` table with hashed passwords and the selected role (`Instructor`, `Table`, `Referee`, `Stuff`)
-- Each allowed e-mail is now bound to one specific role, so registration fails if the user selects another role
-- Instructor can manage allowed access from the UI via `Add Access`, or manually in the seed file using objects like `{ "email": "referee2@abl.com", "role": "Referee" }`
+Important:
+
+- `VITE_SUPABASE_PUBLISHABLE_KEY` is safe for the browser
+- `SUPABASE_SERVICE_ROLE_KEY` must be added only to the server environment
+
+## Local run
+
+For the Supabase version use Netlify local dev, because `/api/*` is served by Netlify Functions:
+
+```powershell
+npm install
+netlify dev
+```
+
+If the `netlify` command is not installed:
+
+```powershell
+npm install -g netlify-cli
+```
+
+Then open [http://localhost:8888](http://localhost:8888).
+
+## Netlify deploy
+
+1. Push the project to GitHub
+2. In Netlify choose `Add new project -> Import from Git`
+3. Build settings are already in [netlify.toml](/Users/nikol/Downloads/ABL/netlify.toml)
+4. Add env vars:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `GEMINI_API_KEY`
+5. Deploy
+
+## Notes
+
+- Registration works only for e-mails from `allowed_access`
+- The role chosen during registration must match the role added by Instructor in `Add Access`
+- User photos and profile edits are stored in Supabase tables
+- The old local `server/` folder is no longer needed for Netlify deploys, but it is left in the repo as the previous local backend
