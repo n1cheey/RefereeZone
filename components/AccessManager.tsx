@@ -14,6 +14,7 @@ const roleOptions: UserRole[] = ['Instructor', 'Table', 'Referee', 'Stuff'];
 const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
   const [accessList, setAccessList] = useState<AllowedAccessItem[]>([]);
   const [email, setEmail] = useState('');
+  const [licenseNumber, setLicenseNumber] = useState('');
   const [role, setRole] = useState<UserRole>('Referee');
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -60,12 +61,14 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
       await addAllowedAccess({
         instructorId: user.id,
         email,
+        licenseNumber,
         role,
       });
 
       const response = await getAllowedAccess(user.id);
       setAccessList(response.accessList);
       setEmail('');
+      setLicenseNumber('');
       setRole('Referee');
       setSuccessMessage('Access added successfully.');
     } catch (error) {
@@ -139,6 +142,16 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
               ))}
             </select>
           </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">License</label>
+            <input
+              required
+              value={licenseNumber}
+              onChange={(e) => setLicenseNumber(e.target.value)}
+              className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
+              placeholder="ABL-REF-0001"
+            />
+          </div>
           <button
             type="submit"
             disabled={isSaving}
@@ -161,6 +174,7 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
                   <div>
                     <div className="font-semibold text-slate-900">{item.email}</div>
                     <div className="mt-1 text-sm text-slate-500">{item.role}</div>
+                    <div className="text-xs text-slate-400">{item.licenseNumber || 'Pending'}</div>
                   </div>
                   <button
                     onClick={() => handleDeleteAccess(item.id)}

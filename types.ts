@@ -29,6 +29,7 @@ export interface AllowedAccessItem {
   id: string;
   email: string;
   displayName: string;
+  licenseNumber: string;
   role: UserRole;
 }
 

@@ -13,6 +13,7 @@ export function updateMemberProfile(payload: {
   instructorId: string;
   memberId: string;
   fullName: string;
+  licenseNumber: string;
   photoUrl: string;
 }) {
   return apiRequest<{ message: string; member: User }>(`/api/members/${encodeURIComponent(payload.memberId)}`, {
@@ -38,6 +39,7 @@ export function getAllowedAccess(instructorId: string) {
 export function addAllowedAccess(payload: {
   instructorId: string;
   email: string;
+  licenseNumber: string;
   role: UserRole;
 }) {
   return apiRequest<{ message: string; access: AllowedAccessItem }>('/api/access', {

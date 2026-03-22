@@ -14,6 +14,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
   const [members, setMembers] = useState<User[]>([]);
   const [selectedMember, setSelectedMember] = useState<User | null>(null);
   const [fullName, setFullName] = useState('');
+  const [licenseNumber, setLicenseNumber] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -37,6 +38,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
         const initialSelected = response.members[0] ?? null;
         setSelectedMember(initialSelected);
         setFullName(initialSelected?.fullName ?? '');
+        setLicenseNumber(initialSelected?.licenseNumber ?? '');
         setPhotoUrl(initialSelected?.photoUrl ?? '');
         setErrorMessage('');
       } catch (error) {
@@ -60,6 +62,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
   const handleSelectMember = (member: User) => {
     setSelectedMember(member);
     setFullName(member.fullName);
+    setLicenseNumber(member.licenseNumber);
     setPhotoUrl(member.photoUrl);
     setErrorMessage('');
     setSuccessMessage('');
@@ -98,12 +101,14 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
         instructorId: user.id,
         memberId: selectedMember.id,
         fullName,
+        licenseNumber,
         photoUrl,
       });
 
       setMembers((prev) => prev.map((member) => (member.id === response.member.id ? response.member : member)));
       setSelectedMember(response.member);
       setFullName(response.member.fullName);
+      setLicenseNumber(response.member.licenseNumber);
       setPhotoUrl(response.member.photoUrl);
       setSuccessMessage('Member profile updated.');
 
@@ -137,6 +142,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
       const nextSelected = nextMembers[0] ?? null;
       setSelectedMember(nextSelected);
       setFullName(nextSelected?.fullName ?? '');
+      setLicenseNumber(nextSelected?.licenseNumber ?? '');
       setPhotoUrl(nextSelected?.photoUrl ?? '');
       setSuccessMessage('Member deleted.');
     } catch (error) {
@@ -211,6 +217,15 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
                 <input
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
+                  className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">License</label>
+                <input
+                  value={licenseNumber}
+                  onChange={(e) => setLicenseNumber(e.target.value)}
                   className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
                 />
               </div>

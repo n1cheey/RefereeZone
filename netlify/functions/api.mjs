@@ -161,6 +161,7 @@ const mapAllowedAccess = (item) => ({
   id: item.id,
   email: item.email,
   displayName: item.display_name || '',
+  licenseNumber: item.license_number || 'Pending',
   role: item.allowed_role,
 });
 
@@ -855,20 +856,26 @@ const listMembers = async (admin, currentUser) => {
   return ensureData(data || [], error, 'Failed to load members.').map(mapUser);
 };
 
-const updateMemberProfile = async (admin, currentUser, memberId, fullName, photoUrl) => {
+const updateMemberProfile = async (admin, currentUser, memberId, fullName, licenseNumber, photoUrl) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const member = await requireProfileById(admin, memberId);
   const trimmedName = String(fullName || '').trim();
+  const trimmedLicenseNumber = String(licenseNumber || '').trim();
   const nextPhotoUrl = String(photoUrl || '').trim();
 
   if (!trimmedName) {
     throw new HttpError(400, 'Full name is required.');
   }
 
+  if (!trimmedLicenseNumber) {
+    throw new HttpError(400, 'License is required.');
+  }
+
   const { error } = await admin
     .from('profiles')
     .update({
       full_name: trimmedName,
+      license_number: trimmedLicenseNumber,
       photo_url: nextPhotoUrl || member.photo_url || DEFAULT_PHOTO_URL,
     })
     .eq('id', memberId);
@@ -917,12 +924,17 @@ const listAllowedAccess = async (admin, currentUser) => {
   return ensureData(data || [], error, 'Failed to load allowed access.').map(mapAllowedAccess);
 };
 
-const addAllowedAccess = async (admin, currentUser, email, role) => {
+const addAllowedAccess = async (admin, currentUser, email, role, licenseNumber) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const normalizedEmail = normalizeEmail(email);
+  const trimmedLicenseNumber = String(licenseNumber || '').trim();
 
   if (!normalizedEmail) {
     throw new HttpError(400, 'E-mail is required.');
+  }
+
+  if (!trimmedLicenseNumber) {
+    throw new HttpError(400, 'License is required.');
   }
 
   if (!ROLE_OPTIONS.includes(role)) {
@@ -933,6 +945,7 @@ const addAllowedAccess = async (admin, currentUser, email, role) => {
     {
       email: normalizedEmail,
       allowed_role: role,
+      license_number: trimmedLicenseNumber,
     },
     {
       onConflict: 'email',
@@ -1575,7 +1588,7 @@ const registerUser = async (admin, body) => {
     throw new HttpError(409, 'A user with this e-mail already exists.');
   }
 
-  const licenseNumber = await getNextLicenseNumber(admin, role);
+  const licenseNumber = String(allowedAccess.license_number || '').trim() || (await getNextLicenseNumber(admin, role));
   const authResult = await admin.auth.admin.createUser({
     email,
     password,
@@ -1674,7 +1687,7 @@ const routeRequest = async (event) => {
 
   const memberMatch = path.match(/^\/members\/([^/]+)$/);
   if (method === 'PATCH' && memberMatch) {
-    const member = await updateMemberProfile(admin, currentUser, memberMatch[1], body.fullName, body.photoUrl);
+    const member = await updateMemberProfile(admin, currentUser, memberMatch[1], body.fullName, body.licenseNumber, body.photoUrl);
     return json(200, { message: 'Member updated.', member });
   }
 
@@ -1688,7 +1701,7 @@ const routeRequest = async (event) => {
   }
 
   if (method === 'POST' && path === '/access') {
-    const access = await addAllowedAccess(admin, currentUser, body.email, body.role);
+    const access = await addAllowedAccess(admin, currentUser, body.email, body.role, body.licenseNumber);
     return json(201, { message: 'Access added.', access });
   }
 

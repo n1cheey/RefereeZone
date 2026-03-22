@@ -4,9 +4,13 @@ create table if not exists public.allowed_access (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
   allowed_role text not null check (allowed_role in ('Instructor', 'Table', 'Referee', 'Stuff')),
+  license_number text not null default 'Pending',
   display_name text default '',
   created_at timestamptz not null default now()
 );
+
+alter table public.allowed_access
+add column if not exists license_number text not null default 'Pending';
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
