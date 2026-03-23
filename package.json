@@ -8,14 +8,17 @@
     "build": "vite build",
     "preview": "vite preview",
     "preview:cloudflare": "npx wrangler pages dev dist",
+    "server:teyinat": "node server/teyinat-service.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^1.38.0",
     "@supabase/supabase-js": "^2.99.3",
+    "@xmldom/xmldom": "^0.8.11",
     "bcryptjs": "^3.0.3",
     "express": "^5.2.1",
     "lucide-react": "^0.563.0",
+    "pizzip": "^3.2.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "recharts": "^3.7.0",

@@ -31,7 +31,7 @@ import {
 
 interface DashboardProps {
   user: User;
-  onNavigate: (view: 'nominations' | 'ranking' | 'reports' | 'news' | 'members' | 'access') => void;
+  onNavigate: (view: 'nominations' | 'teyinat' | 'ranking' | 'reports' | 'news' | 'members' | 'access') => void;
   onLogout: () => void;
   onUpdateUser: (user: User) => void;
 }
@@ -323,6 +323,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
   const navItems = [
     { id: 'nominations' as const, label: 'My Nominations', icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
+    ...(user.role === 'Instructor'
+      ? [{ id: 'teyinat' as const, label: 'Teyinat', icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' }]
+      : []),
     { id: 'ranking' as const, label: 'My Ranking', icon: TrendingUp, iconColor: 'text-green-500', color: 'bg-green-50' },
     { id: 'reports' as const, label: 'My Reports', icon: FileText, iconColor: 'text-purple-500', color: 'bg-purple-50' },
     { id: 'news' as const, label: 'News', icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },

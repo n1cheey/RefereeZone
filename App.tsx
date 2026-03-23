@@ -5,13 +5,14 @@ import { getCurrentUserProfile, logoutUser, subscribeToAuthChanges } from './ser
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const Nominations = lazy(() => import('./components/Nominations'));
+const Teyinat = lazy(() => import('./components/Teyinat'));
 const Ranking = lazy(() => import('./components/Ranking'));
 const Reports = lazy(() => import('./components/Reports'));
 const News = lazy(() => import('./components/News'));
 const Members = lazy(() => import('./components/Members'));
 const AccessManager = lazy(() => import('./components/AccessManager'));
 
-type View = 'login' | 'dashboard' | 'nominations' | 'ranking' | 'reports' | 'news' | 'members' | 'access';
+type View = 'login' | 'dashboard' | 'nominations' | 'teyinat' | 'ranking' | 'reports' | 'news' | 'members' | 'access';
 
 const AUTH_LOADING_TIMEOUT_MS = 4000;
 const SESSION_SYNC_COOLDOWN_MS = 60000;
@@ -271,6 +272,8 @@ const App: React.FC = () => {
         );
       case 'nominations':
         return <Nominations user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+      case 'teyinat':
+        return <Teyinat user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'ranking':
         return <Ranking user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'reports':
