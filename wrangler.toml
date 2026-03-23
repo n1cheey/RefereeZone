@@ -2,3 +2,6 @@ name = "refereezone"
 pages_build_output_dir = "dist"
 compatibility_date = "2026-03-22"
 compatibility_flags = ["nodejs_compat"]
+
+[vars]
+VITE_TEYINAT_API_URL = "https://refereezone.onrender.com"
