@@ -1,6 +1,9 @@
 import { InstructorNomination } from '../types';
 
-const TEYINAT_API_URL = String(import.meta.env.VITE_TEYINAT_API_URL || '').trim().replace(/\/+$/, '');
+const DEFAULT_TEYINAT_API_URL = 'https://refereezone.onrender.com';
+const TEYINAT_API_URL = String(import.meta.env.VITE_TEYINAT_API_URL || DEFAULT_TEYINAT_API_URL)
+  .trim()
+  .replace(/\/+$/, '');
 
 export type TeyinatGroup = 'A' | 'B';
 
