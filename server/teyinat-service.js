@@ -7,7 +7,7 @@ import { spawn } from 'child_process';
 import { generateTeyinatDocx, buildOutputFileName } from './teyinat-template.js';
 
 const app = express();
-const port = Number(process.env.TEYINAT_SERVICE_PORT || 3002);
+const port = Number(process.env.PORT || process.env.TEYINAT_SERVICE_PORT || 3002);
 const sofficeBinary = process.env.TEYINAT_SOFFICE_BINARY || process.env.SOFFICE_BINARY || 'soffice';
 const allowedOrigin = process.env.TEYINAT_ALLOWED_ORIGIN || '*';
 
@@ -43,14 +43,24 @@ const convertDocxToPdf = async (docxBuffer) => {
   const baseName = randomUUID();
   const docxPath = path.join(tempDirectory, `${baseName}.docx`);
   const pdfPath = path.join(tempDirectory, `${baseName}.pdf`);
+  const officeProfileDirectory = path.join(tempDirectory, 'libreoffice-profile');
 
   try {
     await fs.writeFile(docxPath, docxBuffer);
+    await fs.mkdir(officeProfileDirectory, { recursive: true });
 
     await new Promise((resolve, reject) => {
       const child = spawn(
         sofficeBinary,
-        ['--headless', '--convert-to', 'pdf', '--outdir', tempDirectory, docxPath],
+        [
+          `-env:UserInstallation=file://${officeProfileDirectory.replace(/\\/g, '/')}`,
+          '--headless',
+          '--convert-to',
+          'pdf',
+          '--outdir',
+          tempDirectory,
+          docxPath,
+        ],
         {
           stdio: ['ignore', 'pipe', 'pipe'],
         },
@@ -81,7 +91,11 @@ const convertDocxToPdf = async (docxBuffer) => {
       });
     });
 
-    return await fs.readFile(pdfPath);
+    try {
+      return await fs.readFile(pdfPath);
+    } catch {
+      throw new Error('LibreOffice did not produce a PDF file.');
+    }
   } finally {
     await removeDirectory(tempDirectory);
   }
