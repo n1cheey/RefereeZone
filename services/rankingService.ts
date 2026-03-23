@@ -48,6 +48,7 @@ export function saveRankingPerformance(payload: {
   gameControl: number;
   newPhilosophy: number;
   communication: number;
+  externalEvaluation: number;
 }) {
   return apiRequest<{ message: string }>('/api/rankings/performance', {
     method: 'POST',

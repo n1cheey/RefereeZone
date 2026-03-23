@@ -1,7 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
 const DEFAULT_PHOTO_URL = 'https://picsum.photos/seed/referee/300/300';
-const ROLE_OPTIONS = ['Instructor', 'Table', 'Referee', 'Stuff'];
+const ROLE_OPTIONS = ['Instructor', 'Table', 'Referee', 'Staff'];
+const LEGACY_ROLE_ALIASES = {
+  Stuff: 'Staff',
+};
 const ASSIGNMENT_STATUS = {
   PENDING: 'Pending',
   ACCEPTED: 'Accepted',
@@ -16,7 +19,7 @@ const ROLE_PREFIX = {
   Instructor: 'INS',
   Table: 'TAB',
   Referee: 'REF',
-  Stuff: 'STF',
+  Staff: 'STF',
 };
 const BAKU_TIMEZONE = 'Asia/Baku';
 const BAKU_OFFSET = '+04:00';
@@ -59,6 +62,13 @@ const binary = (statusCode, body, headers = {}) => ({
 });
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+const normalizeRole = (role) => LEGACY_ROLE_ALIASES[String(role || '').trim()] || String(role || '').trim();
+const toStorageRole = (role) => (normalizeRole(role) === 'Staff' ? 'Stuff' : normalizeRole(role));
+const hasRole = (role, expectedRole) => normalizeRole(role) === expectedRole;
+const normalizeProfileRow = (profile) => ({
+  ...profile,
+  role: normalizeRole(profile.role),
+});
 const clampScore = (score) => {
   const numeric = Number(score);
   if (!Number.isFinite(numeric)) {
@@ -133,7 +143,7 @@ const mapOfficialDirectoryItem = (row) => ({
   fullName: row.full_name,
   email: row.email,
   licenseNumber: row.license_number || 'Pending',
-  role: row.role,
+  role: normalizeRole(row.role),
 });
 
 const sortByMatchAsc = (left, right) => {
@@ -180,8 +190,8 @@ const mapUser = (profile) => ({
   fullName: profile.full_name,
   photoUrl: profile.photo_url || DEFAULT_PHOTO_URL,
   licenseNumber: profile.license_number || 'Pending',
-  role: profile.role,
-  category: profile.role,
+  role: normalizeRole(profile.role),
+  category: normalizeRole(profile.role),
 });
 
 const mapAllowedAccess = (item) => ({
@@ -189,7 +199,7 @@ const mapAllowedAccess = (item) => ({
   email: item.email,
   displayName: item.display_name || '',
   licenseNumber: item.license_number || 'Pending',
-  role: item.allowed_role,
+  role: normalizeRole(item.allowed_role),
 });
 
 const mapReportEntry = (entry) =>
@@ -256,17 +266,33 @@ const requireSingle = async (query, notFoundMessage, fallbackMessage) => {
 };
 
 const loadProfileById = async (admin, id) =>
-  maybeSingle(admin.from('profiles').select('*').eq('id', id), 'Failed to load user profile.');
+  {
+    const profile = await maybeSingle(admin.from('profiles').select('*').eq('id', id), 'Failed to load user profile.');
+    return profile ? normalizeProfileRow(profile) : null;
+  };
 
 const requireProfileById = async (admin, id) =>
-  requireSingle(admin.from('profiles').select('*').eq('id', id), 'User not found.', 'Failed to load user profile.');
+  {
+    const profile = await requireSingle(
+      admin.from('profiles').select('*').eq('id', id),
+      'User not found.',
+      'Failed to load user profile.',
+    );
+    return normalizeProfileRow(profile);
+  };
 
 const loadProfileByEmail = async (admin, email) =>
-  maybeSingle(admin.from('profiles').select('*').eq('email', normalizeEmail(email)), 'Failed to load user profile.');
+  {
+    const profile = await maybeSingle(
+      admin.from('profiles').select('*').eq('email', normalizeEmail(email)),
+      'Failed to load user profile.',
+    );
+    return profile ? normalizeProfileRow(profile) : null;
+  };
 
 const requireRole = async (admin, userId, role) => {
   const profile = await requireProfileById(admin, userId);
-  if (profile.role !== role) {
+  if (!hasRole(profile.role, role)) {
     throw new HttpError(403, `Only ${role} accounts can perform this action.`);
   }
 
@@ -306,7 +332,7 @@ const listProfilesByIds = async (admin, ids) => {
   }
 
   const { data, error } = await admin.from('profiles').select('*').in('id', ids);
-  return ensureData(data || [], error, 'Failed to load user profiles.');
+  return ensureData(data || [], error, 'Failed to load user profiles.').map(normalizeProfileRow);
 };
 
 const listNominationsByIds = async (admin, ids) => {
@@ -443,7 +469,7 @@ const requireReferees = async (admin, refereeIds) => {
   }
 
   rows.forEach((row) => {
-    if (row.role !== 'Referee') {
+    if (!hasRole(row.role, 'Referee')) {
       throw new HttpError(400, 'Only users with role Referee can be assigned.');
     }
   });
@@ -459,7 +485,7 @@ const requireAssignableOfficials = async (admin, refereeIds) => {
   }
 
   rows.forEach((row) => {
-    if (!['Referee', 'Instructor'].includes(row.role)) {
+    if (!['Referee', 'Instructor'].includes(normalizeRole(row.role))) {
       throw new HttpError(400, 'Only Referee and Instructor users can be assigned.');
     }
   });
@@ -471,7 +497,7 @@ const getNextLicenseNumber = async (admin, role) => {
   const { count, error } = await admin
     .from('profiles')
     .select('id', { count: 'exact', head: true })
-    .eq('role', role);
+    .eq('role', toStorageRole(role));
 
   if (error) {
     throw new HttpError(500, 'Failed to generate license number.');
@@ -616,12 +642,14 @@ const generateAiLogo = async () => {
 };
 
 const getInstructorNominationsData = async (admin, instructorId) => {
-  await requireRole(admin, instructorId, 'Instructor');
+  const currentUser = await requireProfileById(admin, instructorId);
+  if (!['Instructor', 'Staff'].includes(currentUser.role)) {
+    throw new HttpError(403, 'Only Instructor and Staff accounts can load nominations.');
+  }
 
   const { data, error } = await admin
     .from('nominations')
     .select('*')
-    .eq('created_by', instructorId)
     .order('match_date', { ascending: true })
     .order('match_time', { ascending: true });
 
@@ -636,7 +664,12 @@ const getInstructorNominationsData = async (admin, instructorId) => {
     admin,
     [...new Set(assignments.map((assignment) => assignment.referee_id))],
   );
+  const creators = await listProfilesByIds(
+    admin,
+    [...new Set(nominations.map((nomination) => nomination.created_by))],
+  );
   const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
+  const creatorMap = new Map(creators.map((creator) => [creator.id, creator]));
 
   return nominations.map((nomination) => ({
     id: nomination.id,
@@ -646,6 +679,8 @@ const getInstructorNominationsData = async (admin, instructorId) => {
     matchTime: nomination.match_time,
     venue: nomination.venue,
     createdAt: nomination.created_at,
+    createdById: nomination.created_by,
+    createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
     referees: assignments
       .filter((assignment) => assignment.nomination_id === nomination.id)
       .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
@@ -744,7 +779,6 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     admin
       .from('nominations')
       .select('*')
-      .eq('created_by', instructorId)
       .order('match_date', { ascending: true })
       .order('match_time', { ascending: true }),
     admin.from('nomination_referees').select('*').eq('referee_id', instructorId),
@@ -763,6 +797,11 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     ? await listNominationsByIds(admin, ownAssignmentNominationIds)
     : [];
   const ownNominationMap = new Map(ownNominations.map((nomination) => [nomination.id, nomination]));
+  const nominationCreators = await listProfilesByIds(
+    admin,
+    [...new Set(nominationsSource.map((nomination) => nomination.created_by))],
+  );
+  const creatorMap = new Map(nominationCreators.map((creator) => [creator.id, creator]));
 
   const nominations = nominationsSource.map((nomination) => ({
     id: nomination.id,
@@ -772,6 +811,8 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     matchTime: nomination.match_time,
     venue: nomination.venue,
     createdAt: nomination.created_at,
+    createdById: nomination.created_by,
+    createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
     referees: nominationAssignments
       .filter((assignment) => assignment.nomination_id === nomination.id)
       .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
@@ -866,6 +907,7 @@ const buildRankingState = async (admin) => {
         gameControl: Number(row.game_control || 0),
         newPhilosophy: Number(row.new_philosophy || 0),
         communication: Number(row.communication || 0),
+        externalEvaluation: Number(row.external_evaluation || 0),
       },
     ]),
   );
@@ -879,6 +921,7 @@ const buildRankingState = async (admin) => {
     Number(profile?.gameControl || 0),
     Number(profile?.newPhilosophy || 0),
     Number(profile?.communication || 0),
+    Number(profile?.externalEvaluation || 0),
   ];
   const calculatePerformanceTotal = (profile) => getPerformanceValues(profile).reduce((sum, value) => sum + value, 0);
   const calculatePerformanceAverage = (profile) => {
@@ -942,6 +985,7 @@ const buildRankingHistory = (targetRefereeId, rankingState) => {
     Number(profile?.gameControl || 0),
     Number(profile?.newPhilosophy || 0),
     Number(profile?.communication || 0),
+    Number(profile?.externalEvaluation || 0),
   ];
   const calculatePerformanceTotal = (profile) => getPerformanceValues(profile).reduce((sum, value) => sum + value, 0);
   const calculatePerformanceAverage = (profile) => {
@@ -1143,7 +1187,7 @@ const addAllowedAccess = async (admin, currentUser, email, role, licenseNumber) 
   const { error } = await admin.from('allowed_access').upsert(
     {
       email: normalizedEmail,
-      allowed_role: role,
+      allowed_role: toStorageRole(role),
       license_number: trimmedLicenseNumber,
     },
     {
@@ -1179,6 +1223,61 @@ const deleteAllowedAccess = async (admin, currentUser, accessId) => {
   const { error } = await admin.from('allowed_access').delete().eq('id', accessId);
   if (error) {
     throw new HttpError(500, 'Failed to delete allowed access.');
+  }
+};
+
+const listNewsPosts = async (admin) => {
+  const { data, error } = await admin.from('news_posts').select('*').order('created_at', { ascending: false });
+  const posts = ensureData(data || [], error, 'Failed to load news posts.');
+
+  if (!posts.length) {
+    return [];
+  }
+
+  const creators = await listProfilesByIds(
+    admin,
+    [...new Set(posts.map((post) => post.created_by).filter(Boolean))],
+  );
+  const creatorMap = new Map(creators.map((creator) => [creator.id, creator]));
+
+  return posts.map((post) => ({
+    id: post.id,
+    youtubeUrl: post.youtube_url,
+    commentary: post.commentary || '',
+    createdAt: post.created_at,
+    createdByName: creatorMap.get(post.created_by)?.full_name || 'Unknown instructor',
+  }));
+};
+
+const createNewsPost = async (admin, currentUser, body) => {
+  await requireRole(admin, currentUser.id, 'Instructor');
+
+  const youtubeUrl = String(body.youtubeUrl || '').trim();
+  const commentary = String(body.commentary || '').trim();
+
+  if (!youtubeUrl) {
+    throw new HttpError(400, 'YouTube link is required.');
+  }
+
+  const { error } = await admin.from('news_posts').insert({
+    youtube_url: youtubeUrl,
+    commentary,
+    created_by: currentUser.id,
+  });
+
+  if (error) {
+    throw new HttpError(500, 'Failed to save news post.');
+  }
+
+  return listNewsPosts(admin);
+};
+
+const deleteNewsPost = async (admin, currentUser, postId) => {
+  await requireRole(admin, currentUser.id, 'Instructor');
+
+  const { error } = await admin.from('news_posts').delete().eq('id', postId);
+  if (error) {
+    throw new HttpError(500, 'Failed to delete news post.');
   }
 };
 
@@ -1465,6 +1564,69 @@ const listReportItems = async (admin, currentUser) => {
       });
   }
 
+  if (currentUser.role === 'Staff') {
+    const assignmentsResponse = await admin.from('nomination_referees').select('*');
+    const assignments = ensureData(assignmentsResponse.data || [], assignmentsResponse.error, 'Failed to load reports.')
+      .filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
+
+    if (!assignments.length) {
+      return [];
+    }
+
+    const nominationIds = [...new Set(assignments.map((assignment) => assignment.nomination_id))];
+    const refereeIds = [...new Set(assignments.map((assignment) => assignment.referee_id))];
+    const nominations = await listNominationsByIds(admin, nominationIds);
+    const referees = await listProfilesByIds(admin, refereeIds);
+    const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+    const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
+    const reports = await loadReportsForPairs(
+      admin,
+      assignments.map((assignment) => ({
+        nominationId: assignment.nomination_id,
+        refereeId: assignment.referee_id,
+      })),
+    );
+
+    return assignments
+      .map((assignment) => {
+        const nomination = nominationMap.get(assignment.nomination_id);
+        if (!nomination) {
+          return null;
+        }
+
+        const refereeReport = reports.find(
+          (report) =>
+            report.nomination_id === assignment.nomination_id &&
+            report.referee_id === assignment.referee_id &&
+            report.author_role === 'Referee',
+        );
+        const instructorReport = reports.find(
+          (report) =>
+            report.nomination_id === assignment.nomination_id &&
+            report.referee_id === assignment.referee_id &&
+            report.author_role === 'Instructor',
+        );
+
+        return buildReportListItem({
+          nomination,
+          assignment,
+          refereeName: refereeMap.get(assignment.referee_id)?.full_name || 'Unknown referee',
+          refereeReportStatus: refereeReport?.status || null,
+          instructorReportStatus: instructorReport?.status || null,
+          reviewScore: instructorReport?.score ?? null,
+        });
+      })
+      .filter(Boolean)
+      .sort((left, right) => {
+        const matchOrder = sortByMatchDesc(left, right);
+        if (matchOrder !== 0) {
+          return matchOrder;
+        }
+
+        return left.slotNumber - right.slotNumber;
+      });
+  }
+
   return [];
 };
 
@@ -1540,10 +1702,43 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
     };
   }
 
+  if (currentUser.role === 'Staff') {
+    const [refereeReport, instructorReport] = await Promise.all([
+      loadSubmittedRefereeReport(admin, nominationId, refereeId),
+      loadVisibleInstructorReport(admin, nominationId, refereeId),
+    ]);
+
+    return {
+      item: {
+        nominationId: assignment.nominationId,
+        refereeId,
+        gameCode: assignment.gameCode,
+        teams: assignment.teams,
+        matchDate: assignment.matchDate,
+        matchTime: assignment.matchTime,
+        venue: assignment.venue,
+        refereeName: assignment.refereeName,
+        slotNumber: assignment.slotNumber,
+        refereeReportStatus: refereeReport?.status || null,
+        instructorReportStatus: instructorReport?.status || null,
+        reviewScore: instructorReport?.score ?? null,
+      },
+      refereeReport: mapReportEntry(refereeReport),
+      instructorReport: mapReportEntry(instructorReport),
+      canEditCurrentUserReport: false,
+      deadlineExceeded: false,
+      deadlineMessage: null,
+    };
+  }
+
   throw new HttpError(403, 'This role cannot access reports.');
 };
 
 const saveReport = async (admin, currentUser, nominationId, refereeId, body) => {
+  if (currentUser.role === 'Staff') {
+    throw new HttpError(403, 'Staff can view reports but cannot write them.');
+  }
+
   const assignment = await requireAssignment(admin, nominationId, refereeId);
   const action = body.action;
 
@@ -1658,15 +1853,17 @@ const getRankingDashboard = async (admin, currentUser) => {
       history: buildRankingHistory(currentUser.id, rankingState),
       currentUserItem: rankingState.leaderboard.find((item) => item.refereeId === currentUser.id) || null,
       performanceProfile: rankingState.performanceProfiles.get(currentUser.id) || null,
+      visiblePerformanceProfiles: Array.from(rankingState.performanceProfiles.values()),
     };
   }
 
-  if (currentUser.role === 'Instructor') {
+  if (currentUser.role === 'Instructor' || currentUser.role === 'Staff') {
     return {
       leaderboard: rankingState.leaderboard,
       history: [],
       currentUserItem: null,
       performanceProfile: null,
+      visiblePerformanceProfiles: Array.from(rankingState.performanceProfiles.values()),
     };
   }
 
@@ -1675,6 +1872,7 @@ const getRankingDashboard = async (admin, currentUser) => {
     history: [],
     currentUserItem: null,
     performanceProfile: null,
+    visiblePerformanceProfiles: [],
   };
 };
 
@@ -1736,6 +1934,7 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
     Number(body.gameControl),
     Number(body.newPhilosophy),
     Number(body.communication),
+    Number(body.externalEvaluation),
   ];
 
   if (values.some((value) => ![-1, 0, 1].includes(value))) {
@@ -1753,6 +1952,7 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
       game_control: values[5],
       new_philosophy: values[6],
       communication: values[7],
+      external_evaluation: values[8],
       updated_by: currentUser.id,
       updated_at: new Date().toISOString(),
     },
@@ -1789,8 +1989,8 @@ const registerUser = async (admin, body) => {
     throw new HttpError(403, 'Registration is allowed only for e-mails from the allowed list.');
   }
 
-  if (allowedAccess.allowed_role && allowedAccess.allowed_role !== role) {
-    throw new HttpError(403, `This e-mail is approved only for the ${allowedAccess.allowed_role} role.`);
+  if (allowedAccess.allowed_role && normalizeRole(allowedAccess.allowed_role) !== normalizeRole(role)) {
+    throw new HttpError(403, `This e-mail is approved only for the ${normalizeRole(allowedAccess.allowed_role)} role.`);
   }
 
   const existingProfile = await loadProfileByEmail(admin, email);
@@ -1799,13 +1999,14 @@ const registerUser = async (admin, body) => {
   }
 
   const licenseNumber = String(allowedAccess.license_number || '').trim() || (await getNextLicenseNumber(admin, role));
+  const storageRole = toStorageRole(role);
   const authResult = await admin.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
     user_metadata: {
       full_name: fullName,
-      role,
+      role: normalizeRole(role),
     },
   });
 
@@ -1818,7 +2019,7 @@ const registerUser = async (admin, body) => {
     id: authUser.id,
     email,
     full_name: fullName,
-    role,
+    role: storageRole,
     photo_url: DEFAULT_PHOTO_URL,
     license_number: licenseNumber,
     allowed_access_id: allowedAccess.id,
@@ -1950,6 +2151,14 @@ const routeRequest = async (event) => {
     return json(200, { members: await listMembers(admin, currentUser) });
   }
 
+  if (method === 'GET' && path === '/news') {
+    return json(200, { posts: await listNewsPosts(admin) });
+  }
+
+  if (method === 'POST' && path === '/news') {
+    return json(201, { posts: await createNewsPost(admin, currentUser, body) });
+  }
+
   const memberMatch = path.match(/^\/members\/([^/]+)$/);
   if (method === 'PATCH' && memberMatch) {
     const member = await updateMemberProfile(admin, currentUser, memberMatch[1], body.fullName, body.licenseNumber, body.photoUrl);
@@ -1974,6 +2183,12 @@ const routeRequest = async (event) => {
   if (method === 'DELETE' && accessMatch) {
     await deleteAllowedAccess(admin, currentUser, accessMatch[1]);
     return json(200, { message: 'Access deleted.' });
+  }
+
+  const newsMatch = path.match(/^\/news\/([^/]+)$/);
+  if (method === 'DELETE' && newsMatch) {
+    await deleteNewsPost(admin, currentUser, newsMatch[1]);
+    return json(200, { message: 'News post deleted.' });
   }
 
   if (method === 'POST' && path === '/nominations') {

@@ -29,14 +29,17 @@ const normalizeStoredUser = (value: unknown): User | null => {
     return null;
   }
 
+  const rawRole = String(candidate.role);
+  const normalizedRole = rawRole === 'Stuff' ? 'Staff' : candidate.role;
+
   return {
     id: String(candidate.id),
     email: String(candidate.email),
     fullName: String(candidate.fullName),
     photoUrl: String(candidate.photoUrl || ''),
     licenseNumber: String(candidate.licenseNumber || 'Pending'),
-    role: candidate.role,
-    category: String(candidate.category || candidate.role),
+    role: normalizedRole,
+    category: String(candidate.category || normalizedRole),
   };
 };
 
@@ -339,7 +342,7 @@ const App: React.FC = () => {
       case 'reports':
         return <Reports user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'news':
-        return <News onBack={() => setCurrentView('dashboard')} />;
+        return <News user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'members':
         return <Members user={currentUser!} onBack={() => setCurrentView('dashboard')} onCurrentUserUpdated={handleUpdateUser} />;
       case 'access':

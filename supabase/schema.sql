@@ -3,7 +3,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.allowed_access (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
-  allowed_role text not null check (allowed_role in ('Instructor', 'Table', 'Referee', 'Stuff')),
+  allowed_role text not null check (allowed_role in ('Instructor', 'Table', 'Referee', 'Staff', 'Stuff')),
   license_number text not null default 'Pending',
   display_name text default '',
   created_at timestamptz not null default now()
@@ -16,7 +16,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null unique,
   full_name text not null,
-  role text not null check (role in ('Instructor', 'Table', 'Referee', 'Stuff')),
+  role text not null check (role in ('Instructor', 'Table', 'Referee', 'Staff', 'Stuff')),
   photo_url text not null default 'https://picsum.photos/seed/referee/300/300',
   license_number text not null,
   allowed_access_id uuid references public.allowed_access(id),
@@ -82,8 +82,20 @@ create table if not exists public.ranking_performance (
   game_control integer not null default 0 check (game_control in (-1, 0, 1)),
   new_philosophy integer not null default 0 check (new_philosophy in (-1, 0, 1)),
   communication integer not null default 0 check (communication in (-1, 0, 1)),
+  external_evaluation integer not null default 0 check (external_evaluation in (-1, 0, 1)),
   updated_by uuid not null references public.profiles(id),
   updated_at timestamptz not null default now()
+);
+
+alter table public.ranking_performance
+add column if not exists external_evaluation integer not null default 0;
+
+create table if not exists public.news_posts (
+  id uuid primary key default gen_random_uuid(),
+  youtube_url text not null,
+  commentary text not null default '',
+  created_by uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now()
 );
 
 create index if not exists profiles_role_full_name_idx
@@ -108,6 +120,17 @@ alter table public.nomination_referees enable row level security;
 alter table public.reports enable row level security;
 alter table public.ranking_evaluations enable row level security;
 alter table public.ranking_performance enable row level security;
+alter table public.news_posts enable row level security;
+
+alter table public.allowed_access drop constraint if exists allowed_access_allowed_role_check;
+alter table public.allowed_access
+  add constraint allowed_access_allowed_role_check
+  check (allowed_role in ('Instructor', 'Table', 'Referee', 'Staff', 'Stuff'));
+
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles
+  add constraint profiles_role_check
+  check (role in ('Instructor', 'Table', 'Referee', 'Staff', 'Stuff'));
 
 create or replace function public.current_user_role()
 returns text
@@ -119,12 +142,12 @@ $$;
 
 drop policy if exists "profiles self read" on public.profiles;
 create policy "profiles self read" on public.profiles
-for select using (id = auth.uid() or public.current_user_role() = 'Instructor');
+for select using (id = auth.uid() or public.current_user_role() in ('Instructor', 'Staff', 'Stuff'));
 
 drop policy if exists "nominations role read" on public.nominations;
 create policy "nominations role read" on public.nominations
 for select using (
-  public.current_user_role() = 'Instructor'
+  public.current_user_role() in ('Instructor', 'Staff', 'Stuff')
   or exists (
     select 1 from public.nomination_referees nr
     where nr.nomination_id = nominations.id and nr.referee_id = auth.uid()
@@ -134,14 +157,14 @@ for select using (
 drop policy if exists "nomination_referees role read" on public.nomination_referees;
 create policy "nomination_referees role read" on public.nomination_referees
 for select using (
-  public.current_user_role() = 'Instructor'
+  public.current_user_role() in ('Instructor', 'Staff', 'Stuff')
   or referee_id = auth.uid()
 );
 
 drop policy if exists "reports role read" on public.reports;
 create policy "reports role read" on public.reports
 for select using (
-  public.current_user_role() = 'Instructor'
+  public.current_user_role() in ('Instructor', 'Staff', 'Stuff')
   or (author_id = auth.uid())
   or (
     referee_id = auth.uid()
@@ -152,8 +175,12 @@ for select using (
 
 drop policy if exists "ranking referee read" on public.ranking_evaluations;
 create policy "ranking referee read" on public.ranking_evaluations
-for select using (public.current_user_role() = 'Instructor' or referee_id = auth.uid());
+for select using (public.current_user_role() in ('Instructor', 'Staff', 'Stuff') or referee_id = auth.uid());
 
 drop policy if exists "ranking performance read" on public.ranking_performance;
 create policy "ranking performance read" on public.ranking_performance
-for select using (public.current_user_role() = 'Instructor' or referee_id = auth.uid());
+for select using (public.current_user_role() in ('Instructor', 'Staff', 'Stuff') or referee_id = auth.uid());
+
+drop policy if exists "news read" on public.news_posts;
+create policy "news read" on public.news_posts
+for select using (public.current_user_role() in ('Instructor', 'Referee', 'Table', 'Staff', 'Stuff'));

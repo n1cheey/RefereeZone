@@ -80,16 +80,16 @@ export const MOCK_REPORTS: Report[] = [
 export const MOCK_NEWS: NewsItem[] = [
   {
     id: 'n1',
-    title: 'New FIBA Rule Changes 2024',
-    summary: 'Essential updates for all national league referees regarding technical fouls.',
-    date: '2024-05-01',
-    imageUrl: 'https://picsum.photos/seed/ref1/400/200'
+    youtubeUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    commentary: 'Example news post.',
+    createdAt: '2024-05-01T10:00:00Z',
+    createdByName: 'Instructor'
   },
   {
     id: 'n2',
-    title: 'Referee Development Camp in Baku',
-    summary: 'Register now for the upcoming mid-season clinic at the Baku Crystal Hall.',
-    date: '2024-04-25',
-    imageUrl: 'https://picsum.photos/seed/ref2/400/200'
+    youtubeUrl: 'https://www.youtube.com/watch?v=ysz5S6PUM-U',
+    commentary: 'Another example news post.',
+    createdAt: '2024-04-25T14:00:00Z',
+    createdByName: 'Instructor'
   }
 ];

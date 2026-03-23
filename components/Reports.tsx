@@ -19,6 +19,10 @@ const getDisplayStatus = (item: ReportListItem, role: User['role']) => {
     return item.instructorReportStatus || item.refereeReportStatus || 'No Report';
   }
 
+  if (role === 'Staff') {
+    return item.instructorReportStatus || item.refereeReportStatus || 'No Report';
+  }
+
   return item.refereeReportStatus || 'No Report';
 };
 
@@ -38,6 +42,8 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
     teamwork: '',
     generally: '',
   });
+
+  const canWriteReports = user.role === 'Referee' || user.role === 'Instructor';
 
   const loadReports = async () => {
     const response = await getReports(user.id);
@@ -66,7 +72,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
       }
     };
 
-    load();
+    void load();
 
     return () => {
       isMounted = false;
@@ -81,7 +87,12 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
     try {
       const response = await getReportDetail(user.id, item.nominationId, item.refereeId);
       setSelectedDetail(response.report);
-      const editorReport = user.role === 'Instructor' ? response.report.instructorReport : response.report.refereeReport;
+      const editorReport =
+        user.role === 'Instructor'
+          ? response.report.instructorReport
+          : user.role === 'Referee'
+            ? response.report.refereeReport
+            : null;
       setFormData({
         feedbackScore: editorReport?.feedbackScore ?? 0,
         threePO_IOT: editorReport?.threePO_IOT ?? '',
@@ -98,7 +109,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
   };
 
   const handleSaveReport = async (action: ReportStatus) => {
-    if (!selectedDetail) {
+    if (!selectedDetail || !canWriteReports) {
       return;
     }
 
@@ -138,7 +149,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
   };
 
   const handleDeleteReport = async () => {
-    if (!selectedDetail) {
+    if (!selectedDetail || !canWriteReports) {
       return;
     }
 
@@ -168,7 +179,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
     }
 
     if (user.role === 'Instructor') {
-      return item.refereeReportStatus === 'Submitted' && item.instructorReportStatus !== 'Submitted';
+      return item.refereeReportStatus === 'Submitted' && item.instructorReportStatus !== 'Reviewed';
     }
 
     return false;
@@ -177,8 +188,10 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
   if (selectedDetail) {
     const item = selectedDetail.item;
     const isInstructor = user.role === 'Instructor';
-    const currentReport = isInstructor ? selectedDetail.instructorReport : selectedDetail.refereeReport;
-    const companionReport = isInstructor ? selectedDetail.refereeReport : selectedDetail.instructorReport;
+    const isReferee = user.role === 'Referee';
+    const currentReport = isInstructor ? selectedDetail.instructorReport : isReferee ? selectedDetail.refereeReport : null;
+    const showRefereeReport = user.role === 'Instructor' || user.role === 'Staff';
+    const showInstructorReport = user.role === 'Referee' || user.role === 'Staff';
 
     return (
       <Layout title={`${item.gameCode} Report`} onBack={() => setSelectedDetail(null)}>
@@ -196,7 +209,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mb-5">
           <div className="text-xs font-bold uppercase text-[#581c1c]">{item.gameCode}</div>
           <h3 className="mt-1 text-xl font-bold text-slate-900">{item.teams}</h3>
-          <p className="mt-2 text-sm text-slate-500">{item.matchDate} at {item.matchTime} • {item.venue}</p>
+          <p className="mt-2 text-sm text-slate-500">{`${item.matchDate} at ${item.matchTime} | ${item.venue}`}</p>
           <p className="mt-1 text-sm text-slate-500">{`${getNominationSlotLabel(item.slotNumber)}: ${item.refereeName}`}</p>
         </div>
 
@@ -206,7 +219,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
           </div>
         )}
 
-        {isInstructor && (
+        {showRefereeReport && (
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mb-5">
             <h3 className="text-base font-bold text-slate-900 mb-3">Referee Report</h3>
             {!selectedDetail.refereeReport ? (
@@ -222,119 +235,125 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
           </div>
         )}
 
-        {!isInstructor && companionReport && (
+        {showInstructorReport && (
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mb-5">
             <h3 className="text-base font-bold text-slate-900 mb-3">Instructor Report</h3>
-            <div className="space-y-3 text-sm text-slate-700">
-              <div><span className="font-bold">Score:</span> {companionReport.feedbackScore}</div>
-              <div><span className="font-bold">3PO & IOT:</span> {companionReport.threePO_IOT}</div>
-              <div><span className="font-bold">Criteria:</span> {companionReport.criteria}</div>
-              <div><span className="font-bold">Teamwork:</span> {companionReport.teamwork}</div>
-              <div><span className="font-bold">Generally:</span> {companionReport.generally}</div>
-            </div>
+            {!selectedDetail.instructorReport ? (
+              <p className="text-sm text-slate-500">Instructor report is not available yet.</p>
+            ) : (
+              <div className="space-y-3 text-sm text-slate-700">
+                <div><span className="font-bold">Score:</span> {selectedDetail.instructorReport.feedbackScore}</div>
+                <div><span className="font-bold">3PO & IOT:</span> {selectedDetail.instructorReport.threePO_IOT}</div>
+                <div><span className="font-bold">Criteria:</span> {selectedDetail.instructorReport.criteria}</div>
+                <div><span className="font-bold">Teamwork:</span> {selectedDetail.instructorReport.teamwork}</div>
+                <div><span className="font-bold">Generally:</span> {selectedDetail.instructorReport.generally}</div>
+              </div>
+            )}
           </div>
         )}
 
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-          <h3 className="text-base font-bold text-slate-900 mb-4">{isInstructor ? 'Instructor Evaluation' : 'My Report'}</h3>
+        {canWriteReports ? (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <h3 className="text-base font-bold text-slate-900 mb-4">{isInstructor ? 'Instructor Evaluation' : 'My Report'}</h3>
 
-          {!selectedDetail.canEditCurrentUserReport && currentReport ? (
-            <div className="space-y-3 text-sm text-slate-700">
-              {isInstructor && <div><span className="font-bold">Score:</span> {currentReport.feedbackScore}</div>}
-              <div><span className="font-bold">3PO & IOT:</span> {currentReport.threePO_IOT}</div>
-              <div><span className="font-bold">Criteria:</span> {currentReport.criteria}</div>
-              <div><span className="font-bold">Teamwork:</span> {currentReport.teamwork}</div>
-              <div><span className="font-bold">Generally:</span> {currentReport.generally}</div>
-              <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500">
-                Status: {item.instructorReportStatus === 'Reviewed' ? 'Reviewed' : currentReport.status}
+            {!selectedDetail.canEditCurrentUserReport && currentReport ? (
+              <div className="space-y-3 text-sm text-slate-700">
+                {isInstructor && <div><span className="font-bold">Score:</span> {currentReport.feedbackScore}</div>}
+                <div><span className="font-bold">3PO & IOT:</span> {currentReport.threePO_IOT}</div>
+                <div><span className="font-bold">Criteria:</span> {currentReport.criteria}</div>
+                <div><span className="font-bold">Teamwork:</span> {currentReport.teamwork}</div>
+                <div><span className="font-bold">Generally:</span> {currentReport.generally}</div>
+                <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500">
+                  Status: {item.instructorReportStatus === 'Reviewed' ? 'Reviewed' : currentReport.status}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {isInstructor && (
+            ) : (
+              <div className="space-y-4">
+                {isInstructor && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Score</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={formData.feedbackScore}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, feedbackScore: Number(e.target.value) }))}
+                      className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none"
+                    />
+                  </div>
+                )}
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Score</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={formData.feedbackScore}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, feedbackScore: Number(e.target.value) }))}
-                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none"
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">3PO & IOT</label>
+                  <textarea
+                    rows={3}
+                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none resize-none"
+                    value={formData.threePO_IOT}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, threePO_IOT: e.target.value }))}
                   />
                 </div>
-              )}
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">3PO & IOT</label>
-                <textarea
-                  rows={3}
-                  className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none resize-none"
-                  value={formData.threePO_IOT}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, threePO_IOT: e.target.value }))}
-                />
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Criteria</label>
+                  <textarea
+                    rows={3}
+                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none resize-none"
+                    value={formData.criteria}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, criteria: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Teamwork</label>
+                  <textarea
+                    rows={3}
+                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none resize-none"
+                    value={formData.teamwork}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, teamwork: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Generally</label>
+                  <textarea
+                    rows={3}
+                    className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none resize-none"
+                    value={formData.generally}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, generally: e.target.value }))}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => handleSaveReport('Draft')}
+                    disabled={isSaving || selectedDetail.deadlineExceeded}
+                    className="py-3 bg-slate-200 text-slate-700 rounded-xl text-sm font-bold disabled:opacity-70"
+                  >
+                    {isSaving ? 'Saving...' : 'Save Draft'}
+                  </button>
+                  <button
+                    onClick={() => handleSaveReport('Submitted')}
+                    disabled={isSaving || selectedDetail.deadlineExceeded}
+                    className="py-3 bg-[#581c1c] text-white rounded-xl text-sm font-bold disabled:opacity-70"
+                  >
+                    {isSaving ? 'Saving...' : isInstructor ? 'Submit Review' : 'Submit'}
+                  </button>
+                </div>
+                {currentReport?.status === 'Draft' && (
+                  <button
+                    onClick={handleDeleteReport}
+                    disabled={isSaving}
+                    className="w-full mt-3 inline-flex items-center justify-center gap-2 py-3 bg-red-600 text-white rounded-xl text-sm font-bold disabled:opacity-70"
+                  >
+                    <Trash2 size={16} />
+                    {isSaving ? 'Deleting...' : 'Delete Draft'}
+                  </button>
+                )}
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Criteria</label>
-                <textarea
-                  rows={3}
-                  className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none resize-none"
-                  value={formData.criteria}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, criteria: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Teamwork</label>
-                <textarea
-                  rows={3}
-                  className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none resize-none"
-                  value={formData.teamwork}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, teamwork: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Generally</label>
-                <textarea
-                  rows={3}
-                  className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none resize-none"
-                  value={formData.generally}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, generally: e.target.value }))}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => handleSaveReport('Draft')}
-                  disabled={isSaving || selectedDetail.deadlineExceeded}
-                  className="py-3 bg-slate-200 text-slate-700 rounded-xl text-sm font-bold disabled:opacity-70"
-                >
-                  {isSaving ? 'Saving...' : 'Save Draft'}
-                </button>
-                <button
-                  onClick={() => handleSaveReport('Submitted')}
-                  disabled={isSaving || selectedDetail.deadlineExceeded}
-                  className="py-3 bg-[#581c1c] text-white rounded-xl text-sm font-bold disabled:opacity-70"
-                >
-                  {isSaving ? 'Saving...' : isInstructor ? 'Submit Review' : 'Submit'}
-                </button>
-              </div>
-              {currentReport?.status === 'Draft' && (
-                <button
-                  onClick={handleDeleteReport}
-                  disabled={isSaving}
-                  className="w-full mt-3 inline-flex items-center justify-center gap-2 py-3 bg-red-600 text-white rounded-xl text-sm font-bold disabled:opacity-70"
-                >
-                  <Trash2 size={16} />
-                  {isSaving ? 'Deleting...' : 'Delete Draft'}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        ) : null}
       </Layout>
     );
   }
 
   return (
-    <Layout title="My Reports" onBack={onBack}>
+    <Layout title={user.role === 'Staff' ? 'Reports' : 'My Reports'} onBack={onBack}>
       {errorMessage && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
@@ -346,9 +365,9 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
         </div>
       )}
 
-      {(user.role === 'Referee' || user.role === 'Instructor') && (
+      {canWriteReports && (
         <div className="flex justify-between items-center mb-4 px-1">
-          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-widest">Recent Activity</h3>
+          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-widest px-1">Recent Activity</h3>
           <button
             onClick={() => setIsChoosingNew((prev) => !prev)}
             className="text-xs font-bold text-[#581c1c] flex items-center gap-1 bg-[#581c1c]/5 px-3 py-1.5 rounded-full"
@@ -374,7 +393,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
                 >
                   <div className="text-xs font-bold uppercase text-[#581c1c]">{item.gameCode}</div>
                   <div className="font-semibold text-slate-900 mt-1">{item.teams}</div>
-                  <div className="text-sm text-slate-500 mt-1">{item.matchDate} at {item.matchTime}</div>
+                  <div className="text-sm text-slate-500 mt-1">{`${item.matchDate} at ${item.matchTime}`}</div>
                   <div className="text-sm text-slate-500">{item.refereeName}</div>
                 </button>
               ))}
@@ -385,11 +404,9 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
 
       {isLoading ? (
         <p className="text-sm text-slate-500">Loading reports...</p>
-      ) : isLoadingDetail ? (
-        <p className="text-sm text-slate-500">Loading report detail...</p>
-      ) : user.role !== 'Referee' && user.role !== 'Instructor' ? (
+      ) : reports.length === 0 ? (
         <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-500">
-          This role does not have report access.
+          No reports found.
         </div>
       ) : (
         <div className="space-y-4">
@@ -402,28 +419,28 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
                 className="w-full bg-white p-4 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between group active:bg-slate-50 transition-colors text-left"
               >
                 <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-xl ${
-                    statusLabel === 'Reviewed' ? 'bg-green-50 text-green-600' :
-                    statusLabel === 'Submitted' ? 'bg-blue-50 text-blue-600' :
-                    statusLabel === 'Draft' ? 'bg-slate-100 text-slate-500' : 'bg-amber-50 text-amber-600'
-                  }`}>
-                    {statusLabel === 'Reviewed' ? <CheckCircle size={24} /> :
-                     statusLabel === 'Submitted' ? <Clock size={24} /> :
-                     statusLabel === 'Draft' ? <Clock size={24} /> : <FileWarning size={24} />}
+                  <div
+                    className={`p-3 rounded-xl ${
+                      statusLabel === 'Reviewed'
+                        ? 'bg-green-50 text-green-600'
+                        : statusLabel === 'Submitted'
+                          ? 'bg-blue-50 text-blue-600'
+                          : statusLabel === 'Draft'
+                            ? 'bg-slate-100 text-slate-500'
+                            : 'bg-amber-50 text-amber-600'
+                    }`}
+                  >
+                    {statusLabel === 'Reviewed' ? <CheckCircle size={24} /> : statusLabel === 'Submitted' ? <Clock size={24} /> : statusLabel === 'Draft' ? <Clock size={24} /> : <FileWarning size={24} />}
                   </div>
                   <div>
-                    <div className="font-bold text-slate-800">{report.gameCode} • {report.teams}</div>
-                    <div className="text-xs text-slate-500">
-                      {report.matchDate} • {report.refereeName} • {statusLabel}
-                    </div>
+                    <div className="font-bold text-slate-800">{`${report.gameCode} | ${report.teams}`}</div>
+                    <div className="text-xs text-slate-500">{`${report.matchDate} | ${report.refereeName} | ${statusLabel}`}</div>
                     {statusLabel === 'Reviewed' && report.reviewScore !== null && (
-                      <div className="text-[11px] font-bold text-green-700 mt-1">
-                        Score: {report.reviewScore}
-                      </div>
+                      <div className="text-[11px] font-bold text-green-700 mt-1">Score: {report.reviewScore}</div>
                     )}
-                    {user.role === 'Instructor' && (
+                    {(user.role === 'Instructor' || user.role === 'Staff') && (
                       <div className="text-[11px] text-slate-400 mt-1">
-                        Referee report: {report.refereeReportStatus || 'Not submitted'} • Instructor report: {report.instructorReportStatus || 'Not started'}
+                        {`Referee report: ${report.refereeReportStatus || 'Not submitted'} | Instructor report: ${report.instructorReportStatus || 'Not started'}`}
                       </div>
                     )}
                   </div>

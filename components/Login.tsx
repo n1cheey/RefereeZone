@@ -7,7 +7,7 @@ interface LoginProps {
   onLogin: (user: User) => void;
 }
 
-const roles: UserRole[] = ['Instructor', 'Table', 'Referee', 'Stuff'];
+const roles: UserRole[] = ['Instructor', 'Table', 'Referee', 'Staff'];
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [isRegister, setIsRegister] = useState(false);

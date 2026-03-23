@@ -12,6 +12,30 @@ interface RankingProps {
   onBack: () => void;
 }
 
+const emptyPerformanceForm = {
+  physicalFitness: 0,
+  mechanics: 0,
+  iot: 0,
+  criteriaScore: 0,
+  teamworkScore: 0,
+  gameControl: 0,
+  newPhilosophy: 0,
+  communication: 0,
+  externalEvaluation: 0,
+};
+
+const performanceFields: Array<[keyof typeof emptyPerformanceForm, string]> = [
+  ['physicalFitness', 'Fiziki hazirliq'],
+  ['mechanics', 'Mexanika'],
+  ['iot', 'IOT'],
+  ['criteriaScore', 'Kriteriya'],
+  ['teamworkScore', 'Komanda isi'],
+  ['gameControl', 'Oyun kontrolu'],
+  ['newPhilosophy', 'Yeni filosofiya'],
+  ['communication', 'Unsiyyet'],
+  ['externalEvaluation', 'Kənardan qiymətləndirmə'],
+];
+
 const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
   const [dashboard, setDashboard] = useState<RankingDashboardData | null>(null);
   const [adminData, setAdminData] = useState<{
@@ -28,6 +52,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
     performanceProfiles: RankingPerformanceProfile[];
     referees: Array<{ id: string; fullName: string }>;
   } | null>(null);
+  const [selectedRefereeId, setSelectedRefereeId] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -41,16 +66,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
     note: '',
   });
   const [performanceRefereeId, setPerformanceRefereeId] = useState('');
-  const [performanceForm, setPerformanceForm] = useState({
-    physicalFitness: 0,
-    mechanics: 0,
-    iot: 0,
-    criteriaScore: 0,
-    teamworkScore: 0,
-    gameControl: 0,
-    newPhilosophy: 0,
-    communication: 0,
-  });
+  const [performanceForm, setPerformanceForm] = useState(emptyPerformanceForm);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -63,13 +79,20 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
       setDashboard(dashboardResponse);
       setAdminData(adminResponse);
 
+      const defaultRefereeId =
+        selectedRefereeId ||
+        dashboardResponse.currentUserItem?.refereeId ||
+        dashboardResponse.leaderboard[0]?.refereeId ||
+        '';
+      setSelectedRefereeId(defaultRefereeId);
+
       if (adminResponse && adminResponse.referees.length > 0) {
-        const defaultRefereeId = performanceRefereeId || adminResponse.referees[0].id;
+        const defaultPerformanceRefereeId = performanceRefereeId || adminResponse.referees[0].id;
         setEvaluationForm((prev) => ({
           ...prev,
-          refereeId: prev.refereeId || defaultRefereeId,
+          refereeId: prev.refereeId || defaultPerformanceRefereeId,
         }));
-        setPerformanceRefereeId(defaultRefereeId);
+        setPerformanceRefereeId(defaultPerformanceRefereeId);
       }
 
       setErrorMessage('');
@@ -81,8 +104,21 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
   };
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [user.id, user.role]);
+
+  const visiblePerformanceProfiles = useMemo(
+    () => adminData?.performanceProfiles || dashboard?.visiblePerformanceProfiles || [],
+    [adminData, dashboard],
+  );
+
+  const selectedVisiblePerformanceProfile = useMemo(() => {
+    if (!selectedRefereeId) {
+      return null;
+    }
+
+    return visiblePerformanceProfiles.find((item) => item.refereeId === selectedRefereeId) || null;
+  }, [selectedRefereeId, visiblePerformanceProfiles]);
 
   const selectedPerformanceProfile = useMemo(() => {
     if (!adminData || !performanceRefereeId) {
@@ -94,16 +130,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
 
   useEffect(() => {
     if (!selectedPerformanceProfile) {
-      setPerformanceForm({
-        physicalFitness: 0,
-        mechanics: 0,
-        iot: 0,
-        criteriaScore: 0,
-        teamworkScore: 0,
-        gameControl: 0,
-        newPhilosophy: 0,
-        communication: 0,
-      });
+      setPerformanceForm(emptyPerformanceForm);
       return;
     }
 
@@ -116,6 +143,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
       gameControl: selectedPerformanceProfile.gameControl,
       newPhilosophy: selectedPerformanceProfile.newPhilosophy,
       communication: selectedPerformanceProfile.communication,
+      externalEvaluation: selectedPerformanceProfile.externalEvaluation,
     });
   }, [selectedPerformanceProfile]);
 
@@ -177,14 +205,14 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
 
   if (isLoading || !dashboard) {
     return (
-      <Layout title="My Ranking" onBack={onBack}>
+      <Layout title={user.role === 'Staff' ? 'Ranking' : 'My Ranking'} onBack={onBack}>
         <p className="text-sm text-slate-500">Loading ranking data...</p>
       </Layout>
     );
   }
 
   return (
-    <Layout title="My Ranking" onBack={onBack}>
+    <Layout title={user.role === 'Staff' ? 'Ranking' : 'My Ranking'} onBack={onBack}>
       {errorMessage && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
@@ -204,7 +232,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
               <h3 className="text-lg font-bold text-slate-900">Ranking Admin</h3>
             </div>
             <p className="text-sm text-slate-500">
-              Structure follows the Excel sheets: `Total` is created from game-by-game `-1 / 0 / 1` evaluations, and `Perfomance` is filled by category.
+              `AVG` is the average of all performance criteria. If overall scores are equal, the referee with the higher AVG is ranked above.
             </p>
           </div>
 
@@ -301,20 +329,11 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
                 </select>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
-                {[
-                  ['physicalFitness', 'Fiziki hazirliq'],
-                  ['mechanics', 'Mexanika'],
-                  ['iot', 'IOT'],
-                  ['criteriaScore', 'Kriteriya'],
-                  ['teamworkScore', 'Komanda isi'],
-                  ['gameControl', 'Oyun kontrolu'],
-                  ['newPhilosophy', 'Yeni filosofiya'],
-                  ['communication', 'Unsiyyet'],
-                ].map(([key, label]) => (
+                {performanceFields.map(([key, label]) => (
                   <div key={key}>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{label}</label>
                     <select
-                      value={performanceForm[key as keyof typeof performanceForm]}
+                      value={performanceForm[key]}
                       onChange={(e) => setPerformanceForm((prev) => ({ ...prev, [key]: Number(e.target.value) }))}
                       className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
                     >
@@ -342,13 +361,24 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
             <h3 className="text-base font-bold text-slate-900 mb-4">Leaderboard</h3>
             <div className="space-y-3">
               {dashboard.leaderboard.map((item) => (
-                <div key={item.refereeId} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-slate-900">{`#${item.rank} ${item.refereeName}`}</div>
-                    <div className="text-sm text-slate-500">{`Total: ${item.totalGameScore} | Performance: ${item.performanceScore} | AVG: ${item.performanceAverage.toFixed(2)}`}</div>
+                <button
+                  key={item.refereeId}
+                  type="button"
+                  onClick={() => setSelectedRefereeId(item.refereeId)}
+                  className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                    selectedRefereeId === item.refereeId
+                      ? 'border-[#581c1c] bg-[#581c1c]/5'
+                      : 'border-slate-200 bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-slate-900">{`#${item.rank} ${item.refereeName}`}</div>
+                      <div className="text-sm text-slate-500">{`Total: ${item.totalGameScore} | Performance: ${item.performanceScore} | AVG: ${item.performanceAverage.toFixed(2)}`}</div>
+                    </div>
+                    <div className="text-lg font-black text-[#581c1c]">{item.overallScore}</div>
                   </div>
-                  <div className="text-lg font-black text-[#581c1c]">{item.overallScore}</div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -368,81 +398,102 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
         </div>
       ) : (
         <>
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <p className="text-sm text-slate-500">Current Position</p>
-                <h3 className="text-4xl font-black text-[#581c1c]">
-                  {dashboard.currentUserItem ? `#${dashboard.currentUserItem.rank}` : '-'}
-                </h3>
-                <p className="text-sm text-slate-500 mt-2">{`Overall Score: ${dashboard.currentUserItem?.overallScore ?? 0} | AVG: ${(dashboard.currentUserItem?.performanceAverage ?? 0).toFixed(2)}`}</p>
-              </div>
-              <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full flex items-center gap-1 text-sm font-bold">
-                <TrendingUp size={16} /> Total {dashboard.currentUserItem?.totalGameScore ?? 0}
-              </div>
-            </div>
-
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={dashboard.history}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <YAxis reversed domain={[1, Math.max(5, dashboard.leaderboard.length || 1)]} hide />
-                  <Tooltip
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                    labelStyle={{ fontWeight: 'bold' }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="rank"
-                    stroke="#f97316"
-                    strokeWidth={3}
-                    dot={{ r: 6, fill: '#f97316' }}
-                    activeDot={{ r: 8 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {dashboard.performanceProfile && (
+          {user.role === 'Referee' && (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
-              <h3 className="text-base font-bold text-slate-900 mb-4">Performance Profile</h3>
-              <div className="mb-4 inline-flex rounded-full bg-[#581c1c]/10 px-3 py-1 text-sm font-bold text-[#581c1c]">
-                AVG: {(dashboard.currentUserItem?.performanceAverage ?? 0).toFixed(2)}
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <p className="text-sm text-slate-500">Current Position</p>
+                  <h3 className="text-4xl font-black text-[#581c1c]">
+                    {dashboard.currentUserItem ? `#${dashboard.currentUserItem.rank}` : '-'}
+                  </h3>
+                  <p className="text-sm text-slate-500 mt-2">{`Overall Score: ${dashboard.currentUserItem?.overallScore ?? 0} | AVG: ${(dashboard.currentUserItem?.performanceAverage ?? 0).toFixed(2)}`}</p>
+                </div>
+                <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full flex items-center gap-1 text-sm font-bold">
+                  <TrendingUp size={16} /> Total {dashboard.currentUserItem?.totalGameScore ?? 0}
+                </div>
               </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                {[
-                  ['Fiziki hazirliq', dashboard.performanceProfile.physicalFitness],
-                  ['Mexanika', dashboard.performanceProfile.mechanics],
-                  ['IOT', dashboard.performanceProfile.iot],
-                  ['Kriteriya', dashboard.performanceProfile.criteriaScore],
-                  ['Komanda isi', dashboard.performanceProfile.teamworkScore],
-                  ['Oyun kontrolu', dashboard.performanceProfile.gameControl],
-                  ['Yeni filosofiya', dashboard.performanceProfile.newPhilosophy],
-                  ['Unsiyyet', dashboard.performanceProfile.communication],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-xl bg-slate-50 px-4 py-3 flex items-center justify-between">
-                    <span className="text-sm text-slate-600">{label}</span>
-                    <span className="text-sm font-bold text-[#581c1c]">{value}</span>
-                  </div>
-                ))}
+
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={dashboard.history}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <YAxis reversed domain={[1, Math.max(5, dashboard.leaderboard.length || 1)]} hide />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                      labelStyle={{ fontWeight: 'bold' }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="rank"
+                      stroke="#f97316"
+                      strokeWidth={3}
+                      dot={{ r: 6, fill: '#f97316' }}
+                      activeDot={{ r: 8 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             </div>
           )}
 
-          <div className="bg-[#581c1c] rounded-2xl p-6 text-white shadow-lg flex items-center gap-4">
-            <div className="bg-white/20 p-3 rounded-xl">
-              <Award size={32} />
-            </div>
-            <div>
-              <h4 className="font-bold">Ranking Summary</h4>
-              <p className="text-xs text-white/70">
-                Your position is calculated from `Total` game entries plus the `Perfomance` category profile entered by Instructor.
-              </p>
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mb-6">
+            <h3 className="text-base font-bold text-slate-900 mb-4">Leaderboard</h3>
+            <div className="space-y-3">
+              {dashboard.leaderboard.map((item) => (
+                <button
+                  key={item.refereeId}
+                  type="button"
+                  onClick={() => setSelectedRefereeId(item.refereeId)}
+                  className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                    selectedRefereeId === item.refereeId
+                      ? 'border-[#581c1c] bg-[#581c1c]/5'
+                      : 'border-slate-200 bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-slate-900">{`#${item.rank} ${item.refereeName}`}</div>
+                      <div className="text-sm text-slate-500">{`Total: ${item.totalGameScore} | Performance: ${item.performanceScore} | AVG: ${item.performanceAverage.toFixed(2)}`}</div>
+                    </div>
+                    <div className="text-lg font-black text-[#581c1c]">{item.overallScore}</div>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         </>
+      )}
+
+      {selectedVisiblePerformanceProfile && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
+          <h3 className="text-base font-bold text-slate-900 mb-2">{selectedVisiblePerformanceProfile.refereeName}</h3>
+          <div className="mb-4 inline-flex rounded-full bg-[#581c1c]/10 px-3 py-1 text-sm font-bold text-[#581c1c]">
+            AVG: {(dashboard.leaderboard.find((item) => item.refereeId === selectedVisiblePerformanceProfile.refereeId)?.performanceAverage ?? 0).toFixed(2)}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {performanceFields.map(([key, label]) => (
+              <div key={key} className="rounded-xl bg-slate-50 px-4 py-3 flex items-center justify-between">
+                <span className="text-sm text-slate-600">{label}</span>
+                <span className="text-sm font-bold text-[#581c1c]">{selectedVisiblePerformanceProfile[key]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {user.role === 'Referee' && (
+        <div className="bg-[#581c1c] rounded-2xl p-6 text-white shadow-lg flex items-center gap-4">
+          <div className="bg-white/20 p-3 rounded-xl">
+            <Award size={32} />
+          </div>
+          <div>
+            <h4 className="font-bold">Ranking Summary</h4>
+            <p className="text-xs text-white/70">
+              Your position is calculated from `Total` game entries plus the `Perfomance` profile entered by instructors.
+            </p>
+          </div>
+        </div>
       )}
     </Layout>
   );

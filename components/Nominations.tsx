@@ -32,6 +32,12 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             setInstructorNominations(instructorResponse.nominations);
             setRefereeAssignments(assignmentResponse.nominations);
           }
+        } else if (user.role === 'Staff') {
+          const response = await getInstructorNominations(user.id);
+          if (isMounted) {
+            setInstructorNominations(response.nominations);
+            setRefereeAssignments([]);
+          }
         } else if (user.role === 'Referee') {
           const response = await getRefereeNominations(user.id);
           if (isMounted) {
@@ -124,9 +130,11 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
 
       {isLoading ? (
         <p className="text-sm text-slate-500">Loading nominations...</p>
-      ) : user.role === 'Instructor' ? (
+      ) : user.role === 'Instructor' || user.role === 'Staff' ? (
         <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-widest px-1">Created Games</h3>
+          <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-widest px-1">
+            {user.role === 'Instructor' ? 'All Games' : 'Created Games'}
+          </h3>
           {instructorNominations.length === 0 ? (
             <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-500">
               No nominations created yet.
@@ -141,16 +149,19 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                  <div className="text-lg font-bold text-slate-800 mb-3">{nomination.teams}</div>
-                  <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nomination.gameCode}</div>
+                      <div className="text-lg font-bold text-slate-800 mb-3">{nomination.teams}</div>
+                      <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nomination.gameCode}</div>
+                      <div className="text-xs text-slate-500">Created by: {nomination.createdByName}</div>
                     </div>
-                    <button
-                      onClick={() => handleDeleteNomination(nomination.id)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white"
-                    >
-                      <Trash2 size={14} />
-                      Delete
-                    </button>
+                    {user.role === 'Instructor' && nomination.createdById === user.id ? (
+                      <button
+                        onClick={() => handleDeleteNomination(nomination.id)}
+                        className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white"
+                      >
+                        <Trash2 size={14} />
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
                   <div className="grid grid-cols-2 gap-y-2 text-sm text-slate-600">
                     <div className="flex items-center gap-2">
@@ -188,69 +199,73 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             ))
           )}
 
-          <h3 className="pt-4 text-sm font-semibold text-slate-400 uppercase tracking-widest px-1">Assigned Games</h3>
-          {refereeAssignments.length === 0 ? (
-            <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-500">
-              No game assignments yet.
-            </div>
-          ) : (
-            refereeAssignments.map((nom) => (
-              <div key={nom.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="bg-[#581c1c]/5 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
-                  <span className="text-xs font-bold text-[#581c1c]">{getNominationSlotLabel(nom.slotNumber)}</span>
-                  <div className="flex items-center gap-2">
-                    {nom.status === 'Accepted' && <span className="text-[10px] font-bold text-green-600 uppercase flex items-center gap-1"><CheckCircle2 size={10} /> Accepted</span>}
-                    {nom.status === 'Declined' && <span className="text-[10px] font-bold text-red-600 uppercase flex items-center gap-1"><XCircle size={10} /> Declined</span>}
-                    {nom.status === 'Pending' && <span className="text-[10px] font-bold text-amber-600 uppercase">Pending</span>}
-                    <span className="text-[10px] text-slate-500 uppercase">{nom.nominationId}</span>
-                  </div>
+          {user.role === 'Instructor' && (
+            <>
+              <h3 className="pt-4 text-sm font-semibold text-slate-400 uppercase tracking-widest px-1">Assigned Games</h3>
+              {refereeAssignments.length === 0 ? (
+                <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-500">
+                  No game assignments yet.
                 </div>
-                <div className="p-4">
-                  <div className="text-lg font-bold text-slate-800 mb-3">{nom.teams}</div>
-                  <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nom.gameCode}</div>
-                  <div className="grid grid-cols-2 gap-y-2 text-sm text-slate-600">
-                    <div className="flex items-center gap-2">
-                      <Calendar size={14} className="text-[#f97316]" />
-                      {nom.matchDate}
+              ) : (
+                refereeAssignments.map((nom) => (
+                  <div key={nom.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                    <div className="bg-[#581c1c]/5 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
+                      <span className="text-xs font-bold text-[#581c1c]">{getNominationSlotLabel(nom.slotNumber)}</span>
+                      <div className="flex items-center gap-2">
+                        {nom.status === 'Accepted' && <span className="text-[10px] font-bold text-green-600 uppercase flex items-center gap-1"><CheckCircle2 size={10} /> Accepted</span>}
+                        {nom.status === 'Declined' && <span className="text-[10px] font-bold text-red-600 uppercase flex items-center gap-1"><XCircle size={10} /> Declined</span>}
+                        {nom.status === 'Pending' && <span className="text-[10px] font-bold text-amber-600 uppercase">Pending</span>}
+                        <span className="text-[10px] text-slate-500 uppercase">{nom.nominationId}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Clock size={14} className="text-[#f97316]" />
-                      {nom.matchTime}
-                    </div>
-                    <div className="flex items-center gap-2 col-span-2">
-                      <MapPin size={14} className="text-[#f97316]" />
-                      {nom.venue}
-                    </div>
-                  </div>
-                  {renderCrew(nom.crew)}
+                    <div className="p-4">
+                      <div className="text-lg font-bold text-slate-800 mb-3">{nom.teams}</div>
+                      <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nom.gameCode}</div>
+                      <div className="grid grid-cols-2 gap-y-2 text-sm text-slate-600">
+                        <div className="flex items-center gap-2">
+                          <Calendar size={14} className="text-[#f97316]" />
+                          {nom.matchDate}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Clock size={14} className="text-[#f97316]" />
+                          {nom.matchTime}
+                        </div>
+                        <div className="flex items-center gap-2 col-span-2">
+                          <MapPin size={14} className="text-[#f97316]" />
+                          {nom.venue}
+                        </div>
+                      </div>
+                      {renderCrew(nom.crew)}
 
-                  {nom.status === 'Pending' ? (
-                    <div className="grid grid-cols-2 gap-3 mt-4">
-                      <button
-                        onClick={() => handleStatusChange(nom.nominationId, 'Accepted', nom.id)}
-                        disabled={actionAssignmentId === nom.id}
-                        className="py-2 bg-green-600 text-white rounded-lg text-sm font-bold shadow-sm disabled:opacity-70"
-                      >
-                        {actionAssignmentId === nom.id ? 'Saving...' : 'Accept'}
-                      </button>
-                      <button
-                        onClick={() => handleStatusChange(nom.nominationId, 'Declined', nom.id)}
-                        disabled={actionAssignmentId === nom.id}
-                        className="py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold shadow-sm disabled:opacity-70"
-                      >
-                        {actionAssignmentId === nom.id ? 'Saving...' : 'Decline'}
-                      </button>
+                      {nom.status === 'Pending' ? (
+                        <div className="grid grid-cols-2 gap-3 mt-4">
+                          <button
+                            onClick={() => handleStatusChange(nom.nominationId, 'Accepted', nom.id)}
+                            disabled={actionAssignmentId === nom.id}
+                            className="py-2 bg-green-600 text-white rounded-lg text-sm font-bold shadow-sm disabled:opacity-70"
+                          >
+                            {actionAssignmentId === nom.id ? 'Saving...' : 'Accept'}
+                          </button>
+                          <button
+                            onClick={() => handleStatusChange(nom.nominationId, 'Declined', nom.id)}
+                            disabled={actionAssignmentId === nom.id}
+                            className="py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold shadow-sm disabled:opacity-70"
+                          >
+                            {actionAssignmentId === nom.id ? 'Saving...' : 'Decline'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className={`mt-4 p-2 rounded-lg text-center text-xs font-bold ${
+                          nom.status === 'Accepted' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                        }`}>
+                          Assignment {nom.status}
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className={`mt-4 p-2 rounded-lg text-center text-xs font-bold ${
-                      nom.status === 'Accepted' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-                    }`}>
-                      Assignment {nom.status}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))
+                  </div>
+                ))
+              )}
+            </>
           )}
         </div>
       ) : user.role === 'Referee' ? (

@@ -322,22 +322,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   };
 
   const navItems = [
-    { id: 'nominations' as const, label: 'My Nominations', icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
+    { id: 'nominations' as const, label: user.role === 'Staff' ? 'Nominations' : 'My Nominations', icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
     ...(user.role === 'Instructor'
       ? [{ id: 'teyinat' as const, label: 'Teyinat', icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' }]
       : []),
-    { id: 'ranking' as const, label: 'My Ranking', icon: TrendingUp, iconColor: 'text-green-500', color: 'bg-green-50' },
-    { id: 'reports' as const, label: 'My Reports', icon: FileText, iconColor: 'text-purple-500', color: 'bg-purple-50' },
+    { id: 'ranking' as const, label: user.role === 'Staff' ? 'Ranking' : 'My Ranking', icon: TrendingUp, iconColor: 'text-green-500', color: 'bg-green-50' },
+    { id: 'reports' as const, label: user.role === 'Staff' ? 'Reports' : 'My Reports', icon: FileText, iconColor: 'text-purple-500', color: 'bg-purple-50' },
     { id: 'news' as const, label: 'News', icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
   ];
 
   const declinedAssignments = instructorNominations.flatMap((nomination) =>
-    nomination.referees
+    nomination.createdById === user.id
+      ? nomination.referees
       .filter((referee) => referee.status === 'Declined')
       .map((referee) => ({
         nomination,
         referee,
-      })),
+      }))
+      : [],
   );
 
   const getReplacementOptions = (nomination: InstructorNomination, slotNumber: number) => {
@@ -349,7 +351,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   };
 
   return (
-    <Layout title={user.role === 'Instructor' ? 'Instructor Panel' : 'RefZone Dashboard'} showBack={false} onLogout={onLogout}>
+      <Layout title={user.role === 'Instructor' ? 'Instructor Panel' : user.role === 'Staff' ? 'Staff Panel' : 'RefZone Dashboard'} showBack={false} onLogout={onLogout}>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
         <div className="flex items-center gap-4">
           <div className="relative cursor-pointer group" onClick={handlePhotoClick}>
@@ -582,6 +584,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                       <div>
                         <div className="text-xs font-bold uppercase text-[#581c1c]">{nomination.gameCode}</div>
                         <h4 className="text-lg font-bold text-slate-900">{nomination.teams}</h4>
+                        <div className="mt-1 text-xs text-slate-500">Created by: {nomination.createdByName}</div>
                         <div className="grid gap-2 mt-2 text-sm text-slate-600 md:grid-cols-2">
                           <div className="flex items-center gap-2">
                             <Calendar size={14} className="text-[#f97316]" />
@@ -597,13 +600,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                           </div>
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleDeleteNomination(nomination.id)}
-                        className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
-                      >
-                        <Trash2 size={14} />
-                        Delete Game
-                      </button>
+                      {nomination.createdById === user.id ? (
+                        <button
+                          onClick={() => handleDeleteNomination(nomination.id)}
+                          className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
+                        >
+                          <Trash2 size={14} />
+                          Delete Game
+                        </button>
+                      ) : null}
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-3">
                       {nomination.referees.map((referee) => (

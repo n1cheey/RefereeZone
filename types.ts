@@ -1,5 +1,5 @@
 
-export type UserRole = 'Instructor' | 'Table' | 'Referee' | 'Stuff';
+export type UserRole = 'Instructor' | 'Table' | 'Referee' | 'Staff';
 export type AssignmentStatus = 'Pending' | 'Accepted' | 'Declined';
 export type ReportStatus = 'Draft' | 'Submitted' | 'Reviewed';
 
@@ -50,6 +50,8 @@ export interface InstructorNomination {
   matchTime: string;
   venue: string;
   createdAt: string;
+  createdById: string;
+  createdByName: string;
   referees: NominationSlot[];
 }
 
@@ -140,6 +142,7 @@ export interface RankingPerformanceProfile {
   gameControl: number;
   newPhilosophy: number;
   communication: number;
+  externalEvaluation: number;
 }
 
 export interface RankingLeaderboardItem {
@@ -157,6 +160,7 @@ export interface RankingDashboardData {
   history: RankingPoint[];
   currentUserItem: RankingLeaderboardItem | null;
   performanceProfile: RankingPerformanceProfile | null;
+  visiblePerformanceProfiles: RankingPerformanceProfile[];
 }
 
 export interface Report {
@@ -173,8 +177,8 @@ export interface Report {
 
 export interface NewsItem {
   id: string;
-  title: string;
-  summary: string;
-  date: string;
-  imageUrl: string;
+  youtubeUrl: string;
+  commentary: string;
+  createdAt: string;
+  createdByName: string;
 }
