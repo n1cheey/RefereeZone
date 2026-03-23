@@ -345,9 +345,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
                 <div key={item.refereeId} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-3">
                   <div>
                     <div className="font-semibold text-slate-900">{`#${item.rank} ${item.refereeName}`}</div>
-                    <div className="text-sm text-slate-500">
-                      Total: {item.totalGameScore} • Performance: {item.performanceScore}
-                    </div>
+                    <div className="text-sm text-slate-500">{`Total: ${item.totalGameScore} | Performance: ${item.performanceScore} | AVG: ${item.performanceAverage.toFixed(2)}`}</div>
                   </div>
                   <div className="text-lg font-black text-[#581c1c]">{item.overallScore}</div>
                 </div>
@@ -360,8 +358,8 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
             <div className="space-y-3">
               {adminData.evaluations.slice(-12).reverse().map((entry) => (
                 <div key={entry.id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="font-semibold text-slate-900">{`${entry.gameCode} • ${entry.refereeName}`}</div>
-                  <div className="text-sm text-slate-500">{`${entry.evaluationDate} • score ${entry.score}`}</div>
+                  <div className="font-semibold text-slate-900">{`${entry.gameCode} | ${entry.refereeName}`}</div>
+                  <div className="text-sm text-slate-500">{`${entry.evaluationDate} | score ${entry.score}`}</div>
                   {entry.note && <div className="text-sm text-slate-600 mt-1">{entry.note}</div>}
                 </div>
               ))}
@@ -377,9 +375,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
                 <h3 className="text-4xl font-black text-[#581c1c]">
                   {dashboard.currentUserItem ? `#${dashboard.currentUserItem.rank}` : '-'}
                 </h3>
-                <p className="text-sm text-slate-500 mt-2">
-                  Overall Score: {dashboard.currentUserItem?.overallScore ?? 0}
-                </p>
+                <p className="text-sm text-slate-500 mt-2">{`Overall Score: ${dashboard.currentUserItem?.overallScore ?? 0} | AVG: ${(dashboard.currentUserItem?.performanceAverage ?? 0).toFixed(2)}`}</p>
               </div>
               <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full flex items-center gap-1 text-sm font-bold">
                 <TrendingUp size={16} /> Total {dashboard.currentUserItem?.totalGameScore ?? 0}
@@ -412,6 +408,9 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
           {dashboard.performanceProfile && (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
               <h3 className="text-base font-bold text-slate-900 mb-4">Performance Profile</h3>
+              <div className="mb-4 inline-flex rounded-full bg-[#581c1c]/10 px-3 py-1 text-sm font-bold text-[#581c1c]">
+                AVG: {(dashboard.currentUserItem?.performanceAverage ?? 0).toFixed(2)}
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 {[
                   ['Fiziki hazirliq', dashboard.performanceProfile.physicalFitness],

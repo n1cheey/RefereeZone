@@ -65,6 +65,7 @@ export interface RefereeNomination {
   status: AssignmentStatus;
   respondedAt: string | null;
   instructorName: string;
+  crew: NominationSlot[];
 }
 
 export interface ReportEntry {
@@ -146,6 +147,7 @@ export interface RankingLeaderboardItem {
   refereeName: string;
   totalGameScore: number;
   performanceScore: number;
+  performanceAverage: number;
   overallScore: number;
   rank: number;
 }

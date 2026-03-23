@@ -91,6 +91,29 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     }
   };
 
+  const renderCrew = (crew: RefereeNomination['crew']) => (
+    <div className="mt-4 rounded-xl bg-slate-50 p-3">
+      <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Crew</div>
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
+        {crew.map((official) => (
+          <div key={`${official.refereeId}-${official.slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="text-[11px] font-bold uppercase text-slate-500">{getNominationSlotLabel(official.slotNumber)}</div>
+            <div className="mt-1 text-sm font-semibold text-slate-900">{official.refereeName}</div>
+            <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${
+              official.status === 'Accepted'
+                ? 'bg-green-100 text-green-700'
+                : official.status === 'Declined'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-amber-100 text-amber-700'
+            }`}>
+              {official.status}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <Layout title="My Nominations" onBack={onBack}>
       {errorMessage && (
@@ -199,6 +222,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                       {nom.venue}
                     </div>
                   </div>
+                  {renderCrew(nom.crew)}
 
                   {nom.status === 'Pending' ? (
                     <div className="grid grid-cols-2 gap-3 mt-4">
@@ -265,6 +289,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                       {nom.venue}
                     </div>
                   </div>
+                  {renderCrew(nom.crew)}
 
                   {nom.status === 'Pending' ? (
                     <div className="grid grid-cols-2 gap-3 mt-4">

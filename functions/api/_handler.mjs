@@ -681,8 +681,17 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
     admin,
     [...new Set(nominations.map((nomination) => nomination.created_by))],
   );
+  const nominationAssignments = await listAssignmentsByNominationIds(
+    admin,
+    [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
+  );
+  const assignedOfficials = await listProfilesByIds(
+    admin,
+    [...new Set(nominationAssignments.map((assignment) => assignment.referee_id))],
+  );
   const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
   const instructorMap = new Map(instructors.map((instructor) => [instructor.id, instructor]));
+  const officialMap = new Map(assignedOfficials.map((official) => [official.id, official]));
 
   return visibleAssignments
     .map((assignment) => {
@@ -703,6 +712,16 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
         status: assignment.status,
         respondedAt: assignment.responded_at || null,
         instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
+        crew: nominationAssignments
+          .filter((nominationAssignment) => nominationAssignment.nomination_id === nomination.id)
+          .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+          .map((nominationAssignment) => ({
+            slotNumber: Number(nominationAssignment.slot_number),
+            refereeId: nominationAssignment.referee_id,
+            refereeName: officialMap.get(nominationAssignment.referee_id)?.full_name || 'Unknown referee',
+            status: nominationAssignment.status,
+            respondedAt: nominationAssignment.responded_at || null,
+          })),
       };
     })
     .filter(Boolean)
@@ -851,15 +870,21 @@ const buildRankingState = async (admin) => {
     ]),
   );
 
-  const calculatePerformanceTotal = (profile) =>
-    (profile?.physicalFitness || 0) +
-    (profile?.mechanics || 0) +
-    (profile?.iot || 0) +
-    (profile?.criteriaScore || 0) +
-    (profile?.teamworkScore || 0) +
-    (profile?.gameControl || 0) +
-    (profile?.newPhilosophy || 0) +
-    (profile?.communication || 0);
+  const getPerformanceValues = (profile) => [
+    Number(profile?.physicalFitness || 0),
+    Number(profile?.mechanics || 0),
+    Number(profile?.iot || 0),
+    Number(profile?.criteriaScore || 0),
+    Number(profile?.teamworkScore || 0),
+    Number(profile?.gameControl || 0),
+    Number(profile?.newPhilosophy || 0),
+    Number(profile?.communication || 0),
+  ];
+  const calculatePerformanceTotal = (profile) => getPerformanceValues(profile).reduce((sum, value) => sum + value, 0);
+  const calculatePerformanceAverage = (profile) => {
+    const values = getPerformanceValues(profile);
+    return Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2));
+  };
 
   const totalGameScores = new Map(referees.map((referee) => [referee.id, 0]));
   evaluations.forEach((evaluation) => {
@@ -870,6 +895,7 @@ const buildRankingState = async (admin) => {
     .map((referee) => {
       const performanceProfile = performanceProfiles.get(referee.id) || null;
       const performanceScore = calculatePerformanceTotal(performanceProfile);
+      const performanceAverage = calculatePerformanceAverage(performanceProfile);
       const totalGameScore = totalGameScores.get(referee.id) || 0;
 
       return {
@@ -877,12 +903,14 @@ const buildRankingState = async (admin) => {
         refereeName: referee.full_name,
         totalGameScore,
         performanceScore,
+        performanceAverage,
         overallScore: totalGameScore + performanceScore,
         rank: 0,
       };
     })
     .sort((left, right) => {
       if (right.overallScore !== left.overallScore) return right.overallScore - left.overallScore;
+      if (right.performanceAverage !== left.performanceAverage) return right.performanceAverage - left.performanceAverage;
       if (right.totalGameScore !== left.totalGameScore) return right.totalGameScore - left.totalGameScore;
       return left.refereeName.localeCompare(right.refereeName);
     })
@@ -905,15 +933,21 @@ const buildRankingHistory = (targetRefereeId, rankingState) => {
     return [];
   }
 
-  const calculatePerformanceTotal = (profile) =>
-    (profile?.physicalFitness || 0) +
-    (profile?.mechanics || 0) +
-    (profile?.iot || 0) +
-    (profile?.criteriaScore || 0) +
-    (profile?.teamworkScore || 0) +
-    (profile?.gameControl || 0) +
-    (profile?.newPhilosophy || 0) +
-    (profile?.communication || 0);
+  const getPerformanceValues = (profile) => [
+    Number(profile?.physicalFitness || 0),
+    Number(profile?.mechanics || 0),
+    Number(profile?.iot || 0),
+    Number(profile?.criteriaScore || 0),
+    Number(profile?.teamworkScore || 0),
+    Number(profile?.gameControl || 0),
+    Number(profile?.newPhilosophy || 0),
+    Number(profile?.communication || 0),
+  ];
+  const calculatePerformanceTotal = (profile) => getPerformanceValues(profile).reduce((sum, value) => sum + value, 0);
+  const calculatePerformanceAverage = (profile) => {
+    const values = getPerformanceValues(profile);
+    return Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2));
+  };
 
   const runningScores = new Map(rankingState.referees.map((referee) => [referee.id, 0]));
   const history = [];
@@ -929,6 +963,7 @@ const buildRankingHistory = (targetRefereeId, rankingState) => {
       .map((referee) => {
         const performanceProfile = rankingState.performanceProfiles.get(referee.id) || null;
         const performanceScore = calculatePerformanceTotal(performanceProfile);
+        const performanceAverage = calculatePerformanceAverage(performanceProfile);
         const totalGameScore = runningScores.get(referee.id) || 0;
 
         return {
@@ -936,10 +971,12 @@ const buildRankingHistory = (targetRefereeId, rankingState) => {
           refereeName: referee.full_name,
           overallScore: totalGameScore + performanceScore,
           totalGameScore,
+          performanceAverage,
         };
       })
       .sort((left, right) => {
         if (right.overallScore !== left.overallScore) return right.overallScore - left.overallScore;
+        if (right.performanceAverage !== left.performanceAverage) return right.performanceAverage - left.performanceAverage;
         if (right.totalGameScore !== left.totalGameScore) return right.totalGameScore - left.totalGameScore;
         return left.refereeName.localeCompare(right.refereeName);
       });
