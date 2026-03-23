@@ -17,6 +17,7 @@ type View = 'login' | 'dashboard' | 'nominations' | 'teyinat' | 'ranking' | 'rep
 const AUTH_LOADING_TIMEOUT_MS = 4000;
 const SESSION_SYNC_COOLDOWN_MS = 60000;
 const STORAGE_KEY = 'abl-current-user-cache';
+const VIEW_STORAGE_KEY = 'abl-current-view';
 
 const normalizeStoredUser = (value: unknown): User | null => {
   if (!value || typeof value !== 'object') {
@@ -57,6 +58,42 @@ const writeCachedUser = (user: User | null) => {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
 };
 
+const normalizeStoredView = (value: unknown): View => {
+  switch (value) {
+    case 'dashboard':
+    case 'nominations':
+    case 'teyinat':
+    case 'ranking':
+    case 'reports':
+    case 'news':
+    case 'members':
+    case 'access':
+    case 'login':
+      return value;
+    default:
+      return 'dashboard';
+  }
+};
+
+const readCachedView = (hasUser: boolean) => {
+  try {
+    const raw = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    const view = normalizeStoredView(raw);
+
+    if (!hasUser) {
+      return 'login';
+    }
+
+    return view === 'login' ? 'dashboard' : view;
+  } catch {
+    return hasUser ? 'dashboard' : 'login';
+  }
+};
+
+const writeCachedView = (view: View) => {
+  window.localStorage.setItem(VIEW_STORAGE_KEY, view);
+};
+
 const LoadingScreen = ({ label }: { label: string }) => (
   <div className="min-h-screen flex items-center justify-center bg-slate-50">
     <div className="rounded-2xl border border-slate-200 bg-white px-6 py-4 text-sm font-semibold text-slate-600 shadow-sm">
@@ -71,9 +108,13 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(() =>
     typeof window === 'undefined' ? null : readCachedUser(),
   );
-  const [currentView, setCurrentView] = useState<View>(() =>
-    typeof window === 'undefined' ? 'login' : readCachedUser() ? 'dashboard' : 'login',
-  );
+  const [currentView, setCurrentView] = useState<View>(() => {
+    if (typeof window === 'undefined') {
+      return 'login';
+    }
+
+    return readCachedView(Boolean(readCachedUser()));
+  });
   const [isAuthLoading, setIsAuthLoading] = useState(() =>
     typeof window === 'undefined' ? true : !readCachedUser(),
   );
@@ -96,7 +137,16 @@ const App: React.FC = () => {
 
       startTransition(() => {
         setCurrentUser(user);
-        setCurrentView(user ? 'dashboard' : 'login');
+        setCurrentView((previousView) => {
+          if (!user) {
+            writeCachedView('login');
+            return 'login';
+          }
+
+          const nextView = previousView === 'login' ? readCachedView(true) : previousView;
+          writeCachedView(nextView);
+          return nextView;
+        });
         setIsAuthLoading(false);
       });
     };
@@ -191,7 +241,7 @@ const App: React.FC = () => {
       const cachedUser = readCachedUser();
       if (cachedUser) {
         setCurrentUser(cachedUser);
-        setCurrentView('dashboard');
+        setCurrentView(readCachedView(true));
         setIsAuthLoading(false);
         return;
       }
@@ -220,8 +270,17 @@ const App: React.FC = () => {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    writeCachedView(currentView);
+  }, [currentView]);
+
   const handleLogin = (user: User) => {
     writeCachedUser(user);
+    writeCachedView('dashboard');
     startTransition(() => {
       setCurrentUser(user);
       setCurrentView('dashboard');
@@ -238,6 +297,7 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     writeCachedUser(null);
+    writeCachedView('login');
     startTransition(() => {
       setCurrentUser(null);
       setCurrentView('login');

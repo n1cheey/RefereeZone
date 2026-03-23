@@ -1,9 +1,5 @@
 import { InstructorNomination } from '../types';
-
-const DEFAULT_TEYINAT_API_URL = 'https://refereezone.onrender.com';
-const TEYINAT_API_URL = String(import.meta.env.VITE_TEYINAT_API_URL || DEFAULT_TEYINAT_API_URL)
-  .trim()
-  .replace(/\/+$/, '');
+import { supabase } from './supabaseClient';
 
 export type TeyinatGroup = 'A' | 'B';
 
@@ -36,13 +32,18 @@ const downloadBlob = (blob: Blob, fileName: string) => {
 };
 
 export async function exportTeyinatPdf(selections: TeyinatSelection[]) {
-  if (!TEYINAT_API_URL) {
-    throw new Error('Teyinat service is not configured. Set VITE_TEYINAT_API_URL.');
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('Your session expired. Sign in again.');
   }
 
-  const response = await fetch(`${TEYINAT_API_URL}/teyinat/export`, {
+  const response = await fetch('/api/teyinat/export', {
     method: 'POST',
     headers: {
+      Authorization: `Bearer ${session.access_token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ selections }),

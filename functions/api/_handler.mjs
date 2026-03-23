@@ -45,6 +45,19 @@ const json = (statusCode, body) => ({
   body: JSON.stringify(body),
 });
 
+const binary = (statusCode, body, headers = {}) => ({
+  statusCode,
+  headers: {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    ...headers,
+  },
+  body: Buffer.from(body).toString('base64'),
+  isBase64Encoded: true,
+});
+
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const clampScore = (score) => {
   const numeric = Number(score);
@@ -96,6 +109,11 @@ const getEnv = () => {
 
   return { supabaseUrl, serviceRoleKey };
 };
+
+const getTeyinatServiceUrl = () =>
+  String(process.env.TEYINAT_API_URL || process.env.VITE_TEYINAT_API_URL || 'https://refereezone.onrender.com')
+    .trim()
+    .replace(/\/+$/, '');
 
 const createClients = () => {
   const { supabaseUrl, serviceRoleKey } = getEnv();
@@ -1784,6 +1802,57 @@ const registerUser = async (admin, body) => {
   });
 };
 
+const proxyTeyinatExport = async (body) => {
+  const teyinatServiceUrl = getTeyinatServiceUrl();
+  if (!teyinatServiceUrl) {
+    throw new HttpError(500, 'Teyinat service URL is not configured.');
+  }
+
+  let response;
+
+  try {
+    response = await fetch(`${teyinatServiceUrl}/teyinat/export`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        selections: Array.isArray(body?.selections) ? body.selections : [],
+      }),
+    });
+  } catch {
+    throw new HttpError(502, 'Failed to reach Teyinat PDF service.');
+  }
+
+  if (!response.ok) {
+    let message = 'Failed to generate Teyinat PDF.';
+
+    try {
+      const payload = await response.json();
+      if (payload?.message) {
+        message = payload.message;
+      }
+    } catch {
+      try {
+        const text = await response.text();
+        if (text) {
+          message = text;
+        }
+      } catch {
+        // Keep fallback message.
+      }
+    }
+
+    throw new HttpError(502, message);
+  }
+
+  const buffer = await response.arrayBuffer();
+  return binary(200, buffer, {
+    'Content-Type': response.headers.get('Content-Type') || 'application/pdf',
+    'Content-Disposition': response.headers.get('Content-Disposition') || 'attachment; filename="Teyinat.pdf"',
+  });
+};
+
 const routeRequest = async (event) => {
   const { admin } = createClients();
   const method = event.httpMethod.toUpperCase();
@@ -1933,6 +2002,11 @@ const routeRequest = async (event) => {
 
   if (method === 'GET' && path === '/rankings/admin') {
     return json(200, await getRankingAdminData(admin, currentUser));
+  }
+
+  if (method === 'POST' && path === '/teyinat/export') {
+    await requireRole(admin, currentUser.id, 'Instructor');
+    return proxyTeyinatExport(body);
   }
 
   if (method === 'POST' && path === '/rankings/evaluations') {

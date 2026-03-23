@@ -42,8 +42,11 @@ export async function onRequest(context) {
 
   const event = await toPlatformEvent(context.request);
   const response = await apiHandler(event);
+  const body = response.isBase64Encoded
+    ? Uint8Array.from(atob(response.body || ''), (character) => character.charCodeAt(0))
+    : response.body;
 
-  return new Response(response.body, {
+  return new Response(body, {
     status: response.statusCode,
     headers: response.headers,
   });
