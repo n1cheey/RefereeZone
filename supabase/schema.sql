@@ -94,6 +94,26 @@ create table if not exists public.ranking_performance (
 alter table public.ranking_performance
 add column if not exists external_evaluation integer not null default 0;
 
+create table if not exists public.ranking_match_performance (
+  id uuid primary key default gen_random_uuid(),
+  referee_id uuid not null references public.profiles(id) on delete cascade,
+  game_code text not null,
+  evaluation_date date not null,
+  physical_fitness integer not null default 0 check (physical_fitness in (-1, 0, 1)),
+  mechanics integer not null default 0 check (mechanics in (-1, 0, 1)),
+  iot integer not null default 0 check (iot in (-1, 0, 1)),
+  criteria_score integer not null default 0 check (criteria_score in (-1, 0, 1)),
+  teamwork_score integer not null default 0 check (teamwork_score in (-1, 0, 1)),
+  game_control integer not null default 0 check (game_control in (-1, 0, 1)),
+  new_philosophy integer not null default 0 check (new_philosophy in (-1, 0, 1)),
+  communication integer not null default 0 check (communication in (-1, 0, 1)),
+  external_evaluation integer not null default 0 check (external_evaluation in (-1, 0, 1)),
+  updated_by uuid not null references public.profiles(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (referee_id, game_code, evaluation_date)
+);
+
 create table if not exists public.news_posts (
   id uuid primary key default gen_random_uuid(),
   youtube_url text not null,
@@ -117,6 +137,9 @@ create index if not exists nomination_referees_referee_status_idx
 create index if not exists reports_nomination_referee_author_idx
   on public.reports (nomination_id, referee_id, author_id);
 
+create index if not exists ranking_match_performance_referee_match_idx
+  on public.ranking_match_performance (referee_id, evaluation_date, game_code);
+
 alter table public.allowed_access enable row level security;
 alter table public.profiles enable row level security;
 alter table public.nominations enable row level security;
@@ -124,6 +147,7 @@ alter table public.nomination_referees enable row level security;
 alter table public.reports enable row level security;
 alter table public.ranking_evaluations enable row level security;
 alter table public.ranking_performance enable row level security;
+alter table public.ranking_match_performance enable row level security;
 alter table public.news_posts enable row level security;
 
 alter table public.allowed_access drop constraint if exists allowed_access_allowed_role_check;
@@ -183,6 +207,10 @@ for select using (public.current_user_role() in ('Instructor', 'Staff', 'Stuff')
 
 drop policy if exists "ranking performance read" on public.ranking_performance;
 create policy "ranking performance read" on public.ranking_performance
+for select using (public.current_user_role() in ('Instructor', 'Staff', 'Stuff') or referee_id = auth.uid());
+
+drop policy if exists "ranking match performance read" on public.ranking_match_performance;
+create policy "ranking match performance read" on public.ranking_match_performance
 for select using (public.current_user_role() in ('Instructor', 'Staff', 'Stuff') or referee_id = auth.uid());
 
 drop policy if exists "news read" on public.news_posts;

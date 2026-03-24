@@ -121,6 +121,7 @@ export interface Nomination {
 
 export interface RankingPoint {
   date: string;
+  gameCode: string;
   rank: number;
 }
 
@@ -148,6 +149,24 @@ export interface RankingPerformanceProfile {
   externalEvaluation: number;
 }
 
+export interface RankingPerformanceEntry {
+  id: string;
+  refereeId: string;
+  refereeName: string;
+  gameCode: string;
+  evaluationDate: string;
+  physicalFitness: number;
+  mechanics: number;
+  iot: number;
+  criteriaScore: number;
+  teamworkScore: number;
+  gameControl: number;
+  newPhilosophy: number;
+  communication: number;
+  externalEvaluation: number;
+  matchAverage: number;
+}
+
 export interface RankingLeaderboardItem {
   refereeId: string;
   refereeName: string;
@@ -164,6 +183,9 @@ export interface RankingDashboardData {
   currentUserItem: RankingLeaderboardItem | null;
   performanceProfile: RankingPerformanceProfile | null;
   visiblePerformanceProfiles: RankingPerformanceProfile[];
+  performanceEntries: RankingPerformanceEntry[];
+  totalReferees: number;
+  canViewFullLeaderboard: boolean;
 }
 
 export interface Report {

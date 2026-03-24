@@ -1,7 +1,17 @@
 const BAKU_OFFSET = '+04:00';
 
+const normalizeMatchTime = (matchTime: string) => {
+  const trimmed = String(matchTime || '').trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  return trimmed.length === 5 ? `${trimmed}:00` : trimmed;
+};
+
 export const getMatchTimestamp = (matchDate: string, matchTime: string) => {
-  const candidate = new Date(`${matchDate}T${matchTime}:00${BAKU_OFFSET}`);
+  const normalizedTime = normalizeMatchTime(matchTime);
+  const candidate = new Date(`${matchDate}T${normalizedTime}${BAKU_OFFSET}`);
   return Number.isNaN(candidate.getTime()) ? null : candidate.getTime();
 };
 

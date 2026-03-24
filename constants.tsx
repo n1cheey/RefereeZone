@@ -34,11 +34,11 @@ export const MOCK_NOMINATIONS: Nomination[] = [
 ];
 
 export const MOCK_RANKING: RankingPoint[] = [
-  { date: 'Jan', rank: 12 },
-  { date: 'Feb', rank: 10 },
-  { date: 'Mar', rank: 8 },
-  { date: 'Apr', rank: 5 },
-  { date: 'May', rank: 4 }
+  { date: 'Jan', gameCode: 'ABL-101', rank: 12 },
+  { date: 'Feb', gameCode: 'ABL-108', rank: 10 },
+  { date: 'Mar', gameCode: 'ABL-112', rank: 8 },
+  { date: 'Apr', gameCode: 'ABL-118', rank: 5 },
+  { date: 'May', gameCode: 'ABL-124', rank: 4 }
 ];
 
 export const MOCK_REPORTS: Report[] = [

@@ -1,6 +1,7 @@
 import {
   RankingDashboardData,
   RankingEvaluation,
+  RankingPerformanceEntry,
   RankingLeaderboardItem,
   RankingPerformanceProfile,
 } from '../types';
@@ -17,6 +18,7 @@ export function getRankingAdminData(instructorId: string) {
   return apiRequest<{
     leaderboard: RankingLeaderboardItem[];
     evaluations: RankingEvaluation[];
+    performanceEntries: RankingPerformanceEntry[];
     performanceProfiles: RankingPerformanceProfile[];
     referees: Array<{ id: string; fullName: string }>;
   }>(`/api/rankings/admin?instructorId=${encodeURIComponent(instructorId)}`);
@@ -40,6 +42,8 @@ export function createRankingEvaluation(payload: {
 export function saveRankingPerformance(payload: {
   instructorId: string;
   refereeId: string;
+  gameCode: string;
+  evaluationDate: string;
   physicalFitness: number;
   mechanics: number;
   iot: number;

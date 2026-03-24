@@ -175,13 +175,22 @@ const createAssignmentAutoDeclineDate = (createdAt) => {
   return new Date(createdDate.getTime() + ASSIGNMENT_PENDING_AUTO_DECLINE_MS);
 };
 
+const normalizeMatchTime = (matchTime) => {
+  const trimmed = String(matchTime || '').trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  return trimmed.length === 5 ? `${trimmed}:00` : trimmed;
+};
+
 const createMatchDateTime = (matchDate, matchTime) => {
-  const candidate = new Date(`${matchDate}T${matchTime}:00${BAKU_OFFSET}`);
+  const candidate = new Date(`${matchDate}T${normalizeMatchTime(matchTime)}${BAKU_OFFSET}`);
   return Number.isNaN(candidate.getTime()) ? null : candidate;
 };
 
 const createDeadlineDate = (matchDate, matchTime) => {
-  const deadline = new Date(`${matchDate}T${matchTime}:00${BAKU_OFFSET}`);
+  const deadline = new Date(`${matchDate}T${normalizeMatchTime(matchTime)}${BAKU_OFFSET}`);
   return Number.isNaN(deadline.getTime()) ? null : new Date(deadline.getTime() + 24 * 60 * 60 * 1000);
 };
 
@@ -944,6 +953,51 @@ const getInstructorDashboardData = async (admin, instructorId) => {
   };
 };
 
+const rankingPerformanceFieldMap = [
+  ['physicalFitness', 'physical_fitness'],
+  ['mechanics', 'mechanics'],
+  ['iot', 'iot'],
+  ['criteriaScore', 'criteria_score'],
+  ['teamworkScore', 'teamwork_score'],
+  ['gameControl', 'game_control'],
+  ['newPhilosophy', 'new_philosophy'],
+  ['communication', 'communication'],
+  ['externalEvaluation', 'external_evaluation'],
+];
+
+const createEmptyRankingPerformanceProfile = (refereeId, refereeName) => ({
+  refereeId,
+  refereeName,
+  physicalFitness: 0,
+  mechanics: 0,
+  iot: 0,
+  criteriaScore: 0,
+  teamworkScore: 0,
+  gameControl: 0,
+  newPhilosophy: 0,
+  communication: 0,
+  externalEvaluation: 0,
+});
+
+const getRankingPerformanceValues = (item) =>
+  rankingPerformanceFieldMap.map(([clientKey]) => Number(item?.[clientKey] || 0));
+
+const calculateRankingPerformanceAverage = (item) => {
+  const values = getRankingPerformanceValues(item);
+  if (!values.length) {
+    return 0;
+  }
+
+  return Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2));
+};
+
+const compareRankingLeaderboardItems = (left, right) => {
+  if (right.overallScore !== left.overallScore) return right.overallScore - left.overallScore;
+  if (right.performanceAverage !== left.performanceAverage) return right.performanceAverage - left.performanceAverage;
+  if (right.totalGameScore !== left.totalGameScore) return right.totalGameScore - left.totalGameScore;
+  return left.refereeName.localeCompare(right.refereeName);
+};
+
 const buildRankingState = async (admin) => {
   const refereeResponse = await admin
     .from('profiles')
@@ -963,11 +1017,15 @@ const buildRankingState = async (admin) => {
     'Failed to load ranking evaluations.',
   );
 
-  const performanceResponse = await admin.from('ranking_performance').select('*');
+  const performanceResponse = await admin
+    .from('ranking_match_performance')
+    .select('*')
+    .order('evaluation_date', { ascending: true })
+    .order('created_at', { ascending: true });
   const performanceRows = ensureData(
     performanceResponse.data || [],
     performanceResponse.error,
-    'Failed to load ranking performance profiles.',
+    'Failed to load ranking performance entries.',
   );
 
   const refereeNameMap = new Map(referees.map((referee) => [referee.id, referee.full_name]));
@@ -981,140 +1039,197 @@ const buildRankingState = async (admin) => {
     note: evaluation.note || '',
   }));
 
-  const performanceProfiles = new Map(
-    performanceRows.map((row) => [
-      row.referee_id,
-      {
-        refereeId: row.referee_id,
-        refereeName: refereeNameMap.get(row.referee_id) || 'Unknown referee',
-        physicalFitness: Number(row.physical_fitness || 0),
-        mechanics: Number(row.mechanics || 0),
-        iot: Number(row.iot || 0),
-        criteriaScore: Number(row.criteria_score || 0),
-        teamworkScore: Number(row.teamwork_score || 0),
-        gameControl: Number(row.game_control || 0),
-        newPhilosophy: Number(row.new_philosophy || 0),
-        communication: Number(row.communication || 0),
-        externalEvaluation: Number(row.external_evaluation || 0),
-      },
-    ]),
-  );
+  const performanceEntries = performanceRows.map((row) => {
+    const entry = {
+      id: row.id,
+      refereeId: row.referee_id,
+      refereeName: refereeNameMap.get(row.referee_id) || 'Unknown referee',
+      gameCode: row.game_code,
+      evaluationDate: row.evaluation_date,
+      physicalFitness: Number(row.physical_fitness || 0),
+      mechanics: Number(row.mechanics || 0),
+      iot: Number(row.iot || 0),
+      criteriaScore: Number(row.criteria_score || 0),
+      teamworkScore: Number(row.teamwork_score || 0),
+      gameControl: Number(row.game_control || 0),
+      newPhilosophy: Number(row.new_philosophy || 0),
+      communication: Number(row.communication || 0),
+      externalEvaluation: Number(row.external_evaluation || 0),
+      matchAverage: 0,
+      createdAt: row.created_at || null,
+    };
 
-  const getPerformanceValues = (profile) => [
-    Number(profile?.physicalFitness || 0),
-    Number(profile?.mechanics || 0),
-    Number(profile?.iot || 0),
-    Number(profile?.criteriaScore || 0),
-    Number(profile?.teamworkScore || 0),
-    Number(profile?.gameControl || 0),
-    Number(profile?.newPhilosophy || 0),
-    Number(profile?.communication || 0),
-    Number(profile?.externalEvaluation || 0),
-  ];
-  const calculatePerformanceTotal = (profile) => getPerformanceValues(profile).reduce((sum, value) => sum + value, 0);
-  const calculatePerformanceAverage = (profile) => {
-    const values = getPerformanceValues(profile);
-    return Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2));
-  };
+    return {
+      ...entry,
+      matchAverage: calculateRankingPerformanceAverage(entry),
+    };
+  });
+
+  const performanceGroups = new Map(referees.map((referee) => [referee.id, []]));
+  performanceEntries.forEach((entry) => {
+    const group = performanceGroups.get(entry.refereeId) || [];
+    group.push(entry);
+    performanceGroups.set(entry.refereeId, group);
+  });
+
+  const performanceProfiles = new Map(
+    referees.map((referee) => {
+      const entries = performanceGroups.get(referee.id) || [];
+      if (!entries.length) {
+        return [referee.id, createEmptyRankingPerformanceProfile(referee.id, referee.full_name)];
+      }
+
+      const profile = createEmptyRankingPerformanceProfile(referee.id, referee.full_name);
+      rankingPerformanceFieldMap.forEach(([clientKey]) => {
+        const averageValue =
+          entries.reduce((sum, entry) => sum + Number(entry[clientKey] || 0), 0) / entries.length;
+        profile[clientKey] = Number(averageValue.toFixed(2));
+      });
+
+      return [referee.id, profile];
+    }),
+  );
 
   const totalGameScores = new Map(referees.map((referee) => [referee.id, 0]));
   evaluations.forEach((evaluation) => {
     totalGameScores.set(evaluation.refereeId, (totalGameScores.get(evaluation.refereeId) || 0) + evaluation.score);
   });
 
+  const performanceAverages = new Map(
+    referees.map((referee) => {
+      const entries = performanceGroups.get(referee.id) || [];
+      const averageValue = entries.length
+        ? Number((entries.reduce((sum, entry) => sum + entry.matchAverage, 0) / entries.length).toFixed(2))
+        : 0;
+      return [referee.id, averageValue];
+    }),
+  );
+
   const leaderboard = referees
     .map((referee) => {
-      const performanceProfile = performanceProfiles.get(referee.id) || null;
-      const performanceScore = calculatePerformanceTotal(performanceProfile);
-      const performanceAverage = calculatePerformanceAverage(performanceProfile);
+      const performanceAverage = performanceAverages.get(referee.id) || 0;
       const totalGameScore = totalGameScores.get(referee.id) || 0;
 
       return {
         refereeId: referee.id,
         refereeName: referee.full_name,
         totalGameScore,
-        performanceScore,
+        performanceScore: performanceAverage,
         performanceAverage,
-        overallScore: totalGameScore + performanceScore,
+        overallScore: Number((totalGameScore + performanceAverage).toFixed(2)),
         rank: 0,
       };
     })
-    .sort((left, right) => {
-      if (right.overallScore !== left.overallScore) return right.overallScore - left.overallScore;
-      if (right.performanceAverage !== left.performanceAverage) return right.performanceAverage - left.performanceAverage;
-      if (right.totalGameScore !== left.totalGameScore) return right.totalGameScore - left.totalGameScore;
-      return left.refereeName.localeCompare(right.refereeName);
-    })
+    .sort(compareRankingLeaderboardItems)
     .map((item, index) => ({
       ...item,
       rank: index + 1,
     }));
 
+  const matchRecords = new Map();
+  evaluations.forEach((evaluation) => {
+    const key = `${evaluation.refereeId}|${evaluation.evaluationDate}|${evaluation.gameCode}`;
+    const currentRecord = matchRecords.get(key) || {
+      refereeId: evaluation.refereeId,
+      gameCode: evaluation.gameCode,
+      evaluationDate: evaluation.evaluationDate,
+      score: 0,
+      matchAverage: null,
+      createdAt: null,
+    };
+
+    currentRecord.score += evaluation.score;
+    matchRecords.set(key, currentRecord);
+  });
+
+  performanceEntries.forEach((entry) => {
+    const key = `${entry.refereeId}|${entry.evaluationDate}|${entry.gameCode}`;
+    const currentRecord = matchRecords.get(key) || {
+      refereeId: entry.refereeId,
+      gameCode: entry.gameCode,
+      evaluationDate: entry.evaluationDate,
+      score: 0,
+      matchAverage: null,
+      createdAt: null,
+    };
+
+    currentRecord.matchAverage = entry.matchAverage;
+    currentRecord.createdAt = entry.createdAt || currentRecord.createdAt;
+    matchRecords.set(key, currentRecord);
+  });
+
   return {
     referees,
     evaluations,
     performanceProfiles,
+    performanceEntries,
+    matchRecords: Array.from(matchRecords.values()).sort((left, right) => {
+      const dateCompare = String(left.evaluationDate).localeCompare(String(right.evaluationDate));
+      if (dateCompare !== 0) {
+        return dateCompare;
+      }
+
+      const gameCompare = String(left.gameCode).localeCompare(String(right.gameCode));
+      if (gameCompare !== 0) {
+        return gameCompare;
+      }
+
+      return String(left.refereeId).localeCompare(String(right.refereeId));
+    }),
     leaderboard,
   };
 };
 
 const buildRankingHistory = (targetRefereeId, rankingState) => {
-  const targetEvaluations = rankingState.evaluations.filter((item) => item.refereeId === targetRefereeId);
-  if (!targetEvaluations.length) {
+  const targetMatches = rankingState.matchRecords.filter((item) => item.refereeId === targetRefereeId);
+  if (!targetMatches.length) {
     return [];
   }
 
-  const getPerformanceValues = (profile) => [
-    Number(profile?.physicalFitness || 0),
-    Number(profile?.mechanics || 0),
-    Number(profile?.iot || 0),
-    Number(profile?.criteriaScore || 0),
-    Number(profile?.teamworkScore || 0),
-    Number(profile?.gameControl || 0),
-    Number(profile?.newPhilosophy || 0),
-    Number(profile?.communication || 0),
-    Number(profile?.externalEvaluation || 0),
-  ];
-  const calculatePerformanceTotal = (profile) => getPerformanceValues(profile).reduce((sum, value) => sum + value, 0);
-  const calculatePerformanceAverage = (profile) => {
-    const values = getPerformanceValues(profile);
-    return Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2));
-  };
-
   const runningScores = new Map(rankingState.referees.map((referee) => [referee.id, 0]));
+  const runningPerformanceTotals = new Map(rankingState.referees.map((referee) => [referee.id, 0]));
+  const runningPerformanceCounts = new Map(rankingState.referees.map((referee) => [referee.id, 0]));
   const history = [];
 
-  rankingState.evaluations.forEach((evaluation) => {
-    runningScores.set(evaluation.refereeId, (runningScores.get(evaluation.refereeId) || 0) + evaluation.score);
+  rankingState.matchRecords.forEach((matchRecord) => {
+    runningScores.set(matchRecord.refereeId, (runningScores.get(matchRecord.refereeId) || 0) + Number(matchRecord.score || 0));
 
-    if (evaluation.refereeId !== targetRefereeId) {
-      return;
+    if (typeof matchRecord.matchAverage === 'number') {
+      runningPerformanceTotals.set(
+        matchRecord.refereeId,
+        (runningPerformanceTotals.get(matchRecord.refereeId) || 0) + matchRecord.matchAverage,
+      );
+      runningPerformanceCounts.set(
+        matchRecord.refereeId,
+        (runningPerformanceCounts.get(matchRecord.refereeId) || 0) + 1,
+      );
     }
 
     const snapshot = rankingState.referees
       .map((referee) => {
-        const performanceProfile = rankingState.performanceProfiles.get(referee.id) || null;
-        const performanceScore = calculatePerformanceTotal(performanceProfile);
-        const performanceAverage = calculatePerformanceAverage(performanceProfile);
         const totalGameScore = runningScores.get(referee.id) || 0;
+        const performanceCount = runningPerformanceCounts.get(referee.id) || 0;
+        const performanceAverage = performanceCount
+          ? Number(((runningPerformanceTotals.get(referee.id) || 0) / performanceCount).toFixed(2))
+          : 0;
 
         return {
           refereeId: referee.id,
           refereeName: referee.full_name,
-          overallScore: totalGameScore + performanceScore,
+          overallScore: Number((totalGameScore + performanceAverage).toFixed(2)),
           totalGameScore,
           performanceAverage,
         };
       })
-      .sort((left, right) => {
-        if (right.overallScore !== left.overallScore) return right.overallScore - left.overallScore;
-        if (right.performanceAverage !== left.performanceAverage) return right.performanceAverage - left.performanceAverage;
-        if (right.totalGameScore !== left.totalGameScore) return right.totalGameScore - left.totalGameScore;
-        return left.refereeName.localeCompare(right.refereeName);
-      });
+      .sort(compareRankingLeaderboardItems);
+
+    if (matchRecord.refereeId !== targetRefereeId) {
+      return;
+    }
 
     history.push({
-      date: evaluation.evaluationDate,
+      date: matchRecord.evaluationDate,
+      gameCode: matchRecord.gameCode,
       rank: snapshot.findIndex((item) => item.refereeId === targetRefereeId) + 1,
     });
   });
@@ -1985,14 +2100,21 @@ const deleteReport = async (admin, currentUser, nominationId, refereeId) => {
 
 const getRankingDashboard = async (admin, currentUser) => {
   const rankingState = await buildRankingState(admin);
+  const totalReferees = rankingState.leaderboard.length;
 
   if (currentUser.role === 'Referee') {
+    const currentUserItem = rankingState.leaderboard.find((item) => item.refereeId === currentUser.id) || null;
+    const currentUserPerformanceProfile = rankingState.performanceProfiles.get(currentUser.id) || null;
+
     return {
-      leaderboard: rankingState.leaderboard,
+      leaderboard: currentUserItem ? [currentUserItem] : [],
       history: buildRankingHistory(currentUser.id, rankingState),
-      currentUserItem: rankingState.leaderboard.find((item) => item.refereeId === currentUser.id) || null,
-      performanceProfile: rankingState.performanceProfiles.get(currentUser.id) || null,
-      visiblePerformanceProfiles: Array.from(rankingState.performanceProfiles.values()),
+      currentUserItem,
+      performanceProfile: currentUserPerformanceProfile,
+      visiblePerformanceProfiles: currentUserPerformanceProfile ? [currentUserPerformanceProfile] : [],
+      performanceEntries: rankingState.performanceEntries.filter((item) => item.refereeId === currentUser.id),
+      totalReferees,
+      canViewFullLeaderboard: false,
     };
   }
 
@@ -2003,6 +2125,9 @@ const getRankingDashboard = async (admin, currentUser) => {
       currentUserItem: null,
       performanceProfile: null,
       visiblePerformanceProfiles: Array.from(rankingState.performanceProfiles.values()),
+      performanceEntries: rankingState.performanceEntries,
+      totalReferees,
+      canViewFullLeaderboard: true,
     };
   }
 
@@ -2012,6 +2137,9 @@ const getRankingDashboard = async (admin, currentUser) => {
     currentUserItem: null,
     performanceProfile: null,
     visiblePerformanceProfiles: [],
+    performanceEntries: [],
+    totalReferees,
+    canViewFullLeaderboard: false,
   };
 };
 
@@ -2022,6 +2150,7 @@ const getRankingAdminData = async (admin, currentUser) => {
   return {
     leaderboard: rankingState.leaderboard,
     evaluations: rankingState.evaluations,
+    performanceEntries: rankingState.performanceEntries,
     performanceProfiles: Array.from(rankingState.performanceProfiles.values()),
     referees: rankingState.referees.map((referee) => ({
       id: referee.id,
@@ -2064,6 +2193,8 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   await requireReferees(admin, [body.refereeId]);
 
+  const gameCode = String(body.gameCode || '').trim();
+  const evaluationDate = String(body.evaluationDate || '').trim();
   const values = [
     Number(body.physicalFitness),
     Number(body.mechanics),
@@ -2080,9 +2211,15 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
     throw new HttpError(400, 'Performance values must be -1, 0 or 1.');
   }
 
-  const { error } = await admin.from('ranking_performance').upsert(
+  if (!gameCode || !evaluationDate) {
+    throw new HttpError(400, 'Game number and evaluation date are required.');
+  }
+
+  const { error } = await admin.from('ranking_match_performance').upsert(
     {
       referee_id: body.refereeId,
+      game_code: gameCode,
+      evaluation_date: evaluationDate,
       physical_fitness: values[0],
       mechanics: values[1],
       iot: values[2],
@@ -2096,12 +2233,12 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
       updated_at: new Date().toISOString(),
     },
     {
-      onConflict: 'referee_id',
+      onConflict: 'referee_id,game_code,evaluation_date',
     },
   );
 
   if (error) {
-    throw new HttpError(500, 'Failed to save performance profile.');
+    throw new HttpError(500, 'Failed to save match performance.');
   }
 };
 
