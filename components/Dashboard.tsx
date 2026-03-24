@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination } from '../types';
 import { getNominationSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
+import { isPastMatch } from '../matchTiming';
 import Layout from './Layout';
 import {
   AlertTriangle,
@@ -28,6 +29,7 @@ import {
   getRefereeNominations,
   replaceNominationReferee,
   respondToNomination,
+  updateNominationScore,
 } from '../services/nominationService';
 
 interface DashboardProps {
@@ -38,6 +40,11 @@ interface DashboardProps {
 }
 
 const POLL_INTERVAL_MS = 45000;
+
+const splitMatchesByTime = <T extends { matchDate: string; matchTime: string }>(items: T[], now: number) => ({
+  upcoming: items.filter((item) => !isPastMatch(item.matchDate, item.matchTime, now)),
+  past: items.filter((item) => isPastMatch(item.matchDate, item.matchTime, now)),
+});
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpdateUser }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -51,6 +58,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [actionAssignmentId, setActionAssignmentId] = useState<string | null>(null);
   const [replaceActionKey, setReplaceActionKey] = useState<string | null>(null);
   const [replaceSelections, setReplaceSelections] = useState<Record<string, string>>({});
+  const [scoreActionId, setScoreActionId] = useState<string | null>(null);
+  const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const dashboardLoadPromiseRef = useRef<Promise<void> | null>(null);
   const [form, setForm] = useState({
@@ -362,6 +371,232 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     return referees.filter((referee) => !occupied.has(referee.id));
   };
 
+  const createdNominationSections = useMemo(
+    () => splitMatchesByTime(instructorNominations, countdownNow),
+    [instructorNominations, countdownNow],
+  );
+  const assignmentSections = useMemo(
+    () => splitMatchesByTime(refereeAssignments, countdownNow),
+    [refereeAssignments, countdownNow],
+  );
+
+  const handleSaveScore = async (nomination: InstructorNomination) => {
+    const finalScore = (scoreInputs[nomination.id] ?? nomination.finalScore ?? '').trim();
+    if (!finalScore) {
+      setDashboardError('Enter the final score first.');
+      return;
+    }
+
+    setScoreActionId(nomination.id);
+    setDashboardError('');
+    setDashboardMessage('');
+
+    try {
+      await updateNominationScore({
+        nominationId: nomination.id,
+        instructorId: user.id,
+        finalScore,
+      });
+      await refreshInstructorData();
+      setScoreInputs((prev) => ({
+        ...prev,
+        [nomination.id]: finalScore,
+      }));
+      setDashboardMessage('Final score saved.');
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : 'Failed to save final score.');
+    } finally {
+      setScoreActionId(null);
+    }
+  };
+
+  const renderFinalScore = (finalScore: string | null) =>
+    finalScore ? (
+      <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
+        Final score: {finalScore}
+      </div>
+    ) : null;
+
+  const renderInstructorScoreEditor = (nomination: InstructorNomination) => {
+    const isOwner = nomination.createdById === user.id;
+    const isPast = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
+
+    if (!isOwner || !isPast) {
+      return null;
+    }
+
+    return (
+      <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Final Score</div>
+        <div className="mt-3 flex flex-col gap-3 md:flex-row">
+          <input
+            value={scoreInputs[nomination.id] ?? nomination.finalScore ?? ''}
+            onChange={(event) =>
+              setScoreInputs((prev) => ({
+                ...prev,
+                [nomination.id]: event.target.value,
+              }))
+            }
+            placeholder="e.g. 89:76"
+            className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+          />
+          <button
+            onClick={() => handleSaveScore(nomination)}
+            disabled={scoreActionId === nomination.id}
+            className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
+          >
+            {scoreActionId === nomination.id ? 'Saving...' : 'Save score'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCreatedNominationCard = (nomination: InstructorNomination) => (
+    <div key={nomination.id} className="rounded-xl border border-slate-200 p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="text-xs font-bold uppercase text-[#581c1c]">{nomination.gameCode}</div>
+          <h4 className="text-lg font-bold text-slate-900">{nomination.teams}</h4>
+          <div className="mt-1 text-xs text-slate-500">Created by: {nomination.createdByName}</div>
+          <div className="grid gap-2 mt-2 text-sm text-slate-600 md:grid-cols-2">
+            <div className="flex items-center gap-2">
+              <Calendar size={14} className="text-[#f97316]" />
+              {nomination.matchDate}
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock size={14} className="text-[#f97316]" />
+              {nomination.matchTime}
+            </div>
+            <div className="flex items-center gap-2 md:col-span-2">
+              <MapPin size={14} className="text-[#f97316]" />
+              {nomination.venue}
+            </div>
+          </div>
+        </div>
+        {nomination.createdById === user.id ? (
+          <button
+            onClick={() => handleDeleteNomination(nomination.id)}
+            className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
+          >
+            <Trash2 size={14} />
+            Delete Game
+          </button>
+        ) : null}
+      </div>
+      {renderFinalScore(nomination.finalScore)}
+      {renderInstructorScoreEditor(nomination)}
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {nomination.referees.map((referee) => {
+          const replaceKey = `${nomination.id}-${referee.slotNumber}`;
+          const options = getReplacementOptions(nomination, referee.slotNumber);
+          const canReplaceSlot = nomination.createdById === user.id && referee.status !== 'Accepted';
+
+          return (
+            <div key={replaceKey} className="rounded-xl bg-slate-50 p-3">
+              <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber)}</div>
+              <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
+              <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                referee.status === 'Accepted'
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : referee.status === 'Declined'
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-amber-100 text-amber-700'
+              }`}>
+                {referee.status}
+              </div>
+              {canReplaceSlot ? (
+                <div className="mt-3 space-y-2">
+                  <select
+                    value={replaceSelections[replaceKey] || ''}
+                    onChange={(e) => setReplaceSelections((prev) => ({ ...prev, [replaceKey]: e.target.value }))}
+                    className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                  >
+                    <option value="">Select replacement official</option>
+                    {options.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {`${option.fullName} (${option.role})`}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => handleReplaceReferee(nomination.id, referee.slotNumber)}
+                    disabled={replaceActionKey === replaceKey || options.length === 0}
+                    className="w-full rounded-xl bg-[#581c1c] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+                  >
+                    {replaceActionKey === replaceKey ? 'Replacing...' : `Replace ${getNominationSlotLabel(referee.slotNumber)}`}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  const renderAssignmentCard = (assignment: RefereeNomination) => (
+    <div key={assignment.id} className="rounded-xl border border-slate-200 p-4">
+      {assignment.status === 'Pending' ? (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+          {formatAutoDeclineCountdown(assignment.autoDeclineAt, countdownNow) || 'Auto reject timer unavailable.'}
+        </div>
+      ) : null}
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="text-xs font-bold uppercase text-[#581c1c]">{assignment.gameCode}</div>
+          <div className="text-xs font-bold uppercase text-[#581c1c]">{getNominationSlotLabel(assignment.slotNumber)}</div>
+          <h4 className="text-lg font-bold text-slate-900 mt-1">{assignment.teams}</h4>
+          <div className="grid gap-2 mt-3 text-sm text-slate-600 md:grid-cols-2">
+            <div className="flex items-center gap-2">
+              <Calendar size={14} className="text-[#f97316]" />
+              {assignment.matchDate}
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock size={14} className="text-[#f97316]" />
+              {assignment.matchTime}
+            </div>
+            <div className="flex items-center gap-2 md:col-span-2">
+              <MapPin size={14} className="text-[#f97316]" />
+              {assignment.venue}
+            </div>
+            <div className="md:col-span-2 text-xs uppercase font-semibold tracking-wide text-slate-500">
+              Instructor: {assignment.instructorName}
+            </div>
+          </div>
+        </div>
+        <div className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
+          assignment.status === 'Accepted'
+            ? 'bg-emerald-100 text-emerald-700'
+            : assignment.status === 'Declined'
+              ? 'bg-red-100 text-red-700'
+              : 'bg-amber-100 text-amber-700'
+        }`}>
+          {assignment.status}
+        </div>
+      </div>
+      {renderFinalScore(assignment.finalScore)}
+      {assignment.status === 'Pending' && (
+        <div className="grid grid-cols-2 gap-3 mt-4">
+          <button
+            onClick={() => handleNominationResponse(assignment.nominationId, 'Accepted', assignment.id)}
+            disabled={actionAssignmentId === assignment.id}
+            className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
+          >
+            {actionAssignmentId === assignment.id ? 'Saving...' : 'Accept'}
+          </button>
+          <button
+            onClick={() => handleNominationResponse(assignment.nominationId, 'Declined', assignment.id)}
+            disabled={actionAssignmentId === assignment.id}
+            className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700 disabled:opacity-70"
+          >
+            {actionAssignmentId === assignment.id ? 'Saving...' : 'Decline'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   return (
       <Layout title={user.role === 'Instructor' ? 'Instructor Panel' : user.role === 'Staff' ? 'Staff Panel' : 'RefZone Dashboard'} showBack={false} onLogout={onLogout}>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
@@ -586,90 +821,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             <h3 className="text-base font-bold text-slate-900 mb-4">Created Nominations</h3>
             {isLoadingAssignments ? (
               <p className="text-sm text-slate-500">Loading nominations...</p>
-            ) : instructorNominations.length === 0 ? (
-              <p className="text-sm text-slate-500">No nominations created yet.</p>
             ) : (
-              <div className="space-y-4">
-                {instructorNominations.map((nomination) => (
-                  <div key={nomination.id} className="rounded-xl border border-slate-200 p-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <div className="text-xs font-bold uppercase text-[#581c1c]">{nomination.gameCode}</div>
-                        <h4 className="text-lg font-bold text-slate-900">{nomination.teams}</h4>
-                        <div className="mt-1 text-xs text-slate-500">Created by: {nomination.createdByName}</div>
-                        <div className="grid gap-2 mt-2 text-sm text-slate-600 md:grid-cols-2">
-                          <div className="flex items-center gap-2">
-                            <Calendar size={14} className="text-[#f97316]" />
-                            {nomination.matchDate}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Clock size={14} className="text-[#f97316]" />
-                            {nomination.matchTime}
-                          </div>
-                          <div className="flex items-center gap-2 md:col-span-2">
-                            <MapPin size={14} className="text-[#f97316]" />
-                            {nomination.venue}
-                          </div>
-                        </div>
-                      </div>
-                      {nomination.createdById === user.id ? (
-                        <button
-                          onClick={() => handleDeleteNomination(nomination.id)}
-                          className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
-                        >
-                          <Trash2 size={14} />
-                          Delete Game
-                        </button>
-                      ) : null}
-                    </div>
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
-                      {nomination.referees.map((referee) => {
-                        const replaceKey = `${nomination.id}-${referee.slotNumber}`;
-                        const options = getReplacementOptions(nomination, referee.slotNumber);
-                        const canReplaceSlot = nomination.createdById === user.id && referee.status !== 'Accepted';
-
-                        return (
-                          <div key={replaceKey} className="rounded-xl bg-slate-50 p-3">
-                            <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber)}</div>
-                            <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
-                            <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                              referee.status === 'Accepted'
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : referee.status === 'Declined'
-                                  ? 'bg-red-100 text-red-700'
-                                  : 'bg-amber-100 text-amber-700'
-                            }`}>
-                              {referee.status}
-                            </div>
-                            {canReplaceSlot ? (
-                              <div className="mt-3 space-y-2">
-                                <select
-                                  value={replaceSelections[replaceKey] || ''}
-                                  onChange={(e) => setReplaceSelections((prev) => ({ ...prev, [replaceKey]: e.target.value }))}
-                                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                                >
-                                  <option value="">Select replacement official</option>
-                                  {options.map((option) => (
-                                    <option key={option.id} value={option.id}>
-                                      {`${option.fullName} (${option.role})`}
-                                    </option>
-                                  ))}
-                                </select>
-                                <button
-                                  onClick={() => handleReplaceReferee(nomination.id, referee.slotNumber)}
-                                  disabled={replaceActionKey === replaceKey || options.length === 0}
-                                  className="w-full rounded-xl bg-[#581c1c] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
-                                >
-                                  {replaceActionKey === replaceKey ? 'Replacing...' : `Replace ${getNominationSlotLabel(referee.slotNumber)}`}
-                                </button>
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Upcoming Games</div>
+                  {createdNominationSections.upcoming.length === 0 ? (
+                    <p className="text-sm text-slate-500">No upcoming nominations.</p>
+                  ) : (
+                    createdNominationSections.upcoming.map(renderCreatedNominationCard)
+                  )}
+                </div>
+                <div className="space-y-4">
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Past Games</div>
+                  {createdNominationSections.past.length === 0 ? (
+                    <p className="text-sm text-slate-500">No past games yet.</p>
+                  ) : (
+                    createdNominationSections.past.map(renderCreatedNominationCard)
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -682,75 +851,29 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             <div className="flex items-center gap-2 mb-4">
               <Bell size={18} className="text-[#581c1c]" />
               <h3 className="text-base font-bold text-slate-900">
-                {user.role === 'Instructor' ? 'My Game Assignments' : 'Upcoming Game'}
+                {user.role === 'Instructor' ? 'My Game Assignments' : 'Game Assignments'}
               </h3>
             </div>
             {isLoadingAssignments ? (
               <p className="text-sm text-slate-500">Loading assignments...</p>
-            ) : refereeAssignments.length === 0 ? (
-              <p className="text-sm text-slate-500">No upcoming games yet.</p>
             ) : (
-              <div className="space-y-4">
-                {refereeAssignments.map((assignment) => (
-                  <div key={assignment.id} className="rounded-xl border border-slate-200 p-4">
-                    {assignment.status === 'Pending' ? (
-                      <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-                        {formatAutoDeclineCountdown(assignment.autoDeclineAt, countdownNow) || 'Auto reject timer unavailable.'}
-                      </div>
-                    ) : null}
-                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <div className="text-xs font-bold uppercase text-[#581c1c]">{assignment.gameCode}</div>
-                        <div className="text-xs font-bold uppercase text-[#581c1c]">{getNominationSlotLabel(assignment.slotNumber)}</div>
-                        <h4 className="text-lg font-bold text-slate-900 mt-1">{assignment.teams}</h4>
-                        <div className="grid gap-2 mt-3 text-sm text-slate-600 md:grid-cols-2">
-                          <div className="flex items-center gap-2">
-                            <Calendar size={14} className="text-[#f97316]" />
-                            {assignment.matchDate}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Clock size={14} className="text-[#f97316]" />
-                            {assignment.matchTime}
-                          </div>
-                          <div className="flex items-center gap-2 md:col-span-2">
-                            <MapPin size={14} className="text-[#f97316]" />
-                            {assignment.venue}
-                          </div>
-                          <div className="md:col-span-2 text-xs uppercase font-semibold tracking-wide text-slate-500">
-                            Instructor: {assignment.instructorName}
-                          </div>
-                        </div>
-                      </div>
-                      <div className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                        assignment.status === 'Accepted'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : assignment.status === 'Declined'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-amber-100 text-amber-700'
-                      }`}>
-                        {assignment.status}
-                      </div>
-                    </div>
-                    {assignment.status === 'Pending' && (
-                      <div className="grid grid-cols-2 gap-3 mt-4">
-                        <button
-                          onClick={() => handleNominationResponse(assignment.nominationId, 'Accepted', assignment.id)}
-                          disabled={actionAssignmentId === assignment.id}
-                          className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
-                        >
-                          {actionAssignmentId === assignment.id ? 'Saving...' : 'Accept'}
-                        </button>
-                        <button
-                          onClick={() => handleNominationResponse(assignment.nominationId, 'Declined', assignment.id)}
-                          disabled={actionAssignmentId === assignment.id}
-                          className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700 disabled:opacity-70"
-                        >
-                          {actionAssignmentId === assignment.id ? 'Saving...' : 'Decline'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Upcoming Assigned Games</div>
+                  {assignmentSections.upcoming.length === 0 ? (
+                    <p className="text-sm text-slate-500">No upcoming games yet.</p>
+                  ) : (
+                    assignmentSections.upcoming.map(renderAssignmentCard)
+                  )}
+                </div>
+                <div className="space-y-4">
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Past Games</div>
+                  {assignmentSections.past.length === 0 ? (
+                    <p className="text-sm text-slate-500">No past games yet.</p>
+                  ) : (
+                    assignmentSections.past.map(renderAssignmentCard)
+                  )}
+                </div>
               </div>
             )}
           </div>
