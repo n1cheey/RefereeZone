@@ -1,3 +1,38 @@
+@font-face {
+  font-family: 'ABF Bevellier';
+  src: url('./ABF fonts/Bevellier-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'ABF Bevellier';
+  src: url('./ABF fonts/Bevellier-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'ABF Bevellier';
+  src: url('./ABF fonts/Bevellier-Semibold.otf') format('opentype');
+  font-weight: 600;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'ABF Bevellier';
+  src: url('./ABF fonts/Bevellier-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'ABF Bevellier';
+  src: url('./ABF fonts/Bevellier-Black.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+}
+
 html,
 body,
 #root {
@@ -25,4 +60,13 @@ textarea {
 img {
   display: block;
   max-width: 100%;
+}
+
+.font-abf {
+  font-family: 'ABF Bevellier', 'Inter', sans-serif;
+}
+
+.font-abf-display {
+  font-family: 'ABF Bevellier', 'Inter', sans-serif;
+  font-weight: 900;
 }
