@@ -155,6 +155,7 @@ export interface RankingPerformanceEntry {
   refereeName: string;
   gameCode: string;
   evaluationDate: string;
+  note: string;
   physicalFitness: number;
   mechanics: number;
   iot: number;

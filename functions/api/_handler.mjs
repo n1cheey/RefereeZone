@@ -992,8 +992,8 @@ const calculateRankingPerformanceAverage = (item) => {
 };
 
 const compareRankingLeaderboardItems = (left, right) => {
-  if (right.overallScore !== left.overallScore) return right.overallScore - left.overallScore;
   if (right.performanceAverage !== left.performanceAverage) return right.performanceAverage - left.performanceAverage;
+  if (right.overallScore !== left.overallScore) return right.overallScore - left.overallScore;
   if (right.totalGameScore !== left.totalGameScore) return right.totalGameScore - left.totalGameScore;
   return left.refereeName.localeCompare(right.refereeName);
 };
@@ -1046,6 +1046,7 @@ const buildRankingState = async (admin) => {
       refereeName: refereeNameMap.get(row.referee_id) || 'Unknown referee',
       gameCode: row.game_code,
       evaluationDate: row.evaluation_date,
+      note: row.note || '',
       physicalFitness: Number(row.physical_fitness || 0),
       mechanics: Number(row.mechanics || 0),
       iot: Number(row.iot || 0),
@@ -1090,10 +1091,9 @@ const buildRankingState = async (admin) => {
     }),
   );
 
-  const totalGameScores = new Map(referees.map((referee) => [referee.id, 0]));
-  evaluations.forEach((evaluation) => {
-    totalGameScores.set(evaluation.refereeId, (totalGameScores.get(evaluation.refereeId) || 0) + evaluation.score);
-  });
+  const totalGameScores = new Map(
+    referees.map((referee) => [referee.id, (performanceGroups.get(referee.id) || []).length]),
+  );
 
   const performanceAverages = new Map(
     referees.map((referee) => {
@@ -1116,7 +1116,7 @@ const buildRankingState = async (admin) => {
         totalGameScore,
         performanceScore: performanceAverage,
         performanceAverage,
-        overallScore: Number((totalGameScore + performanceAverage).toFixed(2)),
+        overallScore: performanceAverage,
         rank: 0,
       };
     })
@@ -1181,33 +1181,33 @@ const buildRankingState = async (admin) => {
 };
 
 const buildRankingHistory = (targetRefereeId, rankingState) => {
-  const targetMatches = rankingState.matchRecords.filter((item) => item.refereeId === targetRefereeId);
+  const targetMatches = rankingState.matchRecords.filter(
+    (item) => item.refereeId === targetRefereeId && typeof item.matchAverage === 'number',
+  );
   if (!targetMatches.length) {
     return [];
   }
 
-  const runningScores = new Map(rankingState.referees.map((referee) => [referee.id, 0]));
   const runningPerformanceTotals = new Map(rankingState.referees.map((referee) => [referee.id, 0]));
   const runningPerformanceCounts = new Map(rankingState.referees.map((referee) => [referee.id, 0]));
   const history = [];
 
   rankingState.matchRecords.forEach((matchRecord) => {
-    runningScores.set(matchRecord.refereeId, (runningScores.get(matchRecord.refereeId) || 0) + Number(matchRecord.score || 0));
-
-    if (typeof matchRecord.matchAverage === 'number') {
-      runningPerformanceTotals.set(
-        matchRecord.refereeId,
-        (runningPerformanceTotals.get(matchRecord.refereeId) || 0) + matchRecord.matchAverage,
-      );
-      runningPerformanceCounts.set(
-        matchRecord.refereeId,
-        (runningPerformanceCounts.get(matchRecord.refereeId) || 0) + 1,
-      );
+    if (typeof matchRecord.matchAverage !== 'number') {
+      return;
     }
+
+    runningPerformanceTotals.set(
+      matchRecord.refereeId,
+      (runningPerformanceTotals.get(matchRecord.refereeId) || 0) + matchRecord.matchAverage,
+    );
+    runningPerformanceCounts.set(
+      matchRecord.refereeId,
+      (runningPerformanceCounts.get(matchRecord.refereeId) || 0) + 1,
+    );
 
     const snapshot = rankingState.referees
       .map((referee) => {
-        const totalGameScore = runningScores.get(referee.id) || 0;
         const performanceCount = runningPerformanceCounts.get(referee.id) || 0;
         const performanceAverage = performanceCount
           ? Number(((runningPerformanceTotals.get(referee.id) || 0) / performanceCount).toFixed(2))
@@ -1216,8 +1216,8 @@ const buildRankingHistory = (targetRefereeId, rankingState) => {
         return {
           refereeId: referee.id,
           refereeName: referee.full_name,
-          overallScore: Number((totalGameScore + performanceAverage).toFixed(2)),
-          totalGameScore,
+          overallScore: performanceAverage,
+          totalGameScore: performanceCount,
           performanceAverage,
         };
       })
@@ -2195,6 +2195,7 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
 
   const gameCode = String(body.gameCode || '').trim();
   const evaluationDate = String(body.evaluationDate || '').trim();
+  const note = String(body.note || '').trim();
   const values = [
     Number(body.physicalFitness),
     Number(body.mechanics),
@@ -2220,6 +2221,7 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
       referee_id: body.refereeId,
       game_code: gameCode,
       evaluation_date: evaluationDate,
+      note,
       physical_fitness: values[0],
       mechanics: values[1],
       iot: values[2],

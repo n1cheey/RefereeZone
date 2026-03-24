@@ -2,13 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Layout from './Layout';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Award, Save, Shield, TrendingUp } from 'lucide-react';
-import {
-  RankingDashboardData,
-  RankingPerformanceEntry,
-  RankingPerformanceProfile,
-  User,
-} from '../types';
-import { createRankingEvaluation, getRankingAdminData, getRankingDashboard, saveRankingPerformance } from '../services/rankingService';
+import { RankingDashboardData, RankingPerformanceEntry, RankingPerformanceProfile, User } from '../types';
+import { getRankingAdminData, getRankingDashboard, saveRankingPerformance } from '../services/rankingService';
 
 const scoreOptions = [-1, 0, 1];
 
@@ -17,9 +12,10 @@ interface RankingProps {
   onBack: () => void;
 }
 
-const emptyPerformanceForm = {
+const emptyMatchPerformanceForm = {
   gameCode: '',
   evaluationDate: '',
+  note: '',
   physicalFitness: 0,
   mechanics: 0,
   iot: 0,
@@ -31,7 +27,7 @@ const emptyPerformanceForm = {
   externalEvaluation: 0,
 };
 
-const performanceFields: Array<[keyof Omit<typeof emptyPerformanceForm, 'gameCode' | 'evaluationDate'>, string]> = [
+const performanceFields: Array<[keyof Omit<typeof emptyMatchPerformanceForm, 'gameCode' | 'evaluationDate' | 'note'>, string]> = [
   ['physicalFitness', 'Fiziki hazirliq'],
   ['mechanics', 'Mexanika'],
   ['iot', 'IOT'],
@@ -45,40 +41,29 @@ const performanceFields: Array<[keyof Omit<typeof emptyPerformanceForm, 'gameCod
 
 const formatAverage = (value: number | null | undefined) => Number(value || 0).toFixed(2);
 
+const getMatchAverage = (values: typeof emptyMatchPerformanceForm) => {
+  const total = performanceFields.reduce((sum, [key]) => sum + Number(values[key] || 0), 0);
+  return Number((total / performanceFields.length).toFixed(2));
+};
+
 const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
   const isInstructor = user.role === 'Instructor';
   const isStaff = user.role === 'Staff';
+  const rankingTitle = isInstructor || isStaff ? 'Ranking' : 'My Ranking';
+
   const [dashboard, setDashboard] = useState<RankingDashboardData | null>(null);
   const [adminData, setAdminData] = useState<{
-    leaderboard: RankingDashboardData['leaderboard'];
-    evaluations: Array<{
-      id: string;
-      refereeId: string;
-      refereeName: string;
-      gameCode: string;
-      evaluationDate: string;
-      score: number;
-      note: string;
-    }>;
     performanceEntries: RankingPerformanceEntry[];
     performanceProfiles: RankingPerformanceProfile[];
     referees: Array<{ id: string; fullName: string }>;
   } | null>(null);
   const [selectedRefereeId, setSelectedRefereeId] = useState('');
+  const [matchPerformanceRefereeId, setMatchPerformanceRefereeId] = useState('');
+  const [matchPerformanceForm, setMatchPerformanceForm] = useState(emptyMatchPerformanceForm);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [isSavingEvaluation, setIsSavingEvaluation] = useState(false);
-  const [isSavingPerformance, setIsSavingPerformance] = useState(false);
-  const [evaluationForm, setEvaluationForm] = useState({
-    refereeId: '',
-    gameCode: '',
-    evaluationDate: '',
-    score: 0,
-    note: '',
-  });
-  const [performanceRefereeId, setPerformanceRefereeId] = useState('');
-  const [performanceForm, setPerformanceForm] = useState(emptyPerformanceForm);
+  const [isSavingMatchPerformance, setIsSavingMatchPerformance] = useState(false);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -89,27 +74,26 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
       ]);
 
       setDashboard(dashboardResponse);
-      setAdminData(adminResponse);
+      setAdminData(
+        adminResponse
+          ? {
+              performanceEntries: adminResponse.performanceEntries,
+              performanceProfiles: adminResponse.performanceProfiles,
+              referees: adminResponse.referees,
+            }
+          : null,
+      );
 
-      const defaultRefereeId =
+      const defaultSelectedRefereeId =
         selectedRefereeId ||
         dashboardResponse.currentUserItem?.refereeId ||
         dashboardResponse.leaderboard[0]?.refereeId ||
         adminResponse?.referees[0]?.id ||
         '';
-      setSelectedRefereeId(defaultRefereeId);
+      const defaultMatchRefereeId = matchPerformanceRefereeId || adminResponse?.referees[0]?.id || defaultSelectedRefereeId;
 
-      if (adminResponse && adminResponse.referees.length > 0) {
-        const defaultFormRefereeId = evaluationForm.refereeId || adminResponse.referees[0].id;
-        const defaultPerformanceRefereeId = performanceRefereeId || adminResponse.referees[0].id;
-
-        setEvaluationForm((prev) => ({
-          ...prev,
-          refereeId: defaultFormRefereeId,
-        }));
-        setPerformanceRefereeId(defaultPerformanceRefereeId);
-      }
-
+      setSelectedRefereeId(defaultSelectedRefereeId);
+      setMatchPerformanceRefereeId(defaultMatchRefereeId);
       setErrorMessage('');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to load rankings.');
@@ -123,22 +107,21 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
   }, [user.id, user.role]);
 
   const canViewFullLeaderboard = dashboard?.canViewFullLeaderboard || false;
-  const rankingTitle = isInstructor || isStaff ? 'Ranking' : 'My Ranking';
   const rankingItems = dashboard?.leaderboard || [];
-  const rankingDetailsProfiles = adminData?.performanceProfiles || dashboard?.visiblePerformanceProfiles || [];
-  const rankingDetailsEntries = adminData?.performanceEntries || dashboard?.performanceEntries || [];
+  const performanceProfiles = adminData?.performanceProfiles || dashboard?.visiblePerformanceProfiles || [];
+  const performanceEntries = adminData?.performanceEntries || dashboard?.performanceEntries || [];
 
-  const selectedVisiblePerformanceProfile = useMemo(() => {
-    if (!selectedRefereeId) {
-      return null;
-    }
-
-    return rankingDetailsProfiles.find((item) => item.refereeId === selectedRefereeId) || null;
-  }, [rankingDetailsProfiles, selectedRefereeId]);
-
-  const selectedRefereeEntries = useMemo(
+  const selectedProfile = useMemo(
+    () => performanceProfiles.find((item) => item.refereeId === selectedRefereeId) || null,
+    [performanceProfiles, selectedRefereeId],
+  );
+  const selectedLeaderboardItem = useMemo(
+    () => rankingItems.find((item) => item.refereeId === selectedRefereeId) || dashboard?.currentUserItem || null,
+    [dashboard?.currentUserItem, rankingItems, selectedRefereeId],
+  );
+  const selectedEntries = useMemo(
     () =>
-      rankingDetailsEntries
+      performanceEntries
         .filter((item) => item.refereeId === selectedRefereeId)
         .sort((left, right) => {
           const dateCompare = right.evaluationDate.localeCompare(left.evaluationDate);
@@ -148,73 +131,47 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
 
           return right.gameCode.localeCompare(left.gameCode);
         }),
-    [rankingDetailsEntries, selectedRefereeId],
+    [performanceEntries, selectedRefereeId],
   );
+  const matchPerformanceTotal = useMemo(() => {
+    const currentLeaderboardItem = rankingItems.find((item) => item.refereeId === matchPerformanceRefereeId);
+    return currentLeaderboardItem?.performanceAverage ?? 0;
+  }, [matchPerformanceRefereeId, rankingItems]);
 
-  const handleSaveEvaluation = async (event: React.FormEvent) => {
+  const handleSaveMatchPerformance = async (event: React.FormEvent) => {
     event.preventDefault();
-    setIsSavingEvaluation(true);
-    setErrorMessage('');
-    setSuccessMessage('');
-
-    try {
-      await createRankingEvaluation({
-        instructorId: user.id,
-        refereeId: evaluationForm.refereeId,
-        gameCode: evaluationForm.gameCode,
-        evaluationDate: evaluationForm.evaluationDate,
-        score: evaluationForm.score,
-        note: evaluationForm.note,
-      });
-      await loadData();
-      setEvaluationForm((prev) => ({
-        ...prev,
-        gameCode: '',
-        evaluationDate: '',
-        score: 0,
-        note: '',
-      }));
-      setSuccessMessage('Ranking total entry saved.');
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to save evaluation.');
-    } finally {
-      setIsSavingEvaluation(false);
-    }
-  };
-
-  const handleSavePerformance = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!performanceRefereeId) {
+    if (!matchPerformanceRefereeId) {
       return;
     }
 
-    setIsSavingPerformance(true);
+    setIsSavingMatchPerformance(true);
     setErrorMessage('');
     setSuccessMessage('');
 
     try {
       await saveRankingPerformance({
         instructorId: user.id,
-        refereeId: performanceRefereeId,
-        gameCode: performanceForm.gameCode,
-        evaluationDate: performanceForm.evaluationDate,
-        physicalFitness: performanceForm.physicalFitness,
-        mechanics: performanceForm.mechanics,
-        iot: performanceForm.iot,
-        criteriaScore: performanceForm.criteriaScore,
-        teamworkScore: performanceForm.teamworkScore,
-        gameControl: performanceForm.gameControl,
-        newPhilosophy: performanceForm.newPhilosophy,
-        communication: performanceForm.communication,
-        externalEvaluation: performanceForm.externalEvaluation,
+        refereeId: matchPerformanceRefereeId,
+        gameCode: matchPerformanceForm.gameCode,
+        evaluationDate: matchPerformanceForm.evaluationDate,
+        note: matchPerformanceForm.note,
+        physicalFitness: matchPerformanceForm.physicalFitness,
+        mechanics: matchPerformanceForm.mechanics,
+        iot: matchPerformanceForm.iot,
+        criteriaScore: matchPerformanceForm.criteriaScore,
+        teamworkScore: matchPerformanceForm.teamworkScore,
+        gameControl: matchPerformanceForm.gameControl,
+        newPhilosophy: matchPerformanceForm.newPhilosophy,
+        communication: matchPerformanceForm.communication,
+        externalEvaluation: matchPerformanceForm.externalEvaluation,
       });
       await loadData();
-      setPerformanceForm(emptyPerformanceForm);
+      setMatchPerformanceForm(emptyMatchPerformanceForm);
       setSuccessMessage('Match performance saved.');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to save performance.');
     } finally {
-      setIsSavingPerformance(false);
+      setIsSavingMatchPerformance(false);
     }
   };
 
@@ -247,20 +204,20 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
               <h3 className="text-lg font-bold text-slate-900">Ranking Admin</h3>
             </div>
             <p className="text-sm text-slate-500">
-              Ranking is calculated from `Total points` plus the average of all saved `Match Performance` averages.
-              If scores are equal, the referee with the higher AVG is placed above.
+              `Match Performance Sheet` saves one game. `Total Performance Sheet` is calculated automatically from all
+              saved matches. `AVG` = match criteria sum / 9, then average of all match averages for that referee.
             </p>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-2">
-            <form onSubmit={handleSaveEvaluation} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
-              <h3 className="text-base font-bold text-slate-900">Total Sheet Entry</h3>
+            <form onSubmit={handleSaveMatchPerformance} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+              <h3 className="text-base font-bold text-slate-900">Match Performance Sheet</h3>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Referee</label>
                 <select
                   required
-                  value={evaluationForm.refereeId}
-                  onChange={(event) => setEvaluationForm((prev) => ({ ...prev, refereeId: event.target.value }))}
+                  value={matchPerformanceRefereeId}
+                  onChange={(event) => setMatchPerformanceRefereeId(event.target.value)}
                   className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
                 >
                   <option value="">Select referee</option>
@@ -276,8 +233,8 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Game Number</label>
                   <input
                     required
-                    value={evaluationForm.gameCode}
-                    onChange={(event) => setEvaluationForm((prev) => ({ ...prev, gameCode: event.target.value }))}
+                    value={matchPerformanceForm.gameCode}
+                    onChange={(event) => setMatchPerformanceForm((prev) => ({ ...prev, gameCode: event.target.value }))}
                     className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
                     placeholder="ABL-205"
                   />
@@ -287,93 +244,28 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
                   <input
                     type="date"
                     required
-                    value={evaluationForm.evaluationDate}
-                    onChange={(event) => setEvaluationForm((prev) => ({ ...prev, evaluationDate: event.target.value }))}
+                    value={matchPerformanceForm.evaluationDate}
+                    onChange={(event) => setMatchPerformanceForm((prev) => ({ ...prev, evaluationDate: event.target.value }))}
                     className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Score</label>
-                <select
-                  value={evaluationForm.score}
-                  onChange={(event) => setEvaluationForm((prev) => ({ ...prev, score: Number(event.target.value) }))}
-                  className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
-                >
-                  {scoreOptions.map((score) => (
-                    <option key={score} value={score}>
-                      {score}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Note</label>
-                <textarea
-                  rows={3}
-                  value={evaluationForm.note}
-                  onChange={(event) => setEvaluationForm((prev) => ({ ...prev, note: event.target.value }))}
-                  className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] resize-none"
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Total</label>
+                <input
+                  readOnly
+                  value={formatAverage(matchPerformanceTotal)}
+                  className="block w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700"
                 />
-              </div>
-              <button
-                type="submit"
-                disabled={isSavingEvaluation}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
-              >
-                <Save size={16} />
-                {isSavingEvaluation ? 'Saving...' : 'Save Total Entry'}
-              </button>
-            </form>
-
-            <form onSubmit={handleSavePerformance} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
-              <h3 className="text-base font-bold text-slate-900">Performance Sheet</h3>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Referee</label>
-                <select
-                  required
-                  value={performanceRefereeId}
-                  onChange={(event) => setPerformanceRefereeId(event.target.value)}
-                  className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
-                >
-                  <option value="">Select referee</option>
-                  {adminData.referees.map((referee) => (
-                    <option key={referee.id} value={referee.id}>
-                      {referee.fullName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Game Number</label>
-                  <input
-                    required
-                    value={performanceForm.gameCode}
-                    onChange={(event) => setPerformanceForm((prev) => ({ ...prev, gameCode: event.target.value }))}
-                    className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
-                    placeholder="ABL-205"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
-                  <input
-                    type="date"
-                    required
-                    value={performanceForm.evaluationDate}
-                    onChange={(event) => setPerformanceForm((prev) => ({ ...prev, evaluationDate: event.target.value }))}
-                    className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
-                  />
-                </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 {performanceFields.map(([key, label]) => (
                   <div key={key}>
                     <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{label}</label>
                     <select
-                      value={performanceForm[key]}
+                      value={matchPerformanceForm[key]}
                       onChange={(event) =>
-                        setPerformanceForm((prev) => ({ ...prev, [key]: Number(event.target.value) }))
+                        setMatchPerformanceForm((prev) => ({ ...prev, [key]: Number(event.target.value) }))
                       }
                       className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
                     >
@@ -386,15 +278,69 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
                   </div>
                 ))}
               </div>
-              <button
-                type="submit"
-                disabled={isSavingPerformance}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#f39200] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
-              >
-                <Save size={16} />
-                {isSavingPerformance ? 'Saving...' : 'Save Match Performance'}
-              </button>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Note</label>
+                <textarea
+                  rows={3}
+                  value={matchPerformanceForm.note}
+                  onChange={(event) => setMatchPerformanceForm((prev) => ({ ...prev, note: event.target.value }))}
+                  className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] resize-none"
+                />
+              </div>
+              <div className="inline-flex rounded-full bg-[#f39200]/10 px-3 py-1 text-sm font-bold text-[#f39200]">
+                Current match average: {formatAverage(getMatchAverage(matchPerformanceForm))}
+              </div>
+              <div>
+                <button
+                  type="submit"
+                  disabled={isSavingMatchPerformance}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
+                >
+                  <Save size={16} />
+                  {isSavingMatchPerformance ? 'Saving...' : 'Save Match Performance'}
+                </button>
+              </div>
             </form>
+
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+              <h3 className="text-base font-bold text-slate-900">Total Performance Sheet</h3>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Referee</label>
+                <select
+                  required
+                  value={selectedRefereeId}
+                  onChange={(event) => setSelectedRefereeId(event.target.value)}
+                  className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
+                >
+                  <option value="">Select referee</option>
+                  {adminData.referees.map((referee) => (
+                    <option key={referee.id} value={referee.id}>
+                      {referee.fullName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Total</label>
+                <input
+                  readOnly
+                  value={formatAverage(selectedLeaderboardItem?.performanceAverage)}
+                  className="block w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700"
+                />
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                {performanceFields.map(([key, label]) => (
+                  <div key={key}>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{label}</label>
+                    <input
+                      readOnly
+                      value={formatAverage(selectedProfile?.[key])}
+                      className="block w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -406,14 +352,12 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
               <div>
                 <p className="text-sm text-slate-500">Current Position</p>
                 <h3 className="text-4xl font-black text-[#581c1c]">{`#${dashboard.currentUserItem.rank}`}</h3>
-                <p className="text-sm text-slate-500 mt-2">
-                  {`Total points: ${dashboard.currentUserItem.totalGameScore} | AVG performance: ${formatAverage(
-                    dashboard.currentUserItem.performanceAverage,
-                  )}`}
-                </p>
+                <p className="text-sm text-slate-500 mt-2">{`AVG performance: ${formatAverage(
+                  dashboard.currentUserItem.performanceAverage,
+                )}`}</p>
               </div>
               <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full flex items-center gap-1 text-sm font-bold">
-                <TrendingUp size={16} /> Overall {formatAverage(dashboard.currentUserItem.overallScore)}
+                <TrendingUp size={16} /> Total {formatAverage(dashboard.currentUserItem.overallScore)}
               </div>
             </div>
 
@@ -446,17 +390,26 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <h3 className="text-base font-bold text-slate-900 mb-4">My Ranking</h3>
-            <div className="rounded-xl border border-[#581c1c] bg-[#581c1c]/5 px-4 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="font-semibold text-slate-900">{`#${dashboard.currentUserItem.rank} ${dashboard.currentUserItem.refereeName}`}</div>
-                  <div className="text-sm text-slate-500">{`Total: ${dashboard.currentUserItem.totalGameScore} | AVG: ${formatAverage(
-                    dashboard.currentUserItem.performanceAverage,
-                  )}`}</div>
+            <h3 className="text-base font-bold text-slate-900 mb-4">Total Performance Sheet</h3>
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Total</label>
+              <input
+                readOnly
+                value={formatAverage(dashboard.currentUserItem.performanceAverage)}
+                className="block w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700"
+              />
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {performanceFields.map(([key, label]) => (
+                <div key={key}>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{label}</label>
+                  <input
+                    readOnly
+                    value={formatAverage(dashboard.performanceProfile?.[key])}
+                    className="block w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-700"
+                  />
                 </div>
-                <div className="text-lg font-black text-[#581c1c]">{formatAverage(dashboard.currentUserItem.overallScore)}</div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
@@ -478,9 +431,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="font-semibold text-slate-900">{`#${item.rank} ${item.refereeName}`}</div>
-                    <div className="text-sm text-slate-500">{`Total: ${item.totalGameScore} | AVG: ${formatAverage(
-                      item.performanceAverage,
-                    )}`}</div>
+                    <div className="text-sm text-slate-500">{`AVG: ${formatAverage(item.performanceAverage)}`}</div>
                   </div>
                   <div className="text-lg font-black text-[#581c1c]">{formatAverage(item.overallScore)}</div>
                 </div>
@@ -490,39 +441,13 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
         </div>
       )}
 
-      {selectedVisiblePerformanceProfile && (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">{selectedVisiblePerformanceProfile.refereeName}</h3>
-              <p className="text-sm text-slate-500">
-                {canViewFullLeaderboard ? 'Average of all saved match performance sheets.' : 'Your match performance average.'}
-              </p>
-            </div>
-            <div className="inline-flex rounded-full bg-[#581c1c]/10 px-3 py-1 text-sm font-bold text-[#581c1c]">
-              AVG: {formatAverage(
-                rankingItems.find((item) => item.refereeId === selectedVisiblePerformanceProfile.refereeId)?.performanceAverage,
-              )}
-            </div>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {performanceFields.map(([key, label]) => (
-              <div key={key} className="rounded-xl bg-slate-50 px-4 py-3 flex items-center justify-between">
-                <span className="text-sm text-slate-600">{label}</span>
-                <span className="text-sm font-bold text-[#581c1c]">{formatAverage(selectedVisiblePerformanceProfile[key])}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!!selectedRefereeEntries.length && (
+      {selectedEntries.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
           <h3 className="text-base font-bold text-slate-900 mb-4">
             {canViewFullLeaderboard ? 'Match Performance History' : 'My Match Performance History'}
           </h3>
           <div className="space-y-4">
-            {selectedRefereeEntries.map((entry) => (
+            {selectedEntries.map((entry) => (
               <div key={entry.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                   <div>
@@ -533,29 +458,15 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
                     Match AVG: {formatAverage(entry.matchAverage)}
                   </div>
                 </div>
+                {entry.note && <div className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">{entry.note}</div>}
                 <div className="grid gap-3 md:grid-cols-2">
                   {performanceFields.map(([key, label]) => (
-                    <div key={`${entry.id}-${key}`} className="rounded-xl bg-white px-4 py-3 flex items-center justify-between border border-slate-200">
+                    <div key={`${entry.id}-${key}`} className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center justify-between">
                       <span className="text-sm text-slate-600">{label}</span>
                       <span className="text-sm font-bold text-[#581c1c]">{entry[key]}</span>
                     </div>
                   ))}
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {isInstructor && adminData && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mb-6">
-          <h3 className="text-base font-bold text-slate-900 mb-4">Latest Total Entries</h3>
-          <div className="space-y-3">
-            {adminData.evaluations.slice(-12).reverse().map((entry) => (
-              <div key={entry.id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <div className="font-semibold text-slate-900">{`${entry.gameCode} | ${entry.refereeName}`}</div>
-                <div className="text-sm text-slate-500">{`${entry.evaluationDate} | score ${entry.score}`}</div>
-                {entry.note && <div className="text-sm text-slate-600 mt-1">{entry.note}</div>}
               </div>
             ))}
           </div>
@@ -570,17 +481,9 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
           <div>
             <h4 className="font-bold">Ranking Summary</h4>
             <p className="text-xs text-white/70">
-              Only your own ranking is visible here. Position changes after each saved match and uses total points plus your average match performance.
+              Only your own ranking is visible here. Position changes after each saved match performance sheet.
             </p>
           </div>
-        </div>
-      )}
-
-      {isStaff && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-          <p className="text-sm text-slate-500">
-            Staff has read-only access to the full ranking and all saved match performance sheets.
-          </p>
         </div>
       )}
     </Layout>

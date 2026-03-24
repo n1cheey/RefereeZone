@@ -44,6 +44,7 @@ export function saveRankingPerformance(payload: {
   refereeId: string;
   gameCode: string;
   evaluationDate: string;
+  note: string;
   physicalFitness: number;
   mechanics: number;
   iot: number;

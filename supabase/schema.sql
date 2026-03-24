@@ -99,6 +99,7 @@ create table if not exists public.ranking_match_performance (
   referee_id uuid not null references public.profiles(id) on delete cascade,
   game_code text not null,
   evaluation_date date not null,
+  note text not null default '',
   physical_fitness integer not null default 0 check (physical_fitness in (-1, 0, 1)),
   mechanics integer not null default 0 check (mechanics in (-1, 0, 1)),
   iot integer not null default 0 check (iot in (-1, 0, 1)),
@@ -113,6 +114,9 @@ create table if not exists public.ranking_match_performance (
   updated_at timestamptz not null default now(),
   unique (referee_id, game_code, evaluation_date)
 );
+
+alter table public.ranking_match_performance
+add column if not exists note text not null default '';
 
 create table if not exists public.news_posts (
   id uuid primary key default gen_random_uuid(),
