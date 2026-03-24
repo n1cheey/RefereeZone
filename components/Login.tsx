@@ -48,7 +48,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <section className="relative hidden overflow-hidden bg-[#57131b] p-10 text-white lg:flex lg:flex-col lg:justify-center">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(232,160,68,0.24),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.08),transparent_34%)]" />
           <div className="relative mx-auto flex max-w-md flex-col items-center text-center">
-            <div className="inline-flex rounded-full border border-white/15 bg-white/8 px-5 py-2 text-sm font-semibold tracking-[0.12em] text-white/85">
+            <div className="inline-flex rounded-full border border-white/15 bg-white/8 px-5 py-2 text-base font-semibold tracking-[0.12em] text-white/85">
               Azərbaycan Basketbol Liqası
             </div>
             <div className="mt-12 flex max-w-md flex-col items-center text-center">
