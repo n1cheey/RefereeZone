@@ -10,6 +10,8 @@ interface NominationsProps {
   onBack: () => void;
 }
 
+const POLL_INTERVAL_MS = 45000;
+
 const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const [instructorNominations, setInstructorNominations] = useState<InstructorNomination[]>([]);
   const [refereeAssignments, setRefereeAssignments] = useState<RefereeNomination[]>([]);
@@ -19,6 +21,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
 
   useEffect(() => {
     let isMounted = true;
+    let intervalId: number | null = null;
 
     const load = async () => {
       setIsLoading(true);
@@ -58,10 +61,79 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       }
     };
 
-    load();
+    const refresh = async (showLoader: boolean) => {
+      if (showLoader) {
+        await load();
+        return;
+      }
+
+      try {
+        if (user.role === 'Instructor') {
+          const [instructorResponse, assignmentResponse] = await Promise.all([
+            getInstructorNominations(user.id),
+            getRefereeNominations(user.id),
+          ]);
+          if (isMounted) {
+            setInstructorNominations(instructorResponse.nominations);
+            setRefereeAssignments(assignmentResponse.nominations);
+            setErrorMessage('');
+          }
+        } else if (user.role === 'Staff') {
+          const response = await getInstructorNominations(user.id);
+          if (isMounted) {
+            setInstructorNominations(response.nominations);
+            setRefereeAssignments([]);
+            setErrorMessage('');
+          }
+        } else if (user.role === 'Referee') {
+          const response = await getRefereeNominations(user.id);
+          if (isMounted) {
+            setRefereeAssignments(response.nominations);
+            setErrorMessage('');
+          }
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(error instanceof Error ? error.message : 'Failed to load nominations.');
+        }
+      }
+    };
+
+    const startPolling = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          void refresh(false);
+        }
+      }, POLL_INTERVAL_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refresh(false);
+        startPolling();
+        return;
+      }
+
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    void refresh(true);
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       isMounted = false;
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [user.id, user.role]);
 

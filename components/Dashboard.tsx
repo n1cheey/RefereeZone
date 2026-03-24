@@ -611,21 +611,50 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                       ) : null}
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-3">
-                      {nomination.referees.map((referee) => (
-                        <div key={`${nomination.id}-${referee.slotNumber}`} className="rounded-xl bg-slate-50 p-3">
-                          <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber)}</div>
-                          <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
-                          <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                            referee.status === 'Accepted'
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : referee.status === 'Declined'
-                                ? 'bg-red-100 text-red-700'
-                                : 'bg-amber-100 text-amber-700'
-                          }`}>
-                            {referee.status}
+                      {nomination.referees.map((referee) => {
+                        const replaceKey = `${nomination.id}-${referee.slotNumber}`;
+                        const options = getReplacementOptions(nomination, referee.slotNumber);
+                        const canReplaceSlot = nomination.createdById === user.id && referee.status !== 'Accepted';
+
+                        return (
+                          <div key={replaceKey} className="rounded-xl bg-slate-50 p-3">
+                            <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber)}</div>
+                            <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
+                            <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                              referee.status === 'Accepted'
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : referee.status === 'Declined'
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {referee.status}
+                            </div>
+                            {canReplaceSlot ? (
+                              <div className="mt-3 space-y-2">
+                                <select
+                                  value={replaceSelections[replaceKey] || ''}
+                                  onChange={(e) => setReplaceSelections((prev) => ({ ...prev, [replaceKey]: e.target.value }))}
+                                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                                >
+                                  <option value="">Select replacement official</option>
+                                  {options.map((option) => (
+                                    <option key={option.id} value={option.id}>
+                                      {`${option.fullName} (${option.role})`}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  onClick={() => handleReplaceReferee(nomination.id, referee.slotNumber)}
+                                  disabled={replaceActionKey === replaceKey || options.length === 0}
+                                  className="w-full rounded-xl bg-[#581c1c] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+                                >
+                                  {replaceActionKey === replaceKey ? 'Replacing...' : `Replace ${getNominationSlotLabel(referee.slotNumber)}`}
+                                </button>
+                              </div>
+                            ) : null}
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

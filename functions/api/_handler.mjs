@@ -10,6 +10,7 @@ const ASSIGNMENT_STATUS = {
   ACCEPTED: 'Accepted',
   DECLINED: 'Declined',
 };
+const ASSIGNMENT_PENDING_AUTO_DECLINE_MS = 2 * 24 * 60 * 60 * 1000;
 const REPORT_STATUS = {
   DRAFT: 'Draft',
   SUBMITTED: 'Submitted',
@@ -358,6 +359,63 @@ const listAssignmentsByNominationIds = async (admin, nominationIds) => {
   return ensureData(data || [], error, 'Failed to load nomination assignments.');
 };
 
+const expirePendingAssignments = async (admin, nominationIds = []) => {
+  const scopedNominationIds = [...new Set((nominationIds || []).filter(Boolean))];
+  if (!scopedNominationIds.length) {
+    return;
+  }
+
+  const staleNominationsQuery = admin
+    .from('nominations')
+    .select('id')
+    .lte('created_at', new Date(Date.now() - ASSIGNMENT_PENDING_AUTO_DECLINE_MS).toISOString());
+
+  if (scopedNominationIds.length) {
+    staleNominationsQuery.in('id', scopedNominationIds);
+  }
+
+  const { data: staleNominationRows, error: staleNominationsError } = await staleNominationsQuery;
+  const staleNominations = ensureData(
+    staleNominationRows || [],
+    staleNominationsError,
+    'Failed to validate nomination response window.',
+  );
+
+  const staleNominationIds = staleNominations.map((nomination) => nomination.id);
+  if (!staleNominationIds.length) {
+    return;
+  }
+
+  const { data: staleAssignments, error: staleAssignmentsError } = await admin
+    .from('nomination_referees')
+    .select('id')
+    .in('nomination_id', staleNominationIds)
+    .eq('status', ASSIGNMENT_STATUS.PENDING);
+
+  const assignmentsToExpire = ensureData(
+    staleAssignments || [],
+    staleAssignmentsError,
+    'Failed to validate nomination response window.',
+  );
+
+  if (!assignmentsToExpire.length) {
+    return;
+  }
+
+  const { error: updateError } = await admin
+    .from('nomination_referees')
+    .update({
+      status: ASSIGNMENT_STATUS.DECLINED,
+      responded_at: new Date().toISOString(),
+    })
+    .in('nomination_id', staleNominationIds)
+    .eq('status', ASSIGNMENT_STATUS.PENDING);
+
+  if (updateError) {
+    throw new HttpError(500, 'Failed to expire pending nominations.');
+  }
+};
+
 const loadReportsForPairs = async (admin, pairs) => {
   if (!pairs.length) {
     return [];
@@ -412,6 +470,8 @@ const loadVisibleInstructorReport = async (admin, nominationId, refereeId) =>
   );
 
 const requireAssignment = async (admin, nominationId, refereeId) => {
+  await expirePendingAssignments(admin, [nominationId]);
+
   const assignmentRow = await requireSingle(
     admin
       .from('nomination_referees')
@@ -659,6 +719,7 @@ const getInstructorNominationsData = async (admin, instructorId) => {
   }
 
   const nominationIds = nominations.map((nomination) => nomination.id);
+  await expirePendingAssignments(admin, nominationIds);
   const assignments = await listAssignmentsByNominationIds(admin, nominationIds);
   const referees = await listProfilesByIds(
     admin,
@@ -702,7 +763,17 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
 
   const { data, error } = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
   const assignments = ensureData(data || [], error, 'Failed to load referee nominations.');
-  const visibleAssignments = assignments.filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
+  await expirePendingAssignments(
+    admin,
+    [...new Set(assignments.map((assignment) => assignment.nomination_id))],
+  );
+  const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
+  const refreshedAssignments = ensureData(
+    refreshedAssignmentsResponse.data || [],
+    refreshedAssignmentsResponse.error,
+    'Failed to load referee nominations.',
+  );
+  const visibleAssignments = refreshedAssignments.filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
 
   if (!visibleAssignments.length) {
     return [];
@@ -769,7 +840,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     throw new HttpError(403, 'Only Instructor accounts can load this dashboard.');
   }
 
-  const [{ data: officialRows, error: officialsError }, { data: nominationRows, error: nominationsError }, { data: ownAssignmentRows, error: ownAssignmentsError }] = await Promise.all([
+  const [{ data: officialRows, error: officialsError }, { data: nominationRows, error: nominationsError }] = await Promise.all([
     admin
       .from('profiles')
       .select('id, full_name, email, license_number, role')
@@ -781,22 +852,19 @@ const getInstructorDashboardData = async (admin, instructorId) => {
       .select('*')
       .order('match_date', { ascending: true })
       .order('match_time', { ascending: true }),
-    admin.from('nomination_referees').select('*').eq('referee_id', instructorId),
   ]);
 
   const officials = ensureData(officialRows || [], officialsError, 'Failed to load referees.').map(mapOfficialDirectoryItem);
   const officialMap = new Map(officials.map((official) => [official.id, official]));
   const nominationsSource = ensureData(nominationRows || [], nominationsError, 'Failed to load instructor nominations.');
-  const ownAssignmentsSource = ensureData(ownAssignmentRows || [], ownAssignmentsError, 'Failed to load referee nominations.');
 
   const nominationIds = nominationsSource.map((nomination) => nomination.id);
+  await expirePendingAssignments(admin, nominationIds);
   const nominationAssignments = nominationIds.length ? await listAssignmentsByNominationIds(admin, nominationIds) : [];
-  const ownVisibleAssignments = ownAssignmentsSource.filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
-  const ownAssignmentNominationIds = [...new Set(ownVisibleAssignments.map((assignment) => assignment.nomination_id))];
-  const ownNominations = ownAssignmentNominationIds.length
-    ? await listNominationsByIds(admin, ownAssignmentNominationIds)
-    : [];
-  const ownNominationMap = new Map(ownNominations.map((nomination) => [nomination.id, nomination]));
+  const ownVisibleAssignments = nominationAssignments.filter(
+    (assignment) => assignment.referee_id === instructorId && assignment.status !== ASSIGNMENT_STATUS.DECLINED,
+  );
+  const ownNominationMap = new Map(nominationsSource.map((nomination) => [nomination.id, nomination]));
   const nominationCreators = await listProfilesByIds(
     admin,
     [...new Set(nominationsSource.map((nomination) => nomination.created_by))],
@@ -1343,6 +1411,7 @@ const createNomination = async (admin, currentUser, body) => {
 const replaceNominationReferee = async (admin, currentUser, nominationId, slotNumber, refereeId) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   await requireNominationOwner(admin, nominationId, currentUser.id);
+  await expirePendingAssignments(admin, [nominationId]);
   const [assignedOfficial] = await requireAssignableOfficials(admin, [refereeId]);
   const isSelfAssignedInstructor = assignedOfficial.id === currentUser.id && assignedOfficial.role === 'Instructor';
 
@@ -1398,6 +1467,8 @@ const respondToNomination = async (admin, currentUser, nominationId, response) =
     throw new HttpError(400, 'Response must be Accepted or Declined.');
   }
 
+  await expirePendingAssignments(admin, [nominationId]);
+
   const assignment = await maybeSingle(
     admin
       .from('nomination_referees')
@@ -1409,6 +1480,10 @@ const respondToNomination = async (admin, currentUser, nominationId, response) =
 
   if (!assignment) {
     throw new HttpError(404, 'Assignment not found.');
+  }
+
+  if (assignment.status !== ASSIGNMENT_STATUS.PENDING) {
+    throw new HttpError(409, 'Only pending assignments can be answered.');
   }
 
   const { error } = await admin
@@ -1441,7 +1516,13 @@ const deleteNomination = async (admin, currentUser, nominationId) => {
 const listReportItems = async (admin, currentUser) => {
   if (currentUser.role === 'Referee') {
     const assignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', currentUser.id);
-    const assignments = ensureData(assignmentsResponse.data || [], assignmentsResponse.error, 'Failed to load reports.')
+    const initialAssignments = ensureData(assignmentsResponse.data || [], assignmentsResponse.error, 'Failed to load reports.');
+    await expirePendingAssignments(
+      admin,
+      [...new Set(initialAssignments.map((assignment) => assignment.nomination_id))],
+    );
+    const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', currentUser.id);
+    const assignments = ensureData(refreshedAssignmentsResponse.data || [], refreshedAssignmentsResponse.error, 'Failed to load reports.')
       .filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
 
     if (!assignments.length) {
@@ -1501,6 +1582,7 @@ const listReportItems = async (admin, currentUser) => {
       return [];
     }
 
+    await expirePendingAssignments(admin, nominations.map((nomination) => nomination.id));
     const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id))).filter(
       (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
     );
@@ -1566,7 +1648,13 @@ const listReportItems = async (admin, currentUser) => {
 
   if (currentUser.role === 'Staff') {
     const assignmentsResponse = await admin.from('nomination_referees').select('*');
-    const assignments = ensureData(assignmentsResponse.data || [], assignmentsResponse.error, 'Failed to load reports.')
+    const initialAssignments = ensureData(assignmentsResponse.data || [], assignmentsResponse.error, 'Failed to load reports.');
+    await expirePendingAssignments(
+      admin,
+      [...new Set(initialAssignments.map((assignment) => assignment.nomination_id))],
+    );
+    const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*');
+    const assignments = ensureData(refreshedAssignmentsResponse.data || [], refreshedAssignmentsResponse.error, 'Failed to load reports.')
       .filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
 
     if (!assignments.length) {
