@@ -85,3 +85,21 @@ export function respondToNomination(payload: {
     },
   );
 }
+
+export function updateNominationScore(payload: {
+  nominationId: string;
+  instructorId: string;
+  finalScore: string;
+}) {
+  return apiRequest<{ message: string; nomination: InstructorNomination }>(
+    `/api/nominations/${encodeURIComponent(payload.nominationId)}/score`,
+    {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        instructorId: payload.instructorId,
+        finalScore: payload.finalScore,
+      }),
+    },
+  );
+}

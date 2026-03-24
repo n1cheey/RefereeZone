@@ -175,6 +175,11 @@ const createAssignmentAutoDeclineDate = (createdAt) => {
   return new Date(createdDate.getTime() + ASSIGNMENT_PENDING_AUTO_DECLINE_MS);
 };
 
+const createMatchDateTime = (matchDate, matchTime) => {
+  const candidate = new Date(`${matchDate}T${matchTime}:00${BAKU_OFFSET}`);
+  return Number.isNaN(candidate.getTime()) ? null : candidate;
+};
+
 const createDeadlineDate = (matchDate, matchTime) => {
   const deadline = new Date(`${matchDate}T${matchTime}:00${BAKU_OFFSET}`);
   return Number.isNaN(deadline.getTime()) ? null : new Date(deadline.getTime() + 24 * 60 * 60 * 1000);
@@ -748,6 +753,7 @@ const getInstructorNominationsData = async (admin, instructorId) => {
     matchDate: nomination.match_date,
     matchTime: nomination.match_time,
     venue: nomination.venue,
+    finalScore: nomination.final_score || null,
     createdAt: nomination.created_at,
     createdById: nomination.created_by,
     createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
@@ -823,6 +829,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
         matchDate: nomination.match_date,
         matchTime: nomination.match_time,
         venue: nomination.venue,
+        finalScore: nomination.final_score || null,
         slotNumber: Number(assignment.slot_number),
         status: assignment.status,
         respondedAt: assignment.responded_at || null,
@@ -888,6 +895,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     matchDate: nomination.match_date,
     matchTime: nomination.match_time,
     venue: nomination.venue,
+    finalScore: nomination.final_score || null,
     createdAt: nomination.created_at,
     createdById: nomination.created_by,
     createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
@@ -918,6 +926,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
         matchDate: nomination.match_date,
         matchTime: nomination.match_time,
         venue: nomination.venue,
+        finalScore: nomination.final_score || null,
         slotNumber: Number(assignment.slot_number),
         status: assignment.status,
         respondedAt: assignment.responded_at || null,
@@ -1467,6 +1476,37 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
 
   const nominations = await getInstructorNominationsData(admin, currentUser.id);
   return nominations.find((nomination) => nomination.id === nominationId);
+};
+
+const updateNominationScore = async (admin, currentUser, nominationId, finalScore) => {
+  await requireRole(admin, currentUser.id, 'Instructor');
+  const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
+  const normalizedFinalScore = String(finalScore || '').trim();
+
+  if (!normalizedFinalScore) {
+    throw new HttpError(400, 'Final score is required.');
+  }
+
+  if (normalizedFinalScore.length > 32) {
+    throw new HttpError(400, 'Final score is too long.');
+  }
+
+  const matchDateTime = createMatchDateTime(nomination.match_date, nomination.match_time);
+  if (!matchDateTime || Date.now() < matchDateTime.getTime()) {
+    throw new HttpError(409, 'Final score can be saved only after the match starts.');
+  }
+
+  const { error } = await admin
+    .from('nominations')
+    .update({ final_score: normalizedFinalScore })
+    .eq('id', nominationId);
+
+  if (error) {
+    throw new HttpError(500, 'Failed to update final score.');
+  }
+
+  const nominations = await getInstructorNominationsData(admin, currentUser.id);
+  return nominations.find((item) => item.id === nominationId);
 };
 
 const respondToNomination = async (admin, currentUser, nominationId, response) => {
@@ -2319,6 +2359,17 @@ const routeRequest = async (event) => {
       String(body.refereeId || ''),
     );
     return json(200, { message: 'Referee replaced.', nomination });
+  }
+
+  const nominationScoreMatch = path.match(/^\/nominations\/([^/]+)\/score$/);
+  if (method === 'PATCH' && nominationScoreMatch) {
+    const nomination = await updateNominationScore(
+      admin,
+      currentUser,
+      nominationScoreMatch[1],
+      body.finalScore,
+    );
+    return json(200, { message: 'Final score updated.', nomination });
   }
 
   const nominationResponseMatch = path.match(/^\/nominations\/([^/]+)\/respond$/);

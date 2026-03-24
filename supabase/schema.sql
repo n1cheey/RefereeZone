@@ -31,8 +31,12 @@ create table if not exists public.nominations (
   match_date date not null,
   match_time time not null,
   venue text not null,
+  final_score text,
   created_at timestamptz not null default now()
 );
+
+alter table public.nominations
+add column if not exists final_score text;
 
 create table if not exists public.nomination_referees (
   id uuid primary key default gen_random_uuid(),

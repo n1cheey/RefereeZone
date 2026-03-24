@@ -49,6 +49,7 @@ export interface InstructorNomination {
   matchDate: string;
   matchTime: string;
   venue: string;
+  finalScore: string | null;
   createdAt: string;
   createdById: string;
   createdByName: string;
@@ -63,6 +64,7 @@ export interface RefereeNomination {
   matchDate: string;
   matchTime: string;
   venue: string;
+  finalScore: string | null;
   slotNumber: number;
   status: AssignmentStatus;
   respondedAt: string | null;
