@@ -48,7 +48,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <section className="relative hidden overflow-hidden bg-[#57131b] p-10 text-white lg:flex lg:flex-col lg:justify-center">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(232,160,68,0.24),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.08),transparent_34%)]" />
           <div className="relative mx-auto flex max-w-md flex-col items-center text-center">
-            <div className="font-abf-display inline-flex rounded-full border border-white/15 bg-white/8 px-5 py-2 text-sm tracking-[0.12em] text-white/85">
+            <div className="inline-flex rounded-full border border-white/15 bg-white/8 px-5 py-2 text-sm font-semibold tracking-[0.12em] text-white/85">
               Azərbaycan Basketbol Liqası
             </div>
             <div className="mt-12 flex max-w-md flex-col items-center text-center">
@@ -57,7 +57,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 alt="ABL logo"
                 className="w-[320px] max-w-full rounded-[32px] shadow-[0_24px_60px_rgba(0,0,0,0.25)]"
               />
-              <h1 className="font-abf-display mt-10 text-5xl leading-[0.95] tracking-tight">
+              <h1 className="mt-10 text-5xl font-semibold leading-[0.95] tracking-tight">
                 ABL Hakimlərin platforması
               </h1>
               <p className="mt-5 max-w-sm text-base leading-7 text-white/72">
@@ -77,10 +77,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   className="w-[220px] max-w-full rounded-[28px] shadow-[0_18px_40px_rgba(87,19,27,0.18)]"
                 />
               </div>
-              <div className="font-abf-display mt-6 text-[11px] uppercase tracking-[0.3em] text-[#57131b]/55">
+              <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.3em] text-[#57131b]/55">
                 ABL RefZone
               </div>
-              <h2 className="font-abf-display mt-3 text-3xl tracking-tight text-[#57131b] sm:text-4xl">
+              <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[#57131b] sm:text-4xl">
                 {isRegister ? 'Create Official Account' : 'Sign In'}
               </h2>
               <p className="mt-3 text-sm leading-6 text-slate-500">
@@ -176,7 +176,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="font-abf-display w-full rounded-2xl bg-[#57131b] px-4 py-4 text-sm tracking-[0.04em] text-white shadow-lg shadow-[#57131b]/20 transition-all hover:bg-[#481016] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+                className="w-full rounded-2xl bg-[#57131b] px-4 py-4 text-sm font-semibold tracking-[0.04em] text-white shadow-lg shadow-[#57131b]/20 transition-all hover:bg-[#481016] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {isSubmitting ? 'PROCESSING...' : isRegister ? 'REGISTER' : 'SIGN IN'}
               </button>
@@ -185,7 +185,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             <div className="pt-2 text-center">
               <button
                 onClick={toggleMode}
-                className="font-abf-display text-sm text-[#f39200] transition-colors hover:text-[#581c1c]"
+                className="text-sm font-semibold text-[#f39200] transition-colors hover:text-[#581c1c]"
               >
                 {isRegister ? 'Already have an account? Sign in' : 'New official? Request registration'}
               </button>
