@@ -166,6 +166,15 @@ const formatDeadline = (deadline) =>
     timeZone: BAKU_TIMEZONE,
   }).format(deadline);
 
+const createAssignmentAutoDeclineDate = (createdAt) => {
+  const createdDate = new Date(createdAt);
+  if (Number.isNaN(createdDate.getTime())) {
+    return null;
+  }
+
+  return new Date(createdDate.getTime() + ASSIGNMENT_PENDING_AUTO_DECLINE_MS);
+};
+
 const createDeadlineDate = (matchDate, matchTime) => {
   const deadline = new Date(`${matchDate}T${matchTime}:00${BAKU_OFFSET}`);
   return Number.isNaN(deadline.getTime()) ? null : new Date(deadline.getTime() + 24 * 60 * 60 * 1000);
@@ -817,6 +826,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
         slotNumber: Number(assignment.slot_number),
         status: assignment.status,
         respondedAt: assignment.responded_at || null,
+        autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
         instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
         crew: nominationAssignments
           .filter((nominationAssignment) => nominationAssignment.nomination_id === nomination.id)
@@ -911,6 +921,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
         slotNumber: Number(assignment.slot_number),
         status: assignment.status,
         respondedAt: assignment.responded_at || null,
+        autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
         instructorName: officialMap.get(nomination.created_by)?.fullName || currentUser.full_name,
       };
     })

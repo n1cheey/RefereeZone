@@ -66,6 +66,7 @@ export interface RefereeNomination {
   slotNumber: number;
   status: AssignmentStatus;
   respondedAt: string | null;
+  autoDeclineAt: string | null;
   instructorName: string;
   crew: NominationSlot[];
 }

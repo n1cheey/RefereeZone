@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination } from '../types';
 import { getNominationSlotLabel } from '../slotLabels';
+import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import Layout from './Layout';
 import {
   AlertTriangle,
@@ -50,6 +51,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [actionAssignmentId, setActionAssignmentId] = useState<string | null>(null);
   const [replaceActionKey, setReplaceActionKey] = useState<string | null>(null);
   const [replaceSelections, setReplaceSelections] = useState<Record<string, string>>({});
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const dashboardLoadPromiseRef = useRef<Promise<void> | null>(null);
   const [form, setForm] = useState({
     gameCode: '',
@@ -168,6 +170,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [user.id, user.role]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setCountdownNow(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   const handlePhotoClick = () => {
     fileInputRef.current?.click();
@@ -681,6 +693,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
               <div className="space-y-4">
                 {refereeAssignments.map((assignment) => (
                   <div key={assignment.id} className="rounded-xl border border-slate-200 p-4">
+                    {assignment.status === 'Pending' ? (
+                      <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                        {formatAutoDeclineCountdown(assignment.autoDeclineAt, countdownNow) || 'Auto reject timer unavailable.'}
+                      </div>
+                    ) : null}
                     <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                       <div>
                         <div className="text-xs font-bold uppercase text-[#581c1c]">{assignment.gameCode}</div>

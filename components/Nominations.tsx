@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Layout from './Layout';
 import { User, InstructorNomination, RefereeNomination } from '../types';
 import { getNominationSlotLabel } from '../slotLabels';
+import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import { Calendar, CheckCircle2, Clock, MapPin, Trash2, XCircle } from 'lucide-react';
 import { deleteNomination, getInstructorNominations, getRefereeNominations, respondToNomination } from '../services/nominationService';
 
@@ -18,6 +19,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [actionAssignmentId, setActionAssignmentId] = useState<string | null>(null);
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
 
   useEffect(() => {
     let isMounted = true;
@@ -136,6 +138,16 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [user.id, user.role]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setCountdownNow(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   const handleStatusChange = async (nominationId: string, status: 'Accepted' | 'Declined', assignmentId: string) => {
     setActionAssignmentId(assignmentId);
@@ -291,6 +303,11 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                       </div>
                     </div>
                     <div className="p-4">
+                      {nom.status === 'Pending' ? (
+                        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                          {formatAutoDeclineCountdown(nom.autoDeclineAt, countdownNow) || 'Auto reject timer unavailable.'}
+                        </div>
+                      ) : null}
                       <div className="text-lg font-bold text-slate-800 mb-3">{nom.teams}</div>
                       <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nom.gameCode}</div>
                       <div className="grid grid-cols-2 gap-y-2 text-sm text-slate-600">
@@ -360,6 +377,11 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                   </div>
                 </div>
                 <div className="p-4">
+                  {nom.status === 'Pending' ? (
+                    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                      {formatAutoDeclineCountdown(nom.autoDeclineAt, countdownNow) || 'Auto reject timer unavailable.'}
+                    </div>
+                  ) : null}
                   <div className="text-lg font-bold text-slate-800 mb-3">{nom.teams}</div>
                   <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nom.gameCode}</div>
                   <div className="grid grid-cols-2 gap-y-2 text-sm text-slate-600">
