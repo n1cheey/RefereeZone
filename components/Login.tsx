@@ -285,12 +285,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </form>
 
             {!isRecoveryMode && (
-              <div className="pt-2 space-y-3 text-center">
+              <div className="pt-2 flex flex-col items-center gap-3 text-center">
                 {!isRegister && !isResetMode && (
                   <button
                     type="button"
                     onClick={openResetMode}
-                    className="text-sm font-semibold text-[#57131b] transition-colors hover:text-[#f39200]"
+                    className="block text-sm font-semibold text-[#57131b] transition-colors hover:text-[#f39200]"
                   >
                     Forgot password?
                   </button>
@@ -298,7 +298,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 <button
                   type="button"
                   onClick={isResetMode ? closeResetMode : toggleMode}
-                  className="text-sm font-semibold text-[#f39200] transition-colors hover:text-[#581c1c]"
+                  className="block text-sm font-semibold text-[#f39200] transition-colors hover:text-[#581c1c]"
                 >
                   {isResetMode
                     ? 'Back to sign in'
