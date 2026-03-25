@@ -24,6 +24,19 @@ const wait = (delayMs: number) =>
     window.setTimeout(resolve, delayMs);
   });
 
+const getPasswordResetRedirectUrl = () => {
+  const configuredAppUrl = String(import.meta.env.VITE_APP_URL || '').trim().replace(/\/+$/, '');
+  if (configuredAppUrl) {
+    return configuredAppUrl;
+  }
+
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+
+  return `${window.location.origin}${window.location.pathname}`;
+};
+
 export function isPasswordRecoveryMode() {
   if (typeof window === 'undefined') {
     return false;
@@ -123,8 +136,7 @@ export async function requestPasswordReset(email: string) {
     throw new Error('Enter your e-mail address first.');
   }
 
-  const redirectTo =
-    typeof window === 'undefined' ? undefined : `${window.location.origin}${window.location.pathname}`;
+  const redirectTo = getPasswordResetRedirectUrl();
 
   const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
     redirectTo,
