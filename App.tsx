@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, startTransition, useEffect, useRef, useState } from 'react';
 import { User } from './types';
 import Login from './components/Login';
-import { getCurrentUserProfile, logoutUser, subscribeToAuthChanges } from './services/authService';
+import { getCurrentUserProfile, isPasswordRecoveryMode, logoutUser, subscribeToAuthChanges } from './services/authService';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const Nominations = lazy(() => import('./components/Nominations'));
@@ -106,20 +106,25 @@ const LoadingScreen = ({ label }: { label: string }) => (
 );
 
 const App: React.FC = () => {
+  const recoveryModeRef = useRef(typeof window !== 'undefined' && isPasswordRecoveryMode());
   const sessionSyncPromiseRef = useRef<Promise<void> | null>(null);
   const lastSessionSyncAtRef = useRef(0);
   const [currentUser, setCurrentUser] = useState<User | null>(() =>
-    typeof window === 'undefined' ? null : readCachedUser(),
+    typeof window === 'undefined' || isPasswordRecoveryMode() ? null : readCachedUser(),
   );
   const [currentView, setCurrentView] = useState<View>(() => {
     if (typeof window === 'undefined') {
       return 'login';
     }
 
+    if (isPasswordRecoveryMode()) {
+      return 'login';
+    }
+
     return readCachedView(Boolean(readCachedUser()));
   });
   const [isAuthLoading, setIsAuthLoading] = useState(() =>
-    typeof window === 'undefined' ? true : !readCachedUser(),
+    typeof window === 'undefined' ? true : isPasswordRecoveryMode() ? false : !readCachedUser(),
   );
 
   useEffect(() => {
@@ -188,14 +193,18 @@ const App: React.FC = () => {
       }
     };
 
-    loadingTimeoutId = window.setTimeout(() => {
-      applyResolvedUser(readCachedUser());
-    }, AUTH_LOADING_TIMEOUT_MS);
+    if (!recoveryModeRef.current) {
+      loadingTimeoutId = window.setTimeout(() => {
+        applyResolvedUser(readCachedUser());
+      }, AUTH_LOADING_TIMEOUT_MS);
 
-    if (!readCachedUser()) {
-      void syncSession(true).catch((error) => {
-        restoreCachedSession(error, 'Failed to restore session');
-      });
+      if (!readCachedUser()) {
+        void syncSession(true).catch((error) => {
+          restoreCachedSession(error, 'Failed to restore session');
+        });
+      }
+    } else {
+      applyResolvedUser(null);
     }
 
     const refreshSessionAfterAuthChange = (force = false) => {
@@ -221,8 +230,19 @@ const App: React.FC = () => {
         return;
       }
 
+      if (event === 'PASSWORD_RECOVERY') {
+        recoveryModeRef.current = true;
+        startTransition(() => {
+          setCurrentUser(null);
+          setCurrentView('login');
+          setIsAuthLoading(false);
+        });
+        return;
+      }
+
       if (!session) {
         if (event === 'SIGNED_OUT') {
+          recoveryModeRef.current = false;
           applyResolvedUser(null);
           return;
         }
@@ -242,6 +262,13 @@ const App: React.FC = () => {
       }
 
       const cachedUser = readCachedUser();
+      if (recoveryModeRef.current) {
+        setCurrentUser(null);
+        setCurrentView('login');
+        setIsAuthLoading(false);
+        return;
+      }
+
       if (cachedUser) {
         setCurrentUser(cachedUser);
         setCurrentView(readCachedView(true));

@@ -24,6 +24,25 @@ const wait = (delayMs: number) =>
     window.setTimeout(resolve, delayMs);
   });
 
+export function isPasswordRecoveryMode() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+  const params = new URLSearchParams(hash);
+  return params.get('type') === 'recovery';
+}
+
+export function clearAuthHash() {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const nextUrl = `${window.location.pathname}${window.location.search}`;
+  window.history.replaceState({}, document.title, nextUrl);
+}
+
 export async function getCurrentUserProfile(): Promise<User | null> {
   const { data } = await supabase.auth.getSession();
 
@@ -96,6 +115,39 @@ export async function registerUser(payload: RegisterPayload): Promise<AuthRespon
     email: payload.email,
     password: payload.password,
   });
+}
+
+export async function requestPasswordReset(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) {
+    throw new Error('Enter your e-mail address first.');
+  }
+
+  const redirectTo =
+    typeof window === 'undefined' ? undefined : `${window.location.origin}${window.location.pathname}`;
+
+  const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+    redirectTo,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to send password reset email.');
+  }
+}
+
+export async function updatePassword(password: string) {
+  const normalizedPassword = password.trim();
+  if (normalizedPassword.length < 10) {
+    throw new Error('Password must be at least 10 characters.');
+  }
+
+  const { error } = await supabase.auth.updateUser({
+    password: normalizedPassword,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to update password.');
+  }
 }
 
 export async function logoutUser() {
