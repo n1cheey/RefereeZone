@@ -2105,10 +2105,14 @@ const getRankingDashboard = async (admin, currentUser) => {
   if (currentUser.role === 'Referee') {
     const currentUserItem = rankingState.leaderboard.find((item) => item.refereeId === currentUser.id) || null;
     const currentUserPerformanceProfile = rankingState.performanceProfiles.get(currentUser.id) || null;
+    const currentUserHistory = buildRankingHistory(currentUser.id, rankingState);
 
     return {
       leaderboard: currentUserItem ? [currentUserItem] : [],
-      history: buildRankingHistory(currentUser.id, rankingState),
+      history: currentUserHistory,
+      refereeHistories: {
+        [currentUser.id]: currentUserHistory,
+      },
       currentUserItem,
       performanceProfile: currentUserPerformanceProfile,
       visiblePerformanceProfiles: currentUserPerformanceProfile ? [currentUserPerformanceProfile] : [],
@@ -2119,9 +2123,14 @@ const getRankingDashboard = async (admin, currentUser) => {
   }
 
   if (currentUser.role === 'Instructor' || currentUser.role === 'Staff') {
+    const refereeHistories = Object.fromEntries(
+      rankingState.referees.map((referee) => [referee.id, buildRankingHistory(referee.id, rankingState)]),
+    );
+
     return {
       leaderboard: rankingState.leaderboard,
       history: [],
+      refereeHistories,
       currentUserItem: null,
       performanceProfile: null,
       visiblePerformanceProfiles: Array.from(rankingState.performanceProfiles.values()),
@@ -2134,6 +2143,7 @@ const getRankingDashboard = async (admin, currentUser) => {
   return {
     leaderboard: [],
     history: [],
+    refereeHistories: {},
     currentUserItem: null,
     performanceProfile: null,
     visiblePerformanceProfiles: [],
@@ -2146,12 +2156,27 @@ const getRankingDashboard = async (admin, currentUser) => {
 const getRankingAdminData = async (admin, currentUser) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const rankingState = await buildRankingState(admin);
+  const gamesResponse = await admin
+    .from('nominations')
+    .select('id, game_code, match_date, teams')
+    .order('match_date', { ascending: false })
+    .order('match_time', { ascending: false })
+    .order('created_at', { ascending: false });
+  const games = ensureData(gamesResponse.data || [], gamesResponse.error, 'Failed to load ranking games.').map(
+    (game) => ({
+      id: game.id,
+      gameCode: game.game_code || 'ABL-NEW',
+      matchDate: game.match_date || '',
+      teams: game.teams || '',
+    }),
+  );
 
   return {
     leaderboard: rankingState.leaderboard,
     evaluations: rankingState.evaluations,
     performanceEntries: rankingState.performanceEntries,
     performanceProfiles: Array.from(rankingState.performanceProfiles.values()),
+    games,
     referees: rankingState.referees.map((referee) => ({
       id: referee.id,
       fullName: referee.full_name,

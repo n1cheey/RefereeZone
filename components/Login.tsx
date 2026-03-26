@@ -4,6 +4,7 @@ import {
   clearAuthHash,
   getCurrentUserProfile,
   isPasswordRecoveryMode,
+  isPasswordResetPage,
   loginUser,
   logoutUser,
   registerUser,
@@ -22,6 +23,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [isRegister, setIsRegister] = useState(false);
   const [isResetMode, setIsResetMode] = useState(false);
   const [isRecoveryMode, setIsRecoveryMode] = useState(() => isPasswordRecoveryMode());
+  const [isResetPage] = useState(() => isPasswordResetPage());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -32,6 +34,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [successMessage, setSuccessMessage] = useState('');
 
   const toggleMode = () => {
+    if (isResetPage) {
+      return;
+    }
+
     setIsRegister((prev) => !prev);
     setIsResetMode(false);
     setPassword('');
@@ -41,6 +47,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   };
 
   const openResetMode = () => {
+    if (isResetPage) {
+      return;
+    }
+
     setIsRegister(false);
     setIsResetMode(true);
     setPassword('');
@@ -50,6 +60,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   };
 
   const closeResetMode = () => {
+    if (isResetPage) {
+      return;
+    }
+
     setIsResetMode(false);
     setErrorMessage('');
     setSuccessMessage('');
@@ -62,7 +76,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     setSuccessMessage('');
 
     try {
-      if (isRecoveryMode) {
+      if (isRecoveryMode || isResetPage) {
         if (password !== confirmPassword) {
           throw new Error('Passwords do not match.');
         }
@@ -141,14 +155,24 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 />
               </div>
               <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.3em] text-[#57131b]/55">
-                ABL RefZone
+                {isResetPage ? 'Password Recovery' : 'ABL RefZone'}
               </div>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[#57131b] sm:text-4xl">
-                {isRecoveryMode ? 'Set New Password' : isResetMode ? 'Reset Password' : isRegister ? 'Create Official Account' : 'Sign In'}
+                {isRecoveryMode
+                  ? 'Set New Password'
+                  : isResetPage
+                    ? 'Reset Your Password'
+                    : isResetMode
+                      ? 'Reset Password'
+                      : isRegister
+                        ? 'Create Official Account'
+                        : 'Sign In'}
               </h2>
               <p className="mt-3 text-sm leading-6 text-slate-500">
                 {isRecoveryMode
                   ? 'Enter your new password to complete the recovery process.'
+                  : isResetPage
+                    ? 'Open this page from the reset email. After Supabase validates the recovery link, you can set a new password here.'
                   : isResetMode
                     ? 'Enter your e-mail address and we will send you a password reset link.'
                     : isRegister
@@ -198,7 +222,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 </>
               )}
 
-              {!isRecoveryMode && (
+              {!isRecoveryMode && !isResetPage && (
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
                     Email Address
@@ -215,7 +239,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 </div>
               )}
 
-              {!isResetMode && (
+              {(!isResetMode || isResetPage) && (
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
                     Password
@@ -230,7 +254,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm shadow-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#581c1c]"
                     placeholder=".........."
                   />
-                  {(isRegister || isRecoveryMode) && (
+                  {(isRegister || isRecoveryMode || isResetPage) && (
                     <p className="mt-2 text-xs leading-5 text-slate-400">
                       Minimum 10 characters. Use a mix of letters and numbers for better security.
                     </p>
@@ -238,7 +262,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 </div>
               )}
 
-              {isRecoveryMode && (
+              {(isRecoveryMode || isResetPage) && (
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
                     Confirm Password
@@ -274,7 +298,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               >
                 {isSubmitting
                   ? 'PROCESSING...'
-                  : isRecoveryMode
+                  : isRecoveryMode || isResetPage
                     ? 'UPDATE PASSWORD'
                     : isResetMode
                       ? 'SEND RESET EMAIL'
@@ -284,7 +308,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               </button>
             </form>
 
-            {!isRecoveryMode && (
+            {!isRecoveryMode && !isResetPage && (
               <div className="pt-2 flex flex-col items-center gap-3 text-center">
                 {!isRegister && !isResetMode && (
                   <button

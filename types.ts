@@ -135,6 +135,13 @@ export interface RankingEvaluation {
   note: string;
 }
 
+export interface RankingGameOption {
+  id: string;
+  gameCode: string;
+  matchDate: string;
+  teams: string;
+}
+
 export interface RankingPerformanceProfile {
   refereeId: string;
   refereeName: string;
@@ -181,6 +188,7 @@ export interface RankingLeaderboardItem {
 export interface RankingDashboardData {
   leaderboard: RankingLeaderboardItem[];
   history: RankingPoint[];
+  refereeHistories: Record<string, RankingPoint[]>;
   currentUserItem: RankingLeaderboardItem | null;
   performanceProfile: RankingPerformanceProfile | null;
   visiblePerformanceProfiles: RankingPerformanceProfile[];

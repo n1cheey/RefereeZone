@@ -2,10 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Layout from './Layout';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Award, Save, Shield, TrendingUp } from 'lucide-react';
-import { RankingDashboardData, RankingPerformanceEntry, RankingPerformanceProfile, User } from '../types';
+import { RankingDashboardData, RankingGameOption, RankingPerformanceEntry, RankingPerformanceProfile, User } from '../types';
 import { getRankingAdminData, getRankingDashboard, saveRankingPerformance } from '../services/rankingService';
 
 const scoreOptions = [-1, 0, 1];
+const CORRECTION_GAME_ID = '__correction__';
+const CORRECTION_GAME_CODE = 'Correction';
 
 interface RankingProps {
   user: User;
@@ -13,6 +15,7 @@ interface RankingProps {
 }
 
 const emptyMatchPerformanceForm = {
+  gameId: '',
   gameCode: '',
   evaluationDate: '',
   note: '',
@@ -27,7 +30,7 @@ const emptyMatchPerformanceForm = {
   externalEvaluation: 0,
 };
 
-const performanceFields: Array<[keyof Omit<typeof emptyMatchPerformanceForm, 'gameCode' | 'evaluationDate' | 'note'>, string]> = [
+const performanceFields: Array<[keyof Omit<typeof emptyMatchPerformanceForm, 'gameId' | 'gameCode' | 'evaluationDate' | 'note'>, string]> = [
   ['physicalFitness', 'Fiziki hazirliq'],
   ['mechanics', 'Mexanika'],
   ['iot', 'IOT'],
@@ -55,6 +58,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
   const [adminData, setAdminData] = useState<{
     performanceEntries: RankingPerformanceEntry[];
     performanceProfiles: RankingPerformanceProfile[];
+    games: RankingGameOption[];
     referees: Array<{ id: string; fullName: string }>;
   } | null>(null);
   const [selectedRefereeId, setSelectedRefereeId] = useState('');
@@ -79,6 +83,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
           ? {
               performanceEntries: adminResponse.performanceEntries,
               performanceProfiles: adminResponse.performanceProfiles,
+              games: adminResponse.games,
               referees: adminResponse.referees,
             }
           : null,
@@ -110,6 +115,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
   const rankingItems = dashboard?.leaderboard || [];
   const performanceProfiles = adminData?.performanceProfiles || dashboard?.visiblePerformanceProfiles || [];
   const performanceEntries = adminData?.performanceEntries || dashboard?.performanceEntries || [];
+  const rankingGames = adminData?.games || [];
 
   const selectedProfile = useMemo(
     () => performanceProfiles.find((item) => item.refereeId === selectedRefereeId) || null,
@@ -133,10 +139,26 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
         }),
     [performanceEntries, selectedRefereeId],
   );
+  const selectedHistory = useMemo(() => {
+    if (!dashboard) {
+      return [];
+    }
+
+    if (!canViewFullLeaderboard) {
+      return dashboard.history || [];
+    }
+
+    return dashboard.refereeHistories?.[selectedRefereeId] || [];
+  }, [canViewFullLeaderboard, dashboard, selectedRefereeId]);
   const matchPerformanceTotal = useMemo(() => {
     const currentLeaderboardItem = rankingItems.find((item) => item.refereeId === matchPerformanceRefereeId);
     return currentLeaderboardItem?.performanceAverage ?? 0;
   }, [matchPerformanceRefereeId, rankingItems]);
+  const selectedMatchPerformanceGame = useMemo(
+    () => rankingGames.find((game) => game.id === matchPerformanceForm.gameId) || null,
+    [matchPerformanceForm.gameId, rankingGames],
+  );
+  const isCorrectionSelection = matchPerformanceForm.gameId === CORRECTION_GAME_ID;
 
   const handleSaveMatchPerformance = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -231,13 +253,38 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Game Number</label>
-                  <input
+                  <select
                     required
-                    value={matchPerformanceForm.gameCode}
-                    onChange={(event) => setMatchPerformanceForm((prev) => ({ ...prev, gameCode: event.target.value }))}
-                    className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
-                    placeholder="ABL-205"
-                  />
+                    value={matchPerformanceForm.gameId}
+                    onChange={(event) => {
+                      if (event.target.value === CORRECTION_GAME_ID) {
+                        setMatchPerformanceForm((prev) => ({
+                          ...prev,
+                          gameId: CORRECTION_GAME_ID,
+                          gameCode: CORRECTION_GAME_CODE,
+                          evaluationDate: '',
+                        }));
+                        return;
+                      }
+
+                      const nextGame = rankingGames.find((game) => game.id === event.target.value);
+                      setMatchPerformanceForm((prev) => ({
+                        ...prev,
+                        gameId: event.target.value,
+                        gameCode: nextGame?.gameCode || '',
+                        evaluationDate: nextGame?.matchDate || '',
+                      }));
+                    }}
+                    className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
+                  >
+                    <option value="">Select existing game</option>
+                    <option value={CORRECTION_GAME_ID}>{CORRECTION_GAME_CODE}</option>
+                    {rankingGames.map((game) => (
+                      <option key={game.id} value={game.id}>
+                        {`${game.gameCode} • ${game.teams} • ${game.matchDate}`}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
@@ -245,11 +292,21 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
                     type="date"
                     required
                     value={matchPerformanceForm.evaluationDate}
-                    onChange={(event) => setMatchPerformanceForm((prev) => ({ ...prev, evaluationDate: event.target.value }))}
-                    className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
+                    readOnly={!isCorrectionSelection}
+                    onChange={(event) =>
+                      setMatchPerformanceForm((prev) => ({ ...prev, evaluationDate: event.target.value }))
+                    }
+                    className={`block w-full rounded-xl border border-slate-200 px-4 py-3 ${
+                      isCorrectionSelection ? 'bg-white outline-none focus:ring-2 focus:ring-[#581c1c]' : 'bg-slate-50 text-slate-700'
+                    }`}
                   />
                 </div>
               </div>
+              {selectedMatchPerformanceGame && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  {selectedMatchPerformanceGame.teams}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Total</label>
                 <input
@@ -416,28 +473,72 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
       )}
 
       {canViewFullLeaderboard && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 mb-6">
-          <h3 className="text-base font-bold text-slate-900 mb-4">Full Ranking</h3>
-          <div className="space-y-3">
-            {rankingItems.map((item) => (
-              <button
-                key={item.refereeId}
-                type="button"
-                onClick={() => setSelectedRefereeId(item.refereeId)}
-                className={`w-full rounded-xl border px-4 py-3 text-left transition ${
-                  selectedRefereeId === item.refereeId ? 'border-[#581c1c] bg-[#581c1c]/5' : 'border-slate-200 bg-slate-50'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-slate-900">{`#${item.rank} ${item.refereeName}`}</div>
-                    <div className="text-sm text-slate-500">{`AVG: ${formatAverage(item.performanceAverage)}`}</div>
+        <div className="space-y-6 mb-6">
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <h3 className="text-base font-bold text-slate-900 mb-4">Full Ranking</h3>
+            <div className="space-y-3">
+              {rankingItems.map((item) => (
+                <button
+                  key={item.refereeId}
+                  type="button"
+                  onClick={() => setSelectedRefereeId(item.refereeId)}
+                  className={`w-full rounded-xl border px-4 py-3 text-left transition ${
+                    selectedRefereeId === item.refereeId ? 'border-[#581c1c] bg-[#581c1c]/5' : 'border-slate-200 bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-slate-900">{`#${item.rank} ${item.refereeName}`}</div>
+                      <div className="text-sm text-slate-500">{`AVG: ${formatAverage(item.performanceAverage)}`}</div>
+                    </div>
+                    <div className="text-lg font-black text-[#581c1c]">{formatAverage(item.overallScore)}</div>
                   </div>
-                  <div className="text-lg font-black text-[#581c1c]">{formatAverage(item.overallScore)}</div>
-                </div>
-              </button>
-            ))}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {selectedLeaderboardItem && selectedHistory.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+              <div className="flex justify-between items-start gap-4 mb-6">
+                <div>
+                  <p className="text-sm text-slate-500">Selected Referee Position Trend</p>
+                  <h3 className="text-3xl font-black text-[#581c1c]">{selectedLeaderboardItem.refereeName}</h3>
+                  <p className="text-sm text-slate-500 mt-2">{`Current rank: #${selectedLeaderboardItem.rank}`}</p>
+                </div>
+                <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full flex items-center gap-1 text-sm font-bold">
+                  <TrendingUp size={16} /> AVG {formatAverage(selectedLeaderboardItem.performanceAverage)}
+                </div>
+              </div>
+
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={selectedHistory}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="gameCode" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <YAxis reversed domain={[1, Math.max(5, dashboard.totalReferees || 1)]} hide />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                      labelStyle={{ fontWeight: 'bold' }}
+                      formatter={(value: number) => [`#${value}`, 'Rank']}
+                      labelFormatter={(label: string, payload) => {
+                        const point = payload?.[0]?.payload as { date?: string; gameCode?: string } | undefined;
+                        return point ? `${point.gameCode || label} • ${point.date || ''}` : label;
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="rank"
+                      stroke="#f97316"
+                      strokeWidth={3}
+                      dot={{ r: 6, fill: '#f97316' }}
+                      activeDot={{ r: 8 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

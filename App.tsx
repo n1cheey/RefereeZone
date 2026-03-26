@@ -1,7 +1,13 @@
 import React, { Suspense, lazy, startTransition, useEffect, useRef, useState } from 'react';
 import { User } from './types';
 import Login from './components/Login';
-import { getCurrentUserProfile, isPasswordRecoveryMode, logoutUser, subscribeToAuthChanges } from './services/authService';
+import {
+  getCurrentUserProfile,
+  isPasswordRecoveryMode,
+  isPasswordResetPage,
+  logoutUser,
+  subscribeToAuthChanges,
+} from './services/authService';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
 const Nominations = lazy(() => import('./components/Nominations'));
@@ -106,25 +112,25 @@ const LoadingScreen = ({ label }: { label: string }) => (
 );
 
 const App: React.FC = () => {
-  const recoveryModeRef = useRef(typeof window !== 'undefined' && isPasswordRecoveryMode());
+  const recoveryModeRef = useRef(typeof window !== 'undefined' && (isPasswordRecoveryMode() || isPasswordResetPage()));
   const sessionSyncPromiseRef = useRef<Promise<void> | null>(null);
   const lastSessionSyncAtRef = useRef(0);
   const [currentUser, setCurrentUser] = useState<User | null>(() =>
-    typeof window === 'undefined' || isPasswordRecoveryMode() ? null : readCachedUser(),
+    typeof window === 'undefined' || isPasswordRecoveryMode() || isPasswordResetPage() ? null : readCachedUser(),
   );
   const [currentView, setCurrentView] = useState<View>(() => {
     if (typeof window === 'undefined') {
       return 'login';
     }
 
-    if (isPasswordRecoveryMode()) {
+    if (isPasswordRecoveryMode() || isPasswordResetPage()) {
       return 'login';
     }
 
     return readCachedView(Boolean(readCachedUser()));
   });
   const [isAuthLoading, setIsAuthLoading] = useState(() =>
-    typeof window === 'undefined' ? true : isPasswordRecoveryMode() ? false : !readCachedUser(),
+    typeof window === 'undefined' ? true : isPasswordRecoveryMode() || isPasswordResetPage() ? false : !readCachedUser(),
   );
 
   useEffect(() => {

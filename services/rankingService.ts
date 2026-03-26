@@ -2,6 +2,7 @@ import {
   RankingDashboardData,
   RankingEvaluation,
   RankingPerformanceEntry,
+  RankingGameOption,
   RankingLeaderboardItem,
   RankingPerformanceProfile,
 } from '../types';
@@ -20,6 +21,7 @@ export function getRankingAdminData(instructorId: string) {
     evaluations: RankingEvaluation[];
     performanceEntries: RankingPerformanceEntry[];
     performanceProfiles: RankingPerformanceProfile[];
+    games: RankingGameOption[];
     referees: Array<{ id: string; fullName: string }>;
   }>(`/api/rankings/admin?instructorId=${encodeURIComponent(instructorId)}`);
 }

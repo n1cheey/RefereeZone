@@ -18,6 +18,7 @@ const JSON_HEADERS = {
 };
 
 const PROFILE_RETRY_DELAYS_MS = [350, 900, 1800];
+const PASSWORD_RESET_PATH = '/reset-password';
 
 const wait = (delayMs: number) =>
   new Promise<void>((resolve) => {
@@ -27,15 +28,23 @@ const wait = (delayMs: number) =>
 const getPasswordResetRedirectUrl = () => {
   const configuredAppUrl = String(import.meta.env.VITE_APP_URL || '').trim().replace(/\/+$/, '');
   if (configuredAppUrl) {
-    return configuredAppUrl;
+    return `${configuredAppUrl}${PASSWORD_RESET_PATH}`;
   }
 
   if (typeof window === 'undefined') {
     return undefined;
   }
 
-  return `${window.location.origin}${window.location.pathname}`;
+  return `${window.location.origin}${PASSWORD_RESET_PATH}`;
 };
+
+export function isPasswordResetPage() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.location.pathname.replace(/\/+$/, '') === PASSWORD_RESET_PATH;
+}
 
 export function isPasswordRecoveryMode() {
   if (typeof window === 'undefined') {
@@ -52,7 +61,8 @@ export function clearAuthHash() {
     return;
   }
 
-  const nextUrl = `${window.location.pathname}${window.location.search}`;
+  const nextPath = isPasswordResetPage() ? '/' : window.location.pathname;
+  const nextUrl = `${nextPath}${window.location.search}`;
   window.history.replaceState({}, document.title, nextUrl);
 }
 
