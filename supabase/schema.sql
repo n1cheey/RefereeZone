@@ -126,6 +126,13 @@ create table if not exists public.news_posts (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.user_activity (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  last_seen_at timestamptz not null default now(),
+  user_agent text not null default '',
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists profiles_role_full_name_idx
   on public.profiles (role, full_name);
 
@@ -144,6 +151,9 @@ create index if not exists reports_nomination_referee_author_idx
 create index if not exists ranking_match_performance_referee_match_idx
   on public.ranking_match_performance (referee_id, evaluation_date, game_code);
 
+create index if not exists user_activity_last_seen_idx
+  on public.user_activity (last_seen_at desc);
+
 alter table public.allowed_access enable row level security;
 alter table public.profiles enable row level security;
 alter table public.nominations enable row level security;
@@ -153,6 +163,7 @@ alter table public.ranking_evaluations enable row level security;
 alter table public.ranking_performance enable row level security;
 alter table public.ranking_match_performance enable row level security;
 alter table public.news_posts enable row level security;
+alter table public.user_activity enable row level security;
 
 alter table public.allowed_access drop constraint if exists allowed_access_allowed_role_check;
 alter table public.allowed_access
@@ -220,3 +231,7 @@ for select using (public.current_user_role() in ('Instructor', 'Staff', 'Stuff')
 drop policy if exists "news read" on public.news_posts;
 create policy "news read" on public.news_posts
 for select using (public.current_user_role() in ('Instructor', 'Referee', 'Table', 'Staff', 'Stuff'));
+
+drop policy if exists "activity instructor read" on public.user_activity;
+create policy "activity instructor read" on public.user_activity
+for select using (public.current_user_role() in ('Instructor', 'Staff', 'Stuff'));

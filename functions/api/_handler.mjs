@@ -643,6 +643,74 @@ const getCurrentUser = async (admin, event) => {
   }
 };
 
+const recordUserActivity = async (admin, currentUser, event) => {
+  try {
+    const userAgent =
+      event.headers?.['user-agent'] ||
+      event.headers?.['User-Agent'] ||
+      event.multiValueHeaders?.['user-agent']?.[0] ||
+      event.multiValueHeaders?.['User-Agent']?.[0] ||
+      '';
+
+    const { error } = await admin.from('user_activity').upsert(
+      {
+        user_id: currentUser.id,
+        last_seen_at: new Date().toISOString(),
+        user_agent: String(userAgent || ''),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: 'user_id',
+      },
+    );
+
+    if (error) {
+      console.error('Failed to record user activity', error);
+    }
+  } catch (error) {
+    console.error('Failed to record user activity', error);
+  }
+};
+
+const listRecentActivity = async (admin, currentUser) => {
+  await requireRole(admin, currentUser.id, 'Instructor');
+
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await admin
+    .from('user_activity')
+    .select('user_id, last_seen_at')
+    .gte('last_seen_at', cutoff)
+    .order('last_seen_at', { ascending: false });
+
+  const activityRows = ensureData(data || [], error, 'Failed to load activity.');
+  if (!activityRows.length) {
+    return [];
+  }
+
+  const profiles = await listProfilesByIds(
+    admin,
+    activityRows.map((item) => item.user_id),
+  );
+  const profileMap = new Map(profiles.map((profile) => [profile.id, profile]));
+
+  return activityRows
+    .map((item) => {
+      const profile = profileMap.get(item.user_id);
+      if (!profile) {
+        return null;
+      }
+
+      return {
+        userId: profile.id,
+        fullName: profile.full_name,
+        email: profile.email,
+        role: normalizeRole(profile.role),
+        lastSeenAt: item.last_seen_at,
+      };
+    })
+    .filter(Boolean);
+};
+
 const getGeminiClient = async () => {
   const apiKey = process.env.GEMINI_API_KEY;
 
@@ -1001,7 +1069,7 @@ const compareRankingLeaderboardItems = (left, right) => {
 const buildRankingState = async (admin) => {
   const refereeResponse = await admin
     .from('profiles')
-    .select('id, full_name')
+    .select('id, full_name, photo_url')
     .eq('role', 'Referee')
     .order('full_name', { ascending: true });
   const referees = ensureData(refereeResponse.data || [], refereeResponse.error, 'Failed to load referees.');
@@ -1113,6 +1181,7 @@ const buildRankingState = async (admin) => {
       return {
         refereeId: referee.id,
         refereeName: referee.full_name,
+        photoUrl: referee.photo_url || DEFAULT_PHOTO_URL,
         totalGameScore,
         performanceScore: performanceAverage,
         performanceAverage,
@@ -2437,9 +2506,14 @@ const routeRequest = async (event) => {
   const currentUser = await getCurrentUser(admin, event);
 
   if (method === 'GET' && path === '/auth/me') {
+    await recordUserActivity(admin, currentUser, event);
     return json(200, {
       user: mapUser(currentUser),
     });
+  }
+
+  if (method === 'GET' && path === '/activity') {
+    return json(200, { activity: await listRecentActivity(admin, currentUser) });
   }
 
     if (method === 'GET' && path === '/referees') {

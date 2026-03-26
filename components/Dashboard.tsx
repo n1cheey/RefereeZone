@@ -12,6 +12,7 @@ import {
   Camera,
   Clock,
   FileText,
+  History,
   MapPin,
   Newspaper,
   Plus,
@@ -34,7 +35,7 @@ import {
 
 interface DashboardProps {
   user: User;
-  onNavigate: (view: 'nominations' | 'teyinat' | 'ranking' | 'reports' | 'news' | 'members' | 'access') => void;
+  onNavigate: (view: 'nominations' | 'teyinat' | 'ranking' | 'reports' | 'news' | 'members' | 'access' | 'activity') => void;
   onLogout: () => void;
   onUpdateUser: (user: User) => void;
 }
@@ -345,7 +346,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const navItems = [
     { id: 'nominations' as const, label: user.role === 'Staff' ? 'Nominations' : 'My Nominations', icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
     ...(user.role === 'Instructor'
-      ? [{ id: 'teyinat' as const, label: 'Teyinat', icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' }]
+      ? [
+          { id: 'teyinat' as const, label: 'Teyinat', icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
+          { id: 'activity' as const, label: 'Activity', icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
+        ]
       : []),
     { id: 'ranking' as const, label: user.role === 'Staff' ? 'Ranking' : 'My Ranking', icon: TrendingUp, iconColor: 'text-green-500', color: 'bg-green-50' },
     { id: 'reports' as const, label: user.role === 'Staff' ? 'Reports' : 'My Reports', icon: FileText, iconColor: 'text-purple-500', color: 'bg-purple-50' },

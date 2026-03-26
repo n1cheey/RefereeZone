@@ -178,6 +178,7 @@ export interface RankingPerformanceEntry {
 export interface RankingLeaderboardItem {
   refereeId: string;
   refereeName: string;
+  photoUrl: string;
   totalGameScore: number;
   performanceScore: number;
   performanceAverage: number;
@@ -215,4 +216,12 @@ export interface NewsItem {
   commentary: string;
   createdAt: string;
   createdByName: string;
+}
+
+export interface ActivityEntry {
+  userId: string;
+  fullName: string;
+  email: string;
+  role: UserRole;
+  lastSeenAt: string;
 }

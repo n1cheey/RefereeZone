@@ -17,8 +17,9 @@ const Reports = lazy(() => import('./components/Reports'));
 const News = lazy(() => import('./components/News'));
 const Members = lazy(() => import('./components/Members'));
 const AccessManager = lazy(() => import('./components/AccessManager'));
+const Activity = lazy(() => import('./components/Activity'));
 
-type View = 'login' | 'dashboard' | 'nominations' | 'teyinat' | 'ranking' | 'reports' | 'news' | 'members' | 'access';
+type View = 'login' | 'dashboard' | 'nominations' | 'teyinat' | 'ranking' | 'reports' | 'news' | 'members' | 'access' | 'activity';
 
 const AUTH_LOADING_TIMEOUT_MS = 4000;
 const SESSION_SYNC_COOLDOWN_MS = 60000;
@@ -77,6 +78,7 @@ const normalizeStoredView = (value: unknown): View => {
     case 'news':
     case 'members':
     case 'access':
+    case 'activity':
     case 'login':
       return value;
     default:
@@ -380,6 +382,8 @@ const App: React.FC = () => {
         return <Members user={currentUser!} onBack={() => setCurrentView('dashboard')} onCurrentUserUpdated={handleUpdateUser} />;
       case 'access':
         return <AccessManager user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+      case 'activity':
+        return <Activity user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       default:
         return <Login onLogin={handleLogin} />;
     }
