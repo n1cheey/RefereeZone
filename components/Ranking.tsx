@@ -224,17 +224,17 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
           <h3 className="text-sm font-bold text-slate-900">Performance Scale</h3>
           <div className="mt-3 flex flex-wrap gap-3">
-            <div className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700">
-              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-2 text-white">-1</span>
-              must improve
+            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700">
+              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-emerald-600 px-2 text-white">1</span>
+              very good
             </div>
             <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-700">
               <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-2 text-white">0</span>
               normal
             </div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700">
-              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-emerald-600 px-2 text-white">1</span>
-              very good
+            <div className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700">
+              <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-2 text-white">-1</span>
+              must improve
             </div>
           </div>
         </div>
