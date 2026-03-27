@@ -1740,7 +1740,33 @@ const respondToNomination = async (admin, currentUser, nominationId, response) =
 
 const deleteNomination = async (admin, currentUser, nominationId) => {
   await requireRole(admin, currentUser.id, 'Instructor');
-  await requireNominationOwner(admin, nominationId, currentUser.id);
+  const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
+
+  const matchDate = String(nomination.match_date || '');
+  const gameCode = String(nomination.game_code || '');
+
+  if (matchDate && gameCode) {
+    const [performanceDelete, evaluationDelete] = await Promise.all([
+      admin
+        .from('ranking_match_performance')
+        .delete()
+        .eq('game_code', gameCode)
+        .eq('evaluation_date', matchDate),
+      admin
+        .from('ranking_evaluations')
+        .delete()
+        .eq('game_code', gameCode)
+        .eq('evaluation_date', matchDate),
+    ]);
+
+    if (performanceDelete.error) {
+      throw new HttpError(500, 'Failed to delete match performance for the removed game.');
+    }
+
+    if (evaluationDelete.error) {
+      throw new HttpError(500, 'Failed to delete ranking evaluations for the removed game.');
+    }
+  }
 
   const { error } = await admin.from('nominations').delete().eq('id', nominationId);
   if (error) {
