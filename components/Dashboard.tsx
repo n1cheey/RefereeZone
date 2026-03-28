@@ -558,7 +558,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     <div key={assignment.id} className="rounded-xl border border-slate-200 p-4">
       {user.role === 'Referee' && isUpcomingMatchDay(assignment.matchDate, assignment.matchTime, countdownNow) ? (
         <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
-          <div className="font-black uppercase tracking-[0.18em] text-emerald-700">Matchday!</div>
+          <div className="font-black uppercase tracking-[0.18em] text-emerald-700">Gameday!</div>
           <div className="mt-1 font-medium">Good luck today. Stay sharp and have a great game.</div>
         </div>
       ) : null}
