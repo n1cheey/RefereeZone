@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination } from '../types';
 import { getNominationSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
-import { isPastMatch } from '../matchTiming';
+import { getMatchTimestamp, isPastMatch } from '../matchTiming';
 import Layout from './Layout';
 import {
   AlertTriangle,
@@ -41,11 +41,26 @@ interface DashboardProps {
 }
 
 const POLL_INTERVAL_MS = 45000;
+const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Baku',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
 
 const splitMatchesByTime = <T extends { matchDate: string; matchTime: string }>(items: T[], now: number) => ({
   upcoming: items.filter((item) => !isPastMatch(item.matchDate, item.matchTime, now)),
   past: items.filter((item) => isPastMatch(item.matchDate, item.matchTime, now)),
 });
+
+const isUpcomingMatchDay = (matchDate: string, matchTime: string, now: number) => {
+  const matchTimestamp = getMatchTimestamp(matchDate, matchTime);
+  if (matchTimestamp === null || matchTimestamp <= now) {
+    return false;
+  }
+
+  return BAKU_DATE_FORMATTER.format(new Date(now)) === matchDate;
+};
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpdateUser }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -541,6 +556,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
   const renderAssignmentCard = (assignment: RefereeNomination) => (
     <div key={assignment.id} className="rounded-xl border border-slate-200 p-4">
+      {user.role === 'Referee' && isUpcomingMatchDay(assignment.matchDate, assignment.matchTime, countdownNow) ? (
+        <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
+          <div className="font-black uppercase tracking-[0.18em] text-emerald-700">Matchday!</div>
+          <div className="mt-1 font-medium">Good luck today. Stay sharp and have a great game.</div>
+        </div>
+      ) : null}
       {assignment.status === 'Pending' ? (
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
           {formatAutoDeclineCountdown(assignment.autoDeclineAt, countdownNow) || 'Auto reject timer unavailable.'}
