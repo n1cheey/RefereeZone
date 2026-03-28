@@ -1,14 +1,31 @@
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="az">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#57131b">
+    <meta name="description" content="ABL RefZone is the internal Azerbaijan Basketball League platform for referee nominations, reports, rankings and staff coordination.">
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <meta name="author" content="ABL RefZone">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="ABL RefZone">
+    <meta property="og:locale" content="az_AZ">
+    <meta property="og:title" content="ABL RefZone | Azerbaijan Basketball League Referee Platform">
+    <meta property="og:description" content="Internal Azerbaijan Basketball League platform for referee nominations, reports, rankings and staff administration.">
+    <meta property="og:image" content="/img/login.webp">
+    <meta property="og:image:alt" content="ABL RefZone login visual">
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:title" content="ABL RefZone | Azerbaijan Basketball League Referee Platform">
+    <meta property="twitter:description" content="Internal Azerbaijan Basketball League platform for referee nominations, reports, rankings and staff administration.">
+    <meta property="twitter:image" content="/img/login.webp">
+    <link rel="canonical" id="canonical-link" href="/">
     <link rel="icon" type="image/jpeg" href="./img/favicon.jpg">
-    <title>ABL Referees</title>
+    <title>ABL RefZone | Azerbaijan Basketball League Referee Platform</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="preconnect" href="https://esm.sh">
+    <link rel="preload" href="/img/login.webp" as="image">
 <script type="importmap">
 {
   "imports": {
@@ -22,6 +39,64 @@
 }
 </script>
 <link rel="stylesheet" href="/index.css">
+<script>
+  (function () {
+    const url = new URL(window.location.href);
+    const isResetPasswordPage = url.pathname.replace(/\/+$/, '') === '/reset-password';
+    const canonicalTarget = isResetPasswordPage ? url.origin + '/reset-password' : url.origin + '/';
+    const title = isResetPasswordPage
+      ? 'Reset Password | ABL RefZone'
+      : 'ABL RefZone | Azerbaijan Basketball League Referee Platform';
+    const description = isResetPasswordPage
+      ? 'Reset your ABL RefZone account password and securely restore access to the referee platform.'
+      : 'ABL RefZone is the internal Azerbaijan Basketball League platform for referee nominations, reports, rankings and staff coordination.';
+
+    document.title = title;
+    const canonicalLink = document.getElementById('canonical-link');
+    if (canonicalLink) {
+      canonicalLink.setAttribute('href', canonicalTarget);
+    }
+
+    const upsertMeta = function (selector, attribute, content) {
+      const element = document.querySelector(selector);
+      if (element) {
+        element.setAttribute(attribute, content);
+      }
+    };
+
+    upsertMeta('meta[name="description"]', 'content', description);
+    upsertMeta('meta[name="robots"]', 'content', isResetPasswordPage ? 'noindex, nofollow' : 'index, follow, max-image-preview:large');
+    upsertMeta('meta[property="og:title"]', 'content', title);
+    upsertMeta('meta[property="og:description"]', 'content', description);
+    upsertMeta('meta[property="og:url"]', 'content', canonicalTarget);
+    upsertMeta('meta[property="twitter:title"]', 'content', title);
+    upsertMeta('meta[property="twitter:description"]', 'content', description);
+
+    const ldJson = {
+      '@context': 'https://schema.org',
+      '@graph': [
+        {
+          '@type': 'Organization',
+          name: 'ABL RefZone',
+          url: url.origin,
+          logo: url.origin + '/img/favicon.jpg'
+        },
+        {
+          '@type': 'WebSite',
+          name: 'ABL RefZone',
+          url: canonicalTarget,
+          inLanguage: 'az'
+        }
+      ]
+    };
+
+    var existingLd = document.getElementById('seo-ld-json');
+    if (existingLd) {
+      existingLd.textContent = JSON.stringify(ldJson);
+    }
+  })();
+</script>
+<script id="seo-ld-json" type="application/ld+json"></script>
 </head>
 <body>
     <div id="root"></div>
