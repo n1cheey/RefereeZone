@@ -2266,7 +2266,7 @@ const extendReportDeadline = async (admin, currentUser, nominationId, refereeId)
     throw new HttpError(409, 'Add Time is available only after the report deadline has passed.');
   }
 
-  const extendedDeadline = new Date(currentDeadline.getTime() + REPORT_DEADLINE_EXTENSION_MS).toISOString();
+  const extendedDeadline = new Date(Date.now() + REPORT_DEADLINE_EXTENSION_MS).toISOString();
   const { error } = await admin
     .from('nomination_referees')
     .update({ report_deadline_at: extendedDeadline })
