@@ -44,9 +44,13 @@ create table if not exists public.nomination_referees (
   referee_id uuid not null references public.profiles(id) on delete cascade,
   slot_number integer not null check (slot_number between 1 and 3),
   status text not null default 'Pending' check (status in ('Pending', 'Accepted', 'Declined')),
+  report_deadline_at timestamptz,
   responded_at timestamptz,
   unique (nomination_id, slot_number)
 );
+
+alter table public.nomination_referees
+add column if not exists report_deadline_at timestamptz;
 
 create table if not exists public.reports (
   id uuid primary key default gen_random_uuid(),

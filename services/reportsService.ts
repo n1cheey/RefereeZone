@@ -48,3 +48,18 @@ export function deleteReport(payload: {
     },
   );
 }
+
+export function extendReportDeadline(payload: {
+  userId: string;
+  nominationId: string;
+  refereeId: string;
+}) {
+  return apiRequest<{ message: string; report: ReportDetail }>(
+    `/api/reports/${encodeURIComponent(payload.nominationId)}/${encodeURIComponent(payload.refereeId)}/extend`,
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ userId: payload.userId }),
+    },
+  );
+}

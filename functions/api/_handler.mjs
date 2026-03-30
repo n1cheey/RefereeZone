@@ -16,6 +16,7 @@ const REPORT_STATUS = {
   SUBMITTED: 'Submitted',
   REVIEWED: 'Reviewed',
 };
+const REPORT_DEADLINE_EXTENSION_MS = 24 * 60 * 60 * 1000;
 const ROLE_PREFIX = {
   Instructor: 'INS',
   Table: 'TAB',
@@ -194,8 +195,19 @@ const createDeadlineDate = (matchDate, matchTime) => {
   return Number.isNaN(deadline.getTime()) ? null : new Date(deadline.getTime() + 24 * 60 * 60 * 1000);
 };
 
+const getReportDeadlineDate = (assignment) => {
+  if (assignment.reportDeadlineAt) {
+    const customDeadline = new Date(assignment.reportDeadlineAt);
+    if (!Number.isNaN(customDeadline.getTime())) {
+      return customDeadline;
+    }
+  }
+
+  return createDeadlineDate(assignment.matchDate, assignment.matchTime);
+};
+
 const getDeadlineMessage = (assignment) => {
-  const deadline = createDeadlineDate(assignment.matchDate, assignment.matchTime);
+  const deadline = getReportDeadlineDate(assignment);
   if (!deadline) {
     return 'Report deadline could not be calculated.';
   }
@@ -204,7 +216,7 @@ const getDeadlineMessage = (assignment) => {
 };
 
 const isDeadlineExceeded = (assignment) => {
-  const deadline = createDeadlineDate(assignment.matchDate, assignment.matchTime);
+  const deadline = getReportDeadlineDate(assignment);
   return Boolean(deadline && Date.now() > deadline.getTime());
 };
 
@@ -248,20 +260,37 @@ const buildReportListItem = ({
   refereeReportStatus,
   instructorReportStatus,
   reviewScore,
-}) => ({
-  nominationId: nomination.id,
-  refereeId: assignment.referee_id,
-  gameCode: nomination.game_code || 'ABL-NEW',
-  teams: nomination.teams,
-  matchDate: nomination.match_date,
-  matchTime: nomination.match_time,
-  venue: nomination.venue,
-  refereeName,
-  slotNumber: Number(assignment.slot_number),
-  refereeReportStatus: refereeReportStatus || null,
-  instructorReportStatus: instructorReportStatus || null,
-  reviewScore: reviewScore === null || reviewScore === undefined ? null : Number(reviewScore),
-});
+  currentUserRole,
+}) => {
+  const deadlineContext = {
+    matchDate: nomination.match_date,
+    matchTime: nomination.match_time,
+    reportDeadlineAt: assignment.report_deadline_at || null,
+  };
+  const deadlineExceeded = isDeadlineExceeded(deadlineContext);
+
+  return {
+    nominationId: nomination.id,
+    refereeId: assignment.referee_id,
+    gameCode: nomination.game_code || 'ABL-NEW',
+    teams: nomination.teams,
+    matchDate: nomination.match_date,
+    matchTime: nomination.match_time,
+    venue: nomination.venue,
+    refereeName,
+    slotNumber: Number(assignment.slot_number),
+    refereeReportStatus: refereeReportStatus || null,
+    instructorReportStatus: instructorReportStatus || null,
+    reviewScore: reviewScore === null || reviewScore === undefined ? null : Number(reviewScore),
+    deadlineExceeded,
+    deadlineMessage: deadlineExceeded ? getDeadlineMessage(deadlineContext) : null,
+    reportDeadlineAt:
+      assignment.report_deadline_at ||
+      createDeadlineDate(nomination.match_date, nomination.match_time)?.toISOString() ||
+      null,
+    canAddTime: currentUserRole === 'Instructor' && deadlineExceeded,
+  };
+};
 
 const ensureData = (data, error, fallbackMessage) => {
   if (error) {
@@ -522,6 +551,7 @@ const requireAssignment = async (admin, nominationId, refereeId) => {
     assignmentId: assignmentRow.id,
     slotNumber: Number(assignmentRow.slot_number),
     assignmentStatus: assignmentRow.status,
+    reportDeadlineAt: assignmentRow.report_deadline_at || null,
     nominationId: nomination.id,
     createdBy: nomination.created_by,
     gameCode: nomination.game_code || 'ABL-NEW',
@@ -1570,6 +1600,7 @@ const createNomination = async (admin, currentUser, body) => {
   const assignableOfficials = await requireAssignableOfficials(admin, refereeIds);
   const officialMap = new Map(assignableOfficials.map((official) => [official.id, official]));
   const respondedAt = new Date().toISOString();
+  const reportDeadlineAt = createDeadlineDate(matchDate, matchTime)?.toISOString() || null;
 
   const { data: inserted, error } = await admin
     .from('nominations')
@@ -1598,6 +1629,7 @@ const createNomination = async (admin, currentUser, body) => {
         referee_id: refereeId,
         slot_number: index + 1,
         status: isSelfAssignedInstructor ? ASSIGNMENT_STATUS.ACCEPTED : ASSIGNMENT_STATUS.PENDING,
+        report_deadline_at: reportDeadlineAt,
         responded_at: isSelfAssignedInstructor ? respondedAt : null,
       };
     }),
@@ -1644,11 +1676,15 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
     throw new HttpError(409, 'This referee is already assigned to the game.');
   }
 
+  const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
+  const reportDeadlineAt = createDeadlineDate(nomination.match_date, nomination.match_time)?.toISOString() || null;
+
   const { error } = await admin
     .from('nomination_referees')
     .update({
       referee_id: refereeId,
       status: isSelfAssignedInstructor ? ASSIGNMENT_STATUS.ACCEPTED : ASSIGNMENT_STATUS.PENDING,
+      report_deadline_at: reportDeadlineAt,
       responded_at: isSelfAssignedInstructor ? new Date().toISOString() : null,
     })
     .eq('nomination_id', nominationId)
@@ -1829,6 +1865,7 @@ const listReportItems = async (admin, currentUser) => {
           refereeReportStatus: ownReport?.status || null,
           instructorReportStatus: instructorReport?.status || null,
           reviewScore: instructorReport?.score ?? null,
+          currentUserRole: currentUser.role,
         });
       })
       .filter(Boolean)
@@ -1894,6 +1931,7 @@ const listReportItems = async (admin, currentUser) => {
           refereeReportStatus: refereeReport?.status || null,
           instructorReportStatus: ownReport?.status || null,
           reviewScore: ownReport?.score ?? null,
+          currentUserRole: currentUser.role,
         });
       })
       .filter(Boolean)
@@ -1963,6 +2001,7 @@ const listReportItems = async (admin, currentUser) => {
           refereeReportStatus: refereeReport?.status || null,
           instructorReportStatus: instructorReport?.status || null,
           reviewScore: instructorReport?.score ?? null,
+          currentUserRole: currentUser.role,
         });
       })
       .filter(Boolean)
@@ -1983,6 +2022,7 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
   const assignment = await requireAssignment(admin, nominationId, refereeId);
   const deadlineExceeded = isDeadlineExceeded(assignment);
   const deadlineMessage = deadlineExceeded ? getDeadlineMessage(assignment) : null;
+  const reportDeadlineAt = getReportDeadlineDate(assignment)?.toISOString() || null;
 
   if (currentUser.role === 'Referee') {
     if (currentUser.id !== refereeId) {
@@ -2012,12 +2052,18 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
         refereeReportStatus: ownReport?.status || null,
         instructorReportStatus: instructorReport?.status || null,
         reviewScore: instructorReport?.score ?? null,
+        deadlineExceeded,
+        deadlineMessage,
+        reportDeadlineAt,
+        canAddTime: false,
       },
       refereeReport: mapReportEntry(ownReport),
       instructorReport: mapReportEntry(instructorReport),
       canEditCurrentUserReport: !deadlineExceeded && (!ownReport || ownReport.status === REPORT_STATUS.DRAFT),
       deadlineExceeded,
       deadlineMessage,
+      reportDeadlineAt,
+      canAddTime: false,
     };
   }
 
@@ -2042,12 +2088,18 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
         refereeReportStatus: refereeReport?.status || null,
         instructorReportStatus: ownReport?.status || null,
         reviewScore: ownReport?.score ?? null,
+        deadlineExceeded,
+        deadlineMessage,
+        reportDeadlineAt,
+        canAddTime: deadlineExceeded,
       },
       refereeReport: mapReportEntry(refereeReport),
       instructorReport: mapReportEntry(ownReport),
       canEditCurrentUserReport: Boolean(refereeReport) && (!ownReport || ownReport.status === REPORT_STATUS.DRAFT),
       deadlineExceeded: false,
       deadlineMessage: null,
+      reportDeadlineAt,
+      canAddTime: deadlineExceeded,
     };
   }
 
@@ -2071,12 +2123,18 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
         refereeReportStatus: refereeReport?.status || null,
         instructorReportStatus: instructorReport?.status || null,
         reviewScore: instructorReport?.score ?? null,
+        deadlineExceeded,
+        deadlineMessage,
+        reportDeadlineAt,
+        canAddTime: false,
       },
       refereeReport: mapReportEntry(refereeReport),
       instructorReport: mapReportEntry(instructorReport),
       canEditCurrentUserReport: false,
       deadlineExceeded: false,
       deadlineMessage: null,
+      reportDeadlineAt,
+      canAddTime: false,
     };
   }
 
@@ -2191,6 +2249,34 @@ const deleteReport = async (admin, currentUser, nominationId, refereeId) => {
   if (error) {
     throw new HttpError(500, 'Failed to delete report.');
   }
+};
+
+const extendReportDeadline = async (admin, currentUser, nominationId, refereeId) => {
+  await requireRole(admin, currentUser.id, 'Instructor');
+  await requireNominationOwner(admin, nominationId, currentUser.id);
+
+  const assignment = await requireAssignment(admin, nominationId, refereeId);
+  const currentDeadline = getReportDeadlineDate(assignment);
+
+  if (!currentDeadline) {
+    throw new HttpError(400, 'Report deadline could not be calculated.');
+  }
+
+  if (Date.now() <= currentDeadline.getTime()) {
+    throw new HttpError(409, 'Add Time is available only after the report deadline has passed.');
+  }
+
+  const extendedDeadline = new Date(currentDeadline.getTime() + REPORT_DEADLINE_EXTENSION_MS).toISOString();
+  const { error } = await admin
+    .from('nomination_referees')
+    .update({ report_deadline_at: extendedDeadline })
+    .eq('id', assignment.assignmentId);
+
+  if (error) {
+    throw new HttpError(500, 'Failed to extend report deadline.');
+  }
+
+  return getReportDetail(admin, currentUser, nominationId, refereeId);
 };
 
 const getRankingDashboard = async (admin, currentUser) => {
@@ -2647,9 +2733,15 @@ const routeRequest = async (event) => {
   }
 
   const reportMatch = path.match(/^\/reports\/([^/]+)\/([^/]+)$/);
+  const reportExtendMatch = path.match(/^\/reports\/([^/]+)\/([^/]+)\/extend$/);
   if (method === 'GET' && reportMatch) {
     const report = await getReportDetail(admin, currentUser, reportMatch[1], reportMatch[2]);
     return json(200, { report });
+  }
+
+  if (method === 'POST' && reportExtendMatch) {
+    const report = await extendReportDeadline(admin, currentUser, reportExtendMatch[1], reportExtendMatch[2]);
+    return json(200, { message: 'Report deadline extended by 24 hours.', report });
   }
 
   if (method === 'POST' && reportMatch) {

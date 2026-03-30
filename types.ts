@@ -98,6 +98,10 @@ export interface ReportListItem {
   refereeReportStatus: ReportStatus | null;
   instructorReportStatus: ReportStatus | null;
   reviewScore: number | null;
+  deadlineExceeded: boolean;
+  deadlineMessage: string | null;
+  reportDeadlineAt: string | null;
+  canAddTime: boolean;
 }
 
 export interface ReportDetail {
@@ -107,6 +111,8 @@ export interface ReportDetail {
   canEditCurrentUserReport: boolean;
   deadlineExceeded: boolean;
   deadlineMessage: string | null;
+  reportDeadlineAt: string | null;
+  canAddTime: boolean;
 }
 
 export interface Nomination {

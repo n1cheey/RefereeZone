@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import Layout from './Layout';
 import { ReportDetail, ReportListItem, ReportStatus, User } from '../types';
 import { getNominationSlotLabel } from '../slotLabels';
-import { ArrowRight, CheckCircle, Clock, FileWarning, Plus, Trash2, X } from 'lucide-react';
-import { deleteReport, getReportDetail, getReports, saveReport } from '../services/reportsService';
+import { AlarmClockPlus, ArrowRight, CheckCircle, Clock, FileWarning, Plus, Trash2, X } from 'lucide-react';
+import { deleteReport, extendReportDeadline, getReportDetail, getReports, saveReport } from '../services/reportsService';
 
 interface ReportsProps {
   user: User;
@@ -173,6 +173,33 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
     }
   };
 
+  const handleAddTime = async (nominationId: string, refereeId: string) => {
+    setIsSaving(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      const response = await extendReportDeadline({
+        userId: user.id,
+        nominationId,
+        refereeId,
+      });
+      await loadReports();
+      if (
+        selectedDetail &&
+        selectedDetail.item.nominationId === nominationId &&
+        selectedDetail.item.refereeId === refereeId
+      ) {
+        setSelectedDetail(response.report);
+      }
+      setSuccessMessage('Report deadline extended by 24 hours.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to extend the report deadline.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const eligibleNewReports = reports.filter((item) => {
     if (user.role === 'Referee') {
       return item.refereeReportStatus !== 'Submitted';
@@ -213,9 +240,19 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
           <p className="mt-1 text-sm text-slate-500">{`${getNominationSlotLabel(item.slotNumber)}: ${item.refereeName}`}</p>
         </div>
 
-        {selectedDetail.deadlineExceeded && selectedDetail.deadlineMessage && (
+        {item.deadlineExceeded && item.deadlineMessage && (
           <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {selectedDetail.deadlineMessage}
+            <div>{item.deadlineMessage}</div>
+            {user.role === 'Instructor' && selectedDetail.canAddTime && (
+              <button
+                onClick={() => handleAddTime(item.nominationId, item.refereeId)}
+                disabled={isSaving}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-70"
+              >
+                <AlarmClockPlus size={14} />
+                {isSaving ? 'Adding...' : 'Add Time (+24h)'}
+              </button>
+            )}
           </div>
         )}
 
@@ -242,7 +279,6 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
               <p className="text-sm text-slate-500">Instructor report is not available yet.</p>
             ) : (
               <div className="space-y-3 text-sm text-slate-700">
-                <div><span className="font-bold">Score:</span> {selectedDetail.instructorReport.feedbackScore}</div>
                 <div><span className="font-bold">3PO & IOT:</span> {selectedDetail.instructorReport.threePO_IOT}</div>
                 <div><span className="font-bold">Criteria:</span> {selectedDetail.instructorReport.criteria}</div>
                 <div><span className="font-bold">Teamwork:</span> {selectedDetail.instructorReport.teamwork}</div>
@@ -258,7 +294,6 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
 
             {!selectedDetail.canEditCurrentUserReport && currentReport ? (
               <div className="space-y-3 text-sm text-slate-700">
-                {isInstructor && <div><span className="font-bold">Score:</span> {currentReport.feedbackScore}</div>}
                 <div><span className="font-bold">3PO & IOT:</span> {currentReport.threePO_IOT}</div>
                 <div><span className="font-bold">Criteria:</span> {currentReport.criteria}</div>
                 <div><span className="font-bold">Teamwork:</span> {currentReport.teamwork}</div>
@@ -269,19 +304,6 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
               </div>
             ) : (
               <div className="space-y-4">
-                {isInstructor && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Score</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      value={formData.feedbackScore}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, feedbackScore: Number(e.target.value) }))}
-                      className="w-full p-3 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#f97316] outline-none"
-                    />
-                  </div>
-                )}
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">3PO & IOT</label>
                   <textarea
@@ -435,17 +457,33 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
                   <div>
                     <div className="font-bold text-slate-800">{`${report.gameCode} | ${report.teams}`}</div>
                     <div className="text-xs text-slate-500">{`${report.matchDate} | ${report.refereeName} | ${statusLabel}`}</div>
-                    {statusLabel === 'Reviewed' && report.reviewScore !== null && (
-                      <div className="text-[11px] font-bold text-green-700 mt-1">Score: {report.reviewScore}</div>
-                    )}
                     {(user.role === 'Instructor' || user.role === 'Staff') && (
                       <div className="text-[11px] text-slate-400 mt-1">
                         {`Referee report: ${report.refereeReportStatus || 'Not submitted'} | Instructor report: ${report.instructorReportStatus || 'Not started'}`}
                       </div>
                     )}
+                    {user.role === 'Instructor' && report.deadlineExceeded && report.deadlineMessage && (
+                      <div className="mt-2 text-[11px] font-semibold text-red-600">{report.deadlineMessage}</div>
+                    )}
                   </div>
                 </div>
-                <ArrowRight size={18} className="text-slate-300 group-hover:text-[#f97316] transition-colors" />
+                <div className="flex items-center gap-3">
+                  {user.role === 'Instructor' && report.canAddTime && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleAddTime(report.nominationId, report.refereeId);
+                      }}
+                      disabled={isSaving}
+                      className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-70"
+                    >
+                      <AlarmClockPlus size={14} />
+                      {isSaving ? 'Adding...' : 'Add Time'}
+                    </button>
+                  )}
+                  <ArrowRight size={18} className="text-slate-300 group-hover:text-[#f97316] transition-colors" />
+                </div>
               </button>
             );
           })}
