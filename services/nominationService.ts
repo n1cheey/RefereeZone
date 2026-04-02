@@ -7,6 +7,7 @@ const JSON_HEADERS = {
 
 export interface InstructorDashboardResponse {
   referees: RefereeDirectoryItem[];
+  toOfficials: RefereeDirectoryItem[];
   nominations: InstructorNomination[];
   assignments: RefereeNomination[];
   replacementNotices: ReplacementNotice[];
@@ -78,6 +79,24 @@ export function editNominationOfficials(payload: {
       body: JSON.stringify({
         instructorId: payload.instructorId,
         refereeIds: payload.refereeIds,
+      }),
+    },
+  );
+}
+
+export function assignNominationTOs(payload: {
+  nominationId: string;
+  toSupervisorId: string;
+  toIds: string[];
+}) {
+  return apiRequest<{ message: string; nomination: InstructorNomination }>(
+    `/api/nominations/${encodeURIComponent(payload.nominationId)}/tos`,
+    {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        toSupervisorId: payload.toSupervisorId,
+        toIds: payload.toIds,
       }),
     },
   );

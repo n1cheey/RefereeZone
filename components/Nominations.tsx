@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Layout from './Layout';
-import { User, InstructorNomination, RefereeNomination } from '../types';
+import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination } from '../types';
 import { getNominationSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import { isPastMatch } from '../matchTiming';
-import { Calendar, CheckCircle2, Clock, MapPin, Trash2, XCircle } from 'lucide-react';
+import { Calendar, CheckCircle2, Clock, MapPin, Pencil, Trash2, XCircle } from 'lucide-react';
 import {
+  assignNominationTOs,
   deleteNomination,
+  editNominationOfficials,
+  getInstructorDashboard,
   getInstructorNominations,
   getRefereeNominations,
   respondToNomination,
@@ -26,14 +29,25 @@ const splitMatchesByTime = <T extends { matchDate: string; matchTime: string }>(
 });
 
 const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
+  const [referees, setReferees] = useState<RefereeDirectoryItem[]>([]);
+  const [toOfficials, setTOOfficials] = useState<RefereeDirectoryItem[]>([]);
   const [instructorNominations, setInstructorNominations] = useState<InstructorNomination[]>([]);
   const [refereeAssignments, setRefereeAssignments] = useState<RefereeNomination[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [actionAssignmentId, setActionAssignmentId] = useState<string | null>(null);
+  const [editingNominationId, setEditingNominationId] = useState<string | null>(null);
+  const [editSelections, setEditSelections] = useState<Record<string, string>>({});
+  const [editActionNominationId, setEditActionNominationId] = useState<string | null>(null);
+  const [toActionNominationId, setTOActionNominationId] = useState<string | null>(null);
+  const [toSelections, setTOSelections] = useState<Record<string, string[]>>({});
   const [scoreActionId, setScoreActionId] = useState<string | null>(null);
   const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  const isInstructor = user.role === 'Instructor';
+  const isStaff = user.role === 'Staff';
+  const isTOSupervisor = user.role === 'TO Supervisor';
+  const isTO = user.role === 'TO';
 
   useEffect(() => {
     let isMounted = true;
@@ -45,14 +59,13 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       }
 
       try {
-        if (user.role === 'Instructor') {
-          const [instructorResponse, assignmentResponse] = await Promise.all([
-            getInstructorNominations(user.id),
-            getRefereeNominations(user.id),
-          ]);
+        if (user.role === 'Instructor' || user.role === 'TO Supervisor') {
+          const dashboardResponse = await getInstructorDashboard(user.id);
           if (isMounted) {
-            setInstructorNominations(instructorResponse.nominations);
-            setRefereeAssignments(assignmentResponse.nominations);
+            setReferees(dashboardResponse.referees);
+            setTOOfficials(dashboardResponse.toOfficials);
+            setInstructorNominations(dashboardResponse.nominations);
+            setRefereeAssignments(dashboardResponse.assignments);
             setErrorMessage('');
           }
         } else if (user.role === 'Staff') {
@@ -62,7 +75,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             setRefereeAssignments([]);
             setErrorMessage('');
           }
-        } else if (user.role === 'Referee') {
+        } else if (user.role === 'Referee' || user.role === 'TO') {
           const response = await getRefereeNominations(user.id);
           if (isMounted) {
             setRefereeAssignments(response.nominations);
@@ -161,8 +174,11 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         nominationId,
         instructorId: user.id,
       });
-      const response = await getInstructorNominations(user.id);
+      const response = await getInstructorDashboard(user.id);
+      setReferees(response.referees);
+      setTOOfficials(response.toOfficials);
       setInstructorNominations(response.nominations);
+      setRefereeAssignments(response.assignments);
       setErrorMessage('');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to delete game.');
@@ -184,12 +200,11 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         finalScore,
       });
 
-      const [instructorResponse, assignmentResponse] = await Promise.all([
-        getInstructorNominations(user.id),
-        getRefereeNominations(user.id),
-      ]);
-      setInstructorNominations(instructorResponse.nominations);
-      setRefereeAssignments(assignmentResponse.nominations);
+      const response = await getInstructorDashboard(user.id);
+      setReferees(response.referees);
+      setTOOfficials(response.toOfficials);
+      setInstructorNominations(response.nominations);
+      setRefereeAssignments(response.assignments);
       setScoreInputs((prev) => ({
         ...prev,
         [nomination.id]: finalScore,
@@ -199,6 +214,98 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to save final score.');
     } finally {
       setScoreActionId(null);
+    }
+  };
+
+  const getReplacementOptions = (nomination: InstructorNomination, slotNumber: number) => {
+    const occupied = new Set(
+      nomination.referees.filter((item) => item.slotNumber !== slotNumber).map((item) => item.refereeId),
+    );
+
+    return referees.filter((referee) => !occupied.has(referee.id));
+  };
+
+  const handleStartEditNomination = (nomination: InstructorNomination) => {
+    setEditingNominationId(nomination.id);
+    setEditSelections({
+      referee1: nomination.referees.find((item) => item.slotNumber === 1)?.refereeId || '',
+      referee2: nomination.referees.find((item) => item.slotNumber === 2)?.refereeId || '',
+      referee3: nomination.referees.find((item) => item.slotNumber === 3)?.refereeId || '',
+    });
+    setErrorMessage('');
+  };
+
+  const handleCancelEditNomination = () => {
+    setEditingNominationId(null);
+    setEditSelections({});
+  };
+
+  const handleSaveEditedNomination = async (nominationId: string) => {
+    const refereeIds = [editSelections.referee1, editSelections.referee2, editSelections.referee3];
+
+    if (new Set(refereeIds).size !== 3 || refereeIds.some((item) => !item)) {
+      setErrorMessage('Choose 3 different officials.');
+      return;
+    }
+
+    setEditActionNominationId(nominationId);
+
+    try {
+      await editNominationOfficials({
+        nominationId,
+        instructorId: user.id,
+        refereeIds,
+      });
+
+      const response = await getInstructorDashboard(user.id);
+      setReferees(response.referees);
+      setTOOfficials(response.toOfficials);
+      setInstructorNominations(response.nominations);
+      setRefereeAssignments(response.assignments);
+      handleCancelEditNomination();
+      setErrorMessage('');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to update game crew.');
+    } finally {
+      setEditActionNominationId(null);
+    }
+  };
+
+  const getTONominationSelection = (nomination: InstructorNomination) =>
+    toSelections[nomination.id] ||
+    [1, 2, 3, 4].map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
+
+  const handleSaveTOCrew = async (nominationId: string) => {
+    const nomination = instructorNominations.find((item) => item.id === nominationId);
+    if (!nomination) {
+      return;
+    }
+
+    const selectedTOs = getTONominationSelection(nomination);
+    if (new Set(selectedTOs.filter(Boolean)).size !== 4 || selectedTOs.some((item) => !item)) {
+      setErrorMessage('Choose 4 different TO users.');
+      return;
+    }
+
+    setTOActionNominationId(nominationId);
+
+    try {
+      await assignNominationTOs({
+        nominationId,
+        toSupervisorId: user.id,
+        toIds: selectedTOs,
+      });
+
+      const response = await getInstructorDashboard(user.id);
+      setReferees(response.referees);
+      setTOOfficials(response.toOfficials);
+      setInstructorNominations(response.nominations);
+      setRefereeAssignments(response.assignments);
+      setErrorMessage('');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to update TO crew.');
+    } finally {
+      setTOActionNominationId(null);
     }
   };
 
@@ -280,14 +387,25 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nomination.gameCode}</div>
             <div className="text-xs text-slate-500">Created by: {nomination.createdByName}</div>
           </div>
-          {user.role === 'Instructor' && nomination.createdById === user.id ? (
-            <button
-              onClick={() => handleDeleteNomination(nomination.id)}
-              className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white"
-            >
-              <Trash2 size={14} />
-              Delete
-            </button>
+          {isInstructor && nomination.createdById === user.id ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() =>
+                  editingNominationId === nomination.id ? handleCancelEditNomination() : handleStartEditNomination(nomination)
+                }
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-200 px-3 py-2 text-xs font-bold text-slate-800"
+              >
+                <Pencil size={14} />
+                {editingNominationId === nomination.id ? 'Cancel Edit' : 'Edit'}
+              </button>
+              <button
+                onClick={() => handleDeleteNomination(nomination.id)}
+                className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-xs font-bold text-white"
+              >
+                <Trash2 size={14} />
+                Delete
+              </button>
+            </div>
           ) : null}
         </div>
         <div className="grid grid-cols-2 gap-y-2 text-sm text-slate-600">
@@ -310,19 +428,109 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
           {nomination.referees.map((referee) => (
             <div key={`${nomination.id}-${referee.slotNumber}`} className="rounded-lg bg-slate-50 p-3">
               <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber)}</div>
-              <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
-              <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${
-                referee.status === 'Accepted'
-                  ? 'bg-green-100 text-green-700'
-                  : referee.status === 'Declined'
-                    ? 'bg-red-100 text-red-700'
-                    : 'bg-amber-100 text-amber-700'
-              }`}>
-                {referee.status}
-              </div>
+              {editingNominationId === nomination.id ? (
+                <select
+                  value={editSelections[`referee${referee.slotNumber}`] || ''}
+                  onChange={(event) =>
+                    setEditSelections((prev) => ({
+                      ...prev,
+                      [`referee${referee.slotNumber}`]: event.target.value,
+                    }))
+                  }
+                  className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                >
+                  <option value="">Select official</option>
+                  {getReplacementOptions(nomination, referee.slotNumber)
+                    .concat(referees.filter((option) => option.id === referee.refereeId))
+                    .filter((option, index, array) => array.findIndex((item) => item.id === option.id) === index)
+                    .map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {`${option.fullName} (${option.role})`}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <>
+                  <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
+                  <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${
+                    referee.status === 'Accepted'
+                      ? 'bg-green-100 text-green-700'
+                      : referee.status === 'Declined'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {referee.status}
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>
+        <div className="mt-4 rounded-xl bg-slate-50 p-3">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
+          <div className="mt-3 grid gap-3 md:grid-cols-4">
+            {[1, 2, 3, 4].map((slotNumber) => {
+              const currentSelection = getTONominationSelection(nomination)[slotNumber - 1] || '';
+              return (
+                <div key={`${nomination.id}-to-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="text-xs font-bold uppercase text-slate-500">{`TO ${slotNumber}`}</div>
+                  {isTOSupervisor ? (
+                    <select
+                      value={currentSelection}
+                      onChange={(event) =>
+                        setTOSelections((prev) => {
+                          const next = [...getTONominationSelection(nomination)];
+                          next[slotNumber - 1] = event.target.value;
+                          return { ...prev, [nomination.id]: next };
+                        })
+                      }
+                      className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                    >
+                      <option value="">Select TO</option>
+                      {toOfficials.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.fullName}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="mt-1 font-semibold text-slate-900">
+                      {nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toName || 'Not assigned'}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {isTOSupervisor && (
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => handleSaveTOCrew(nomination.id)}
+                disabled={toActionNominationId === nomination.id}
+                className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
+              >
+                {toActionNominationId === nomination.id ? 'Saving TO Crew...' : 'Save TO Crew'}
+              </button>
+            </div>
+          )}
+        </div>
+        {editingNominationId === nomination.id && (
+          <div className="mt-4 flex flex-wrap justify-end gap-3">
+            <button
+              onClick={handleCancelEditNomination}
+              className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => handleSaveEditedNomination(nomination.id)}
+              disabled={editActionNominationId === nomination.id}
+              className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
+            >
+              {editActionNominationId === nomination.id ? 'Saving...' : 'Save Crew'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -339,13 +547,14 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         </div>
       </div>
       <div className="p-4">
-        {nom.status === 'Pending' ? (
+        {nom.assignmentGroup === 'Referee' && nom.status === 'Pending' ? (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
             {formatAutoDeclineCountdown(nom.autoDeclineAt, countdownNow) || 'Auto reject timer unavailable.'}
           </div>
         ) : null}
         <div className="text-lg font-bold text-slate-800 mb-3">{nom.teams}</div>
         <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nom.gameCode}</div>
+        <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nom.assignmentLabel}</div>
         <div className="grid grid-cols-2 gap-y-2 text-sm text-slate-600">
           <div className="flex items-center gap-2">
             <Calendar size={14} className="text-[#f97316]" />
@@ -365,8 +574,21 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         </div>
         {renderFinalScore(nom.finalScore)}
         {renderCrew(nom.crew)}
+        <div className="mt-4 rounded-xl bg-slate-50 p-3">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
+          <div className="mt-3 grid gap-2 md:grid-cols-4">
+            {[1, 2, 3, 4].map((slotNumber) => (
+              <div key={`${nom.id}-to-${slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <div className="text-[11px] font-bold uppercase text-slate-500">{`TO ${slotNumber}`}</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">
+                  {nom.toCrew.find((item) => item.slotNumber === slotNumber)?.toName || 'Not assigned'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
 
-        {nom.status === 'Pending' ? (
+        {nom.assignmentGroup === 'Referee' && nom.status === 'Pending' ? (
           <div className="grid grid-cols-2 gap-3 mt-4">
             <button
               onClick={() => handleStatusChange(nom.nominationId, 'Accepted', nom.id)}
@@ -385,7 +607,11 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
           </div>
         ) : (
           <div className={`mt-4 p-2 rounded-lg text-center text-xs font-bold ${
-            nom.status === 'Accepted' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            nom.status === 'Accepted'
+              ? 'bg-green-50 text-green-700'
+              : nom.status === 'Assigned'
+                ? 'bg-blue-50 text-blue-700'
+                : 'bg-red-50 text-red-700'
           }`}>
             Assignment {nom.status}
           </div>
@@ -421,7 +647,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   );
 
   return (
-    <Layout title="My Nominations" onBack={onBack}>
+    <Layout title={isInstructor || isStaff || isTOSupervisor ? 'Nominations' : 'My Nominations'} onBack={onBack}>
       {errorMessage && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
@@ -430,7 +656,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
 
       {isLoading ? (
         <p className="text-sm text-slate-500">Loading nominations...</p>
-      ) : user.role === 'Instructor' || user.role === 'Staff' ? (
+      ) : isInstructor || isStaff || isTOSupervisor ? (
         <div className="space-y-8">
           {renderInstructorSection(
             'Upcoming Games',
@@ -443,7 +669,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             'No past games yet.',
           )}
 
-          {user.role === 'Instructor' && (
+          {isInstructor && (
             <>
               {renderAssignmentSection(
                 'Upcoming Assigned Games',
@@ -458,7 +684,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             </>
           )}
         </div>
-      ) : user.role === 'Referee' ? (
+      ) : user.role === 'Referee' || isTO ? (
         <div className="space-y-8">
           {renderAssignmentSection(
             'Upcoming Games',

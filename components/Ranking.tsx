@@ -49,12 +49,17 @@ const getMatchAverage = (values: typeof emptyMatchPerformanceForm) => {
   return Number((total / performanceFields.length).toFixed(2));
 };
 
-const shouldShowScoreLegend = (role: User['role']) => role === 'Referee' || role === 'Staff';
+const shouldShowScoreLegend = (role: User['role']) =>
+  role === 'Referee' || role === 'Staff' || role === 'TO' || role === 'TO Supervisor';
 
 const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
   const isInstructor = user.role === 'Instructor';
   const isStaff = user.role === 'Staff';
-  const rankingTitle = isInstructor || isStaff ? 'Ranking' : 'My Ranking';
+  const isTOSupervisor = user.role === 'TO Supervisor';
+  const isTO = user.role === 'TO';
+  const isTOFlow = isTOSupervisor || isTO;
+  const entityLabel = isTOFlow ? 'TO' : 'Referee';
+  const rankingTitle = isInstructor || isStaff || isTOSupervisor ? `${entityLabel} Ranking` : `My ${entityLabel} Ranking`;
 
   const [dashboard, setDashboard] = useState<RankingDashboardData | null>(null);
   const [adminData, setAdminData] = useState<{
@@ -76,7 +81,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
     try {
       const [dashboardResponse, adminResponse] = await Promise.all([
         getRankingDashboard(user.id),
-        isInstructor ? getRankingAdminData(user.id) : Promise.resolve(null),
+        isInstructor || isTOSupervisor ? getRankingAdminData(user.id) : Promise.resolve(null),
       ]);
 
       setDashboard(dashboardResponse);
@@ -245,11 +250,11 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <div className="flex items-center gap-2 mb-4">
               <Shield size={18} className="text-[#581c1c]" />
-              <h3 className="text-lg font-bold text-slate-900">Ranking Admin</h3>
+              <h3 className="text-lg font-bold text-slate-900">{`${entityLabel} Ranking Admin`}</h3>
             </div>
             <p className="text-sm text-slate-500">
               `Match Performance Sheet` saves one game. `Total Performance Sheet` is calculated automatically from all
-              saved matches. `AVG` = match criteria sum / 9, then average of all match averages for that referee.
+              saved matches. `AVG` = match criteria sum / 9, then average of all match averages for that {entityLabel}.
             </p>
           </div>
 
@@ -257,14 +262,14 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
             <form onSubmit={handleSaveMatchPerformance} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
               <h3 className="text-base font-bold text-slate-900">Match Performance Sheet</h3>
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Referee</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{entityLabel}</label>
                 <select
                   required
                   value={matchPerformanceRefereeId}
                   onChange={(event) => setMatchPerformanceRefereeId(event.target.value)}
                   className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
                 >
-                  <option value="">Select referee</option>
+                  <option value="">{`Select ${entityLabel}`}</option>
                   {adminData.referees.map((referee) => (
                     <option key={referee.id} value={referee.id}>
                       {referee.fullName}
@@ -384,14 +389,14 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
               <h3 className="text-base font-bold text-slate-900">Total Performance Sheet</h3>
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Referee</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{entityLabel}</label>
                 <select
                   required
                   value={selectedRefereeId}
                   onChange={(event) => setSelectedRefereeId(event.target.value)}
                   className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
                 >
-                  <option value="">Select referee</option>
+                  <option value="">{`Select ${entityLabel}`}</option>
                   {adminData.referees.map((referee) => (
                     <option key={referee.id} value={referee.id}>
                       {referee.fullName}
@@ -531,7 +536,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
               <div className="flex justify-between items-start gap-4 mb-6">
                 <div>
-                  <p className="text-sm text-slate-500">Selected Referee Position Trend</p>
+                  <p className="text-sm text-slate-500">{`Selected ${entityLabel} Position Trend`}</p>
                   <h3 className="text-3xl font-black text-[#581c1c]">{selectedLeaderboardItem.refereeName}</h3>
                   <p className="text-sm text-slate-500 mt-2">{`Current rank: #${selectedLeaderboardItem.rank}`}</p>
                 </div>

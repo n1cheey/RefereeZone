@@ -25,6 +25,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
+  assignNominationTOs,
   createNomination,
   deleteNomination,
   editNominationOfficials,
@@ -67,6 +68,7 @@ const isUpcomingMatchDay = (matchDate: string, matchTime: string, now: number) =
 const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpdateUser }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [referees, setReferees] = useState<RefereeDirectoryItem[]>([]);
+  const [toOfficials, setTOOfficials] = useState<RefereeDirectoryItem[]>([]);
   const [instructorNominations, setInstructorNominations] = useState<InstructorNomination[]>([]);
   const [refereeAssignments, setRefereeAssignments] = useState<RefereeNomination[]>([]);
   const [replacementNotices, setReplacementNotices] = useState<ReplacementNotice[]>([]);
@@ -80,6 +82,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [editingNominationId, setEditingNominationId] = useState<string | null>(null);
   const [editSelections, setEditSelections] = useState<Record<string, string>>({});
   const [editActionNominationId, setEditActionNominationId] = useState<string | null>(null);
+  const [toActionNominationId, setTOActionNominationId] = useState<string | null>(null);
+  const [toSelections, setTOSelections] = useState<Record<string, string[]>>({});
   const [scoreActionId, setScoreActionId] = useState<string | null>(null);
   const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
@@ -95,6 +99,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     referee3: '',
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isInstructor = user.role === 'Instructor';
+  const isStaff = user.role === 'Staff';
+  const isTOSupervisor = user.role === 'TO Supervisor';
+  const isTO = user.role === 'TO';
 
   useEffect(() => {
     let isMounted = true;
@@ -108,6 +116,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       }
 
       setReferees(response.referees);
+      setTOOfficials(response.toOfficials);
       setInstructorNominations(response.nominations);
       setRefereeAssignments(response.assignments);
       setReplacementNotices(response.replacementNotices);
@@ -136,9 +145,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         }
 
         try {
-          if (user.role === 'Instructor') {
+          if (user.role === 'Instructor' || user.role === 'TO Supervisor') {
             await loadInstructorData();
-          } else if (user.role === 'Referee') {
+          } else if (user.role === 'Referee' || user.role === 'TO') {
             await loadRefereeData();
           }
           if (isMounted) {
@@ -252,6 +261,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const refreshInstructorData = async () => {
     const response = await getInstructorDashboard(user.id);
     setReferees(response.referees);
+    setTOOfficials(response.toOfficials);
     setInstructorNominations(response.nominations);
     setRefereeAssignments(response.assignments);
     setReplacementNotices(response.replacementNotices);
@@ -412,16 +422,51 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     }
   };
 
+  const getTONominationSelection = (nomination: InstructorNomination) =>
+    toSelections[nomination.id] ||
+    [1, 2, 3, 4].map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
+
+  const handleSaveTOCrew = async (nominationId: string) => {
+    const nomination = instructorNominations.find((item) => item.id === nominationId);
+    if (!nomination) {
+      return;
+    }
+
+    const selectedTOs = getTONominationSelection(nomination);
+    if (new Set(selectedTOs.filter(Boolean)).size !== 4 || selectedTOs.some((item) => !item)) {
+      setDashboardError('Choose 4 different TO users.');
+      return;
+    }
+
+    setTOActionNominationId(nominationId);
+    setDashboardError('');
+    setDashboardMessage('');
+
+    try {
+      await assignNominationTOs({
+        nominationId,
+        toSupervisorId: user.id,
+        toIds: selectedTOs,
+      });
+      await refreshInstructorData();
+      setDashboardMessage('TO crew updated.');
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : 'Failed to update TO crew.');
+    } finally {
+      setTOActionNominationId(null);
+    }
+  };
+
   const navItems = [
-    { id: 'nominations' as const, label: user.role === 'Staff' ? 'Nominations' : 'My Nominations', icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
-    ...(user.role === 'Instructor'
+    { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff ? 'Nominations' : 'My Nominations', icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
+    ...(isInstructor
       ? [
           { id: 'teyinat' as const, label: 'Teyinat', icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
           { id: 'activity' as const, label: 'Activity', icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
         ]
       : []),
-    { id: 'ranking' as const, label: user.role === 'Staff' ? 'Ranking' : 'My Ranking', icon: TrendingUp, iconColor: 'text-green-500', color: 'bg-green-50' },
-    { id: 'reports' as const, label: user.role === 'Staff' ? 'Reports' : 'My Reports', icon: FileText, iconColor: 'text-purple-500', color: 'bg-purple-50' },
+    { id: 'ranking' as const, label: isInstructor || isTOSupervisor || isStaff ? 'Ranking' : 'My Ranking', icon: TrendingUp, iconColor: 'text-green-500', color: 'bg-green-50' },
+    ...(!isTO && !isTOSupervisor ? [{ id: 'reports' as const, label: isStaff ? 'Reports' : 'My Reports', icon: FileText, iconColor: 'text-purple-500', color: 'bg-purple-50' }] : []),
     { id: 'news' as const, label: 'News', icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
   ];
 
@@ -547,7 +592,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             </div>
           </div>
         </div>
-        {nomination.createdById === user.id ? (
+        {isInstructor && nomination.createdById === user.id ? (
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() =>
@@ -640,6 +685,54 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           );
         })}
       </div>
+      <div className="mt-4 rounded-xl bg-slate-50 p-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-4">
+          {[1, 2, 3, 4].map((slotNumber) => {
+            const currentSelection = getTONominationSelection(nomination)[slotNumber - 1] || '';
+            return (
+              <div key={`${nomination.id}-to-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-bold uppercase text-slate-500">{`TO ${slotNumber}`}</div>
+                {isTOSupervisor ? (
+                  <select
+                    value={currentSelection}
+                    onChange={(event) =>
+                      setTOSelections((prev) => {
+                        const next = [...getTONominationSelection(nomination)];
+                        next[slotNumber - 1] = event.target.value;
+                        return { ...prev, [nomination.id]: next };
+                      })
+                    }
+                    className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                  >
+                    <option value="">Select TO</option>
+                    {toOfficials.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.fullName}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="mt-1 font-semibold text-slate-900">
+                    {nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toName || 'Not assigned'}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {isTOSupervisor && (
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={() => handleSaveTOCrew(nomination.id)}
+              disabled={toActionNominationId === nomination.id}
+              className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
+            >
+              {toActionNominationId === nomination.id ? 'Saving TO Crew...' : 'Save TO Crew'}
+            </button>
+          </div>
+        )}
+      </div>
       {editingNominationId === nomination.id && (
         <div className="mt-4 flex flex-wrap justify-end gap-3">
           <button
@@ -662,13 +755,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
   const renderAssignmentCard = (assignment: RefereeNomination) => (
     <div key={assignment.id} className="rounded-xl border border-slate-200 p-4">
-      {user.role === 'Referee' && isUpcomingMatchDay(assignment.matchDate, assignment.matchTime, countdownNow) ? (
+      {user.role === 'Referee' && assignment.assignmentGroup === 'Referee' && isUpcomingMatchDay(assignment.matchDate, assignment.matchTime, countdownNow) ? (
         <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
           <div className="font-black uppercase tracking-[0.18em] text-emerald-700">Gameday!</div>
           <div className="mt-1 font-medium">Good luck today. Stay sharp and have a great game.</div>
         </div>
       ) : null}
-      {assignment.status === 'Pending' ? (
+      {assignment.assignmentGroup === 'Referee' && assignment.status === 'Pending' ? (
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
           {formatAutoDeclineCountdown(assignment.autoDeclineAt, countdownNow) || 'Auto reject timer unavailable.'}
         </div>
@@ -676,7 +769,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="text-xs font-bold uppercase text-[#581c1c]">{assignment.gameCode}</div>
-          <div className="text-xs font-bold uppercase text-[#581c1c]">{getNominationSlotLabel(assignment.slotNumber)}</div>
+          <div className="text-xs font-bold uppercase text-[#581c1c]">{assignment.assignmentLabel}</div>
           <h4 className="text-lg font-bold text-slate-900 mt-1">{assignment.teams}</h4>
           <div className="grid gap-2 mt-3 text-sm text-slate-600 md:grid-cols-2">
             <div className="flex items-center gap-2">
@@ -701,13 +794,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             ? 'bg-emerald-100 text-emerald-700'
             : assignment.status === 'Declined'
               ? 'bg-red-100 text-red-700'
-              : 'bg-amber-100 text-amber-700'
+              : assignment.status === 'Assigned'
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-amber-100 text-amber-700'
         }`}>
           {assignment.status}
         </div>
       </div>
       {renderFinalScore(assignment.finalScore)}
-      {assignment.status === 'Pending' && (
+      <div className="mt-4 rounded-xl bg-slate-50 p-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+          {assignment.assignmentGroup === 'TO' ? 'Referee Crew' : 'Crew'}
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {assignment.crew.map((official) => (
+            <div key={`${assignment.id}-${official.refereeId}-${official.slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <div className="text-[11px] font-bold uppercase text-slate-500">{getNominationSlotLabel(official.slotNumber)}</div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">{official.refereeName}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 rounded-xl bg-slate-50 p-3">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
+        <div className="mt-3 grid gap-2 md:grid-cols-4">
+          {[1, 2, 3, 4].map((slotNumber) => (
+            <div key={`${assignment.id}-to-${slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+              <div className="text-[11px] font-bold uppercase text-slate-500">{`TO ${slotNumber}`}</div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">
+                {assignment.toCrew.find((item) => item.slotNumber === slotNumber)?.toName || 'Not assigned'}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {assignment.assignmentGroup === 'Referee' && assignment.status === 'Pending' && (
         <div className="grid grid-cols-2 gap-3 mt-4">
           <button
             onClick={() => handleNominationResponse(assignment.nominationId, 'Accepted', assignment.id)}
@@ -729,7 +850,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   );
 
   return (
-      <Layout title={user.role === 'Instructor' ? 'Instructor Panel' : user.role === 'Staff' ? 'Staff Panel' : 'RefZone Dashboard'} showBack={false} onLogout={onLogout}>
+      <Layout title={isInstructor ? 'Instructor Panel' : isTOSupervisor ? 'TO Supervisor Panel' : isStaff ? 'Staff Panel' : isTO ? 'TO Dashboard' : 'RefZone Dashboard'} showBack={false} onLogout={onLogout}>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
         <div className="flex items-center gap-4">
           <div className="relative cursor-pointer group" onClick={handlePhotoClick}>
@@ -770,7 +891,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       )}
 
-      {user.role === 'Instructor' && (
+      {isInstructor && (
         <div className="space-y-5 mb-8">
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -976,9 +1097,47 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       )}
 
-      {(user.role === 'Referee' || user.role === 'Instructor') && (
+      {isTOSupervisor && (
         <div className="space-y-5 mb-8">
-          {replacementNotices.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <Shield size={18} className="text-[#581c1c]" />
+              <h3 className="text-base font-bold text-slate-900">TO Supervisor Controls</h3>
+            </div>
+            <p className="text-sm text-slate-500">New games appear here automatically. Choose 4 TO officials for each match.</p>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <h3 className="text-base font-bold text-slate-900 mb-4">Games Awaiting TO Crew</h3>
+            {isLoadingAssignments ? (
+              <p className="text-sm text-slate-500">Loading games...</p>
+            ) : (
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Upcoming Games</div>
+                  {createdNominationSections.upcoming.length === 0 ? (
+                    <p className="text-sm text-slate-500">No upcoming games.</p>
+                  ) : (
+                    createdNominationSections.upcoming.map(renderCreatedNominationCard)
+                  )}
+                </div>
+                <div className="space-y-4">
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Past Games</div>
+                  {createdNominationSections.past.length === 0 ? (
+                    <p className="text-sm text-slate-500">No past games yet.</p>
+                  ) : (
+                    createdNominationSections.past.map(renderCreatedNominationCard)
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {(user.role === 'Referee' || isInstructor || isTO) && (
+        <div className="space-y-5 mb-8">
+          {replacementNotices.length > 0 && !isTO && (
             <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-4">
                 <AlertTriangle size={18} className="text-red-600" />

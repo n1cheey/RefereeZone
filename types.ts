@@ -1,6 +1,6 @@
 
-export type UserRole = 'Instructor' | 'Table' | 'Referee' | 'Staff';
-export type AssignmentStatus = 'Pending' | 'Accepted' | 'Declined';
+export type UserRole = 'Instructor' | 'TO' | 'TO Supervisor' | 'Referee' | 'Staff';
+export type AssignmentStatus = 'Pending' | 'Accepted' | 'Declined' | 'Assigned';
 export type ReportStatus = 'Draft' | 'Submitted' | 'Reviewed';
 
 export interface User {
@@ -42,6 +42,12 @@ export interface NominationSlot {
   respondedAt: string | null;
 }
 
+export interface TONominationSlot {
+  slotNumber: number;
+  toId: string;
+  toName: string;
+}
+
 export interface InstructorNomination {
   id: string;
   gameCode: string;
@@ -54,6 +60,7 @@ export interface InstructorNomination {
   createdById: string;
   createdByName: string;
   referees: NominationSlot[];
+  toCrew: TONominationSlot[];
 }
 
 export interface RefereeNomination {
@@ -70,7 +77,10 @@ export interface RefereeNomination {
   respondedAt: string | null;
   autoDeclineAt: string | null;
   instructorName: string;
+  assignmentGroup: 'Referee' | 'TO';
+  assignmentLabel: string;
   crew: NominationSlot[];
+  toCrew: TONominationSlot[];
 }
 
 export interface ReplacementNotice {

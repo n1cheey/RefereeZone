@@ -37,7 +37,7 @@ const normalizeStoredUser = (value: unknown): User | null => {
   }
 
   const rawRole = String(candidate.role);
-  const normalizedRole = rawRole === 'Stuff' ? 'Staff' : candidate.role;
+  const normalizedRole = rawRole === 'Stuff' ? 'Staff' : rawRole === 'Table' ? 'TO' : candidate.role;
 
   return {
     id: String(candidate.id),

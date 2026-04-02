@@ -1,9 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
 const DEFAULT_PHOTO_URL = 'https://picsum.photos/seed/referee/300/300';
-const ROLE_OPTIONS = ['Instructor', 'Table', 'Referee', 'Staff'];
+const ROLE_OPTIONS = ['Instructor', 'TO Supervisor', 'TO', 'Referee', 'Staff'];
 const LEGACY_ROLE_ALIASES = {
   Stuff: 'Staff',
+  Table: 'TO',
 };
 const ASSIGNMENT_STATUS = {
   PENDING: 'Pending',
@@ -19,7 +20,8 @@ const REPORT_STATUS = {
 const REPORT_DEADLINE_EXTENSION_MS = 24 * 60 * 60 * 1000;
 const ROLE_PREFIX = {
   Instructor: 'INS',
-  Table: 'TAB',
+  'TO Supervisor': 'TOS',
+  TO: 'TO',
   Referee: 'REF',
   Staff: 'STF',
 };
@@ -147,6 +149,24 @@ const mapOfficialDirectoryItem = (row) => ({
   licenseNumber: row.license_number || 'Pending',
   role: normalizeRole(row.role),
 });
+
+const getNominationSlotLabel = (slotNumber) => {
+  if (slotNumber === 1) {
+    return 'Referee';
+  }
+
+  if (slotNumber === 2) {
+    return 'Umpire 1';
+  }
+
+  if (slotNumber === 3) {
+    return 'Umpire 2';
+  }
+
+  return `Official ${slotNumber}`;
+};
+
+const getTOAssignmentLabel = (slotNumber) => `TO ${slotNumber}`;
 
 const sortByMatchAsc = (left, right) => {
   const leftKey = `${left.matchDate}T${left.matchTime}`;
@@ -424,6 +444,30 @@ const listAssignmentsByNominationIds = async (admin, nominationIds) => {
   return ensureData(data || [], error, 'Failed to load nomination assignments.');
 };
 
+const listTOAssignmentsByNominationIds = async (admin, nominationIds) => {
+  if (!nominationIds.length) {
+    return [];
+  }
+
+  const { data, error } = await admin
+    .from('nomination_tos')
+    .select('*')
+    .in('nomination_id', nominationIds)
+    .order('slot_number', { ascending: true });
+
+  return ensureData(data || [], error, 'Failed to load TO assignments.');
+};
+
+const listTOAssignmentsByUserId = async (admin, toId) => {
+  const { data, error } = await admin
+    .from('nomination_tos')
+    .select('*')
+    .eq('to_id', toId)
+    .order('created_at', { ascending: false });
+
+  return ensureData(data || [], error, 'Failed to load TO assignments.');
+};
+
 const expirePendingAssignments = async (admin, nominationIds = []) => {
   const scopedNominationIds = [...new Set((nominationIds || []).filter(Boolean))];
   if (!scopedNominationIds.length) {
@@ -603,6 +647,22 @@ const requireReferees = async (admin, refereeIds) => {
   return rows;
 };
 
+const requireTOUsers = async (admin, toIds) => {
+  const rows = await listProfilesByIds(admin, toIds);
+
+  if (rows.length !== toIds.length) {
+    throw new HttpError(404, 'One or more TO users were not found.');
+  }
+
+  rows.forEach((row) => {
+    if (!hasRole(row.role, 'TO')) {
+      throw new HttpError(400, 'Only users with role TO can be assigned to TO crew.');
+    }
+  });
+
+  return rows;
+};
+
 const listReplacementNotices = async (admin, refereeId) => {
   const { data, error } = await admin
     .from('replacement_notices')
@@ -657,6 +717,17 @@ const requireAssignableOfficials = async (admin, refereeIds) => {
   });
 
   return rows;
+};
+
+const ensureDistinctTOs = (toIds) => {
+  const normalized = (toIds || []).map((toId) => String(toId || '').trim()).filter(Boolean);
+  const unique = new Set(normalized);
+
+  if (normalized.length !== 4 || unique.size !== 4) {
+    throw new HttpError(400, 'Select exactly 4 different TO users.');
+  }
+
+  return normalized;
 };
 
 const getNextLicenseNumber = async (admin, role) => {
@@ -877,8 +948,8 @@ const generateAiLogo = async () => {
 
 const getInstructorNominationsData = async (admin, instructorId) => {
   const currentUser = await requireProfileById(admin, instructorId);
-  if (!['Instructor', 'Staff'].includes(currentUser.role)) {
-    throw new HttpError(403, 'Only Instructor and Staff accounts can load nominations.');
+  if (!['Instructor', 'Staff', 'TO Supervisor'].includes(currentUser.role)) {
+    throw new HttpError(403, 'Only Instructor, TO Supervisor and Staff accounts can load nominations.');
   }
 
   const { data, error } = await admin
@@ -895,15 +966,21 @@ const getInstructorNominationsData = async (admin, instructorId) => {
   const nominationIds = nominations.map((nomination) => nomination.id);
   await expirePendingAssignments(admin, nominationIds);
   const assignments = await listAssignmentsByNominationIds(admin, nominationIds);
+  const toAssignments = await listTOAssignmentsByNominationIds(admin, nominationIds);
   const referees = await listProfilesByIds(
     admin,
     [...new Set(assignments.map((assignment) => assignment.referee_id))],
+  );
+  const toUsers = await listProfilesByIds(
+    admin,
+    [...new Set(toAssignments.map((assignment) => assignment.to_id))],
   );
   const creators = await listProfilesByIds(
     admin,
     [...new Set(nominations.map((nomination) => nomination.created_by))],
   );
   const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
+  const toMap = new Map(toUsers.map((item) => [item.id, item]));
   const creatorMap = new Map(creators.map((creator) => [creator.id, creator]));
 
   return nominations.map((nomination) => ({
@@ -927,23 +1004,117 @@ const getInstructorNominationsData = async (admin, instructorId) => {
         status: assignment.status,
         respondedAt: assignment.responded_at || null,
       })),
+    toCrew: toAssignments
+      .filter((assignment) => assignment.nomination_id === nomination.id)
+      .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+      .map((assignment) => ({
+        slotNumber: Number(assignment.slot_number),
+        toId: assignment.to_id,
+        toName: toMap.get(assignment.to_id)?.full_name || 'Unknown TO',
+      })),
   }));
 };
 
 const getRefereeAssignmentsData = async (admin, refereeId) => {
   const user = await requireProfileById(admin, refereeId);
-  if (!['Referee', 'Instructor'].includes(user.role)) {
-    throw new HttpError(403, 'Only Referee and Instructor accounts have game assignments.');
+  if (!['Referee', 'Instructor', 'TO'].includes(user.role)) {
+    throw new HttpError(403, 'Only Referee, Instructor and TO accounts have game assignments.');
   }
 
-  const replacementNotices = await listReplacementNotices(admin, refereeId);
+  const replacementNotices = user.role === 'TO' ? [] : await listReplacementNotices(admin, refereeId);
+
+  if (user.role === 'TO') {
+    const assignments = await listTOAssignmentsByUserId(admin, refereeId);
+
+    if (!assignments.length) {
+      return {
+        nominations: [],
+        replacementNotices: [],
+      };
+    }
+
+    const nominations = await listNominationsByIds(
+      admin,
+      [...new Set(assignments.map((assignment) => assignment.nomination_id))],
+    );
+    const instructors = await listProfilesByIds(
+      admin,
+      [...new Set(nominations.map((nomination) => nomination.created_by))],
+    );
+    const nominationAssignments = await listAssignmentsByNominationIds(
+      admin,
+      [...new Set(assignments.map((assignment) => assignment.nomination_id))],
+    );
+    const toAssignments = await listTOAssignmentsByNominationIds(
+      admin,
+      [...new Set(assignments.map((assignment) => assignment.nomination_id))],
+    );
+    const refereeCrewProfiles = await listProfilesByIds(
+      admin,
+      [...new Set(nominationAssignments.map((assignment) => assignment.referee_id))],
+    );
+    const toCrewProfiles = await listProfilesByIds(
+      admin,
+      [...new Set(toAssignments.map((assignment) => assignment.to_id))],
+    );
+    const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+    const instructorMap = new Map(instructors.map((instructor) => [instructor.id, instructor]));
+    const refereeCrewMap = new Map(refereeCrewProfiles.map((item) => [item.id, item]));
+    const toCrewMap = new Map(toCrewProfiles.map((item) => [item.id, item]));
+
+    return {
+      nominations: assignments
+        .map((assignment) => {
+          const nomination = nominationMap.get(assignment.nomination_id);
+          if (!nomination) {
+            return null;
+          }
+
+          return {
+            id: assignment.id,
+            nominationId: nomination.id,
+            gameCode: nomination.game_code || 'ABL-NEW',
+            teams: nomination.teams,
+            matchDate: nomination.match_date,
+            matchTime: nomination.match_time,
+            venue: nomination.venue,
+            finalScore: nomination.final_score || null,
+            slotNumber: Number(assignment.slot_number),
+            status: 'Assigned',
+            respondedAt: assignment.created_at || null,
+            autoDeclineAt: null,
+            instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
+            assignmentGroup: 'TO',
+            assignmentLabel: getTOAssignmentLabel(Number(assignment.slot_number)),
+            crew: nominationAssignments
+              .filter((nominationAssignment) => nominationAssignment.nomination_id === nomination.id)
+              .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+              .map((nominationAssignment) => ({
+                slotNumber: Number(nominationAssignment.slot_number),
+                refereeId: nominationAssignment.referee_id,
+                refereeName: refereeCrewMap.get(nominationAssignment.referee_id)?.full_name || 'Unknown referee',
+                status: nominationAssignment.status,
+                respondedAt: nominationAssignment.responded_at || null,
+              })),
+            toCrew: toAssignments
+              .filter((toAssignment) => toAssignment.nomination_id === nomination.id)
+              .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+              .map((toAssignment) => ({
+                slotNumber: Number(toAssignment.slot_number),
+                toId: toAssignment.to_id,
+                toName: toCrewMap.get(toAssignment.to_id)?.full_name || 'Unknown TO',
+              })),
+          };
+        })
+        .filter(Boolean)
+        .sort(sortByMatchAsc),
+      replacementNotices: [],
+    };
+  }
 
   const { data, error } = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
   const assignments = ensureData(data || [], error, 'Failed to load referee nominations.');
-  await expirePendingAssignments(
-    admin,
-    [...new Set(assignments.map((assignment) => assignment.nomination_id))],
-  );
+  await expirePendingAssignments(admin, [...new Set(assignments.map((assignment) => assignment.nomination_id))]);
   const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
   const refreshedAssignments = ensureData(
     refreshedAssignmentsResponse.data || [],
@@ -971,13 +1142,22 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
     admin,
     [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
   );
+  const toAssignments = await listTOAssignmentsByNominationIds(
+    admin,
+    [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
+  );
   const assignedOfficials = await listProfilesByIds(
     admin,
     [...new Set(nominationAssignments.map((assignment) => assignment.referee_id))],
   );
+  const toProfiles = await listProfilesByIds(
+    admin,
+    [...new Set(toAssignments.map((assignment) => assignment.to_id))],
+  );
   const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
   const instructorMap = new Map(instructors.map((instructor) => [instructor.id, instructor]));
   const officialMap = new Map(assignedOfficials.map((official) => [official.id, official]));
+  const toMap = new Map(toProfiles.map((item) => [item.id, item]));
 
   return {
     nominations: visibleAssignments
@@ -1001,6 +1181,8 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
           respondedAt: assignment.responded_at || null,
           autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
           instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
+          assignmentGroup: 'Referee',
+          assignmentLabel: getNominationSlotLabel(Number(assignment.slot_number)),
           crew: nominationAssignments
             .filter((nominationAssignment) => nominationAssignment.nomination_id === nomination.id)
             .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
@@ -1010,6 +1192,14 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
               refereeName: officialMap.get(nominationAssignment.referee_id)?.full_name || 'Unknown referee',
               status: nominationAssignment.status,
               respondedAt: nominationAssignment.responded_at || null,
+            })),
+          toCrew: toAssignments
+            .filter((toAssignment) => toAssignment.nomination_id === nomination.id)
+            .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+            .map((toAssignment) => ({
+              slotNumber: Number(toAssignment.slot_number),
+              toId: toAssignment.to_id,
+              toName: toMap.get(toAssignment.to_id)?.full_name || 'Unknown TO',
             })),
         };
       })
@@ -1021,16 +1211,25 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
 
 const getInstructorDashboardData = async (admin, instructorId) => {
   const currentUser = await requireProfileById(admin, instructorId);
-  if (currentUser.role !== 'Instructor') {
-    throw new HttpError(403, 'Only Instructor accounts can load this dashboard.');
+  if (!['Instructor', 'TO Supervisor'].includes(currentUser.role)) {
+    throw new HttpError(403, 'Only Instructor and TO Supervisor accounts can load this dashboard.');
   }
 
-  const [{ data: officialRows, error: officialsError }, { data: nominationRows, error: nominationsError }] = await Promise.all([
+  const [
+    { data: officialRows, error: officialsError },
+    { data: toRows, error: toError },
+    { data: nominationRows, error: nominationsError },
+  ] = await Promise.all([
     admin
       .from('profiles')
       .select('id, full_name, email, license_number, role')
       .in('role', ['Referee', 'Instructor'])
       .order('role', { ascending: true })
+      .order('full_name', { ascending: true }),
+    admin
+      .from('profiles')
+      .select('id, full_name, email, license_number, role')
+      .eq('role', 'TO')
       .order('full_name', { ascending: true }),
     admin
       .from('nominations')
@@ -1040,12 +1239,14 @@ const getInstructorDashboardData = async (admin, instructorId) => {
   ]);
 
   const officials = ensureData(officialRows || [], officialsError, 'Failed to load referees.').map(mapOfficialDirectoryItem);
+  const toOfficials = ensureData(toRows || [], toError, 'Failed to load TO users.').map(mapOfficialDirectoryItem);
   const officialMap = new Map(officials.map((official) => [official.id, official]));
   const nominationsSource = ensureData(nominationRows || [], nominationsError, 'Failed to load instructor nominations.');
 
   const nominationIds = nominationsSource.map((nomination) => nomination.id);
   await expirePendingAssignments(admin, nominationIds);
   const nominationAssignments = nominationIds.length ? await listAssignmentsByNominationIds(admin, nominationIds) : [];
+  const nominationTOAssignments = nominationIds.length ? await listTOAssignmentsByNominationIds(admin, nominationIds) : [];
   const ownVisibleAssignments = nominationAssignments.filter(
     (assignment) => assignment.referee_id === instructorId && assignment.status !== ASSIGNMENT_STATUS.DECLINED,
   );
@@ -1055,6 +1256,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     [...new Set(nominationsSource.map((nomination) => nomination.created_by))],
   );
   const creatorMap = new Map(nominationCreators.map((creator) => [creator.id, creator]));
+  const toMap = new Map(toOfficials.map((official) => [official.id, official]));
 
   const nominations = nominationsSource.map((nomination) => ({
     id: nomination.id,
@@ -1076,6 +1278,14 @@ const getInstructorDashboardData = async (admin, instructorId) => {
         refereeName: officialMap.get(assignment.referee_id)?.fullName || 'Unknown referee',
         status: assignment.status,
         respondedAt: assignment.responded_at || null,
+      })),
+    toCrew: nominationTOAssignments
+      .filter((assignment) => assignment.nomination_id === nomination.id)
+      .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+      .map((assignment) => ({
+        slotNumber: Number(assignment.slot_number),
+        toId: assignment.to_id,
+        toName: toMap.get(assignment.to_id)?.fullName || 'Unknown TO',
       })),
   }));
 
@@ -1100,6 +1310,26 @@ const getInstructorDashboardData = async (admin, instructorId) => {
         respondedAt: assignment.responded_at || null,
         autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
         instructorName: officialMap.get(nomination.created_by)?.fullName || currentUser.full_name,
+        assignmentGroup: 'Referee',
+        assignmentLabel: getNominationSlotLabel(Number(assignment.slot_number)),
+        crew: nominationAssignments
+          .filter((nominationAssignment) => nominationAssignment.nomination_id === nomination.id)
+          .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+          .map((nominationAssignment) => ({
+            slotNumber: Number(nominationAssignment.slot_number),
+            refereeId: nominationAssignment.referee_id,
+            refereeName: officialMap.get(nominationAssignment.referee_id)?.fullName || 'Unknown referee',
+            status: nominationAssignment.status,
+            respondedAt: nominationAssignment.responded_at || null,
+          })),
+        toCrew: nominationTOAssignments
+          .filter((nominationTOAssignment) => nominationTOAssignment.nomination_id === nomination.id)
+          .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+          .map((nominationTOAssignment) => ({
+            slotNumber: Number(nominationTOAssignment.slot_number),
+            toId: nominationTOAssignment.to_id,
+            toName: toMap.get(nominationTOAssignment.to_id)?.fullName || 'Unknown TO',
+          })),
       };
     })
     .filter(Boolean)
@@ -1107,9 +1337,10 @@ const getInstructorDashboardData = async (admin, instructorId) => {
 
   return {
     referees: officials,
+    toOfficials,
     nominations,
-    assignments,
-    replacementNotices: await listReplacementNotices(admin, instructorId),
+    assignments: currentUser.role === 'Instructor' ? assignments : [],
+    replacementNotices: currentUser.role === 'Instructor' ? await listReplacementNotices(admin, instructorId) : [],
   };
 };
 
@@ -1158,13 +1389,21 @@ const compareRankingLeaderboardItems = (left, right) => {
   return left.refereeName.localeCompare(right.refereeName);
 };
 
-const buildRankingState = async (admin) => {
+const buildRankingState = async (
+  admin,
+  {
+    subjectRole = 'Referee',
+    performanceTable = 'ranking_match_performance',
+    subjectIdColumn = 'referee_id',
+    notFoundMessage = 'Failed to load referees.',
+  } = {},
+) => {
   const refereeResponse = await admin
     .from('profiles')
     .select('id, full_name, photo_url')
-    .eq('role', 'Referee')
+    .eq('role', toStorageRole(subjectRole))
     .order('full_name', { ascending: true });
-  const referees = ensureData(refereeResponse.data || [], refereeResponse.error, 'Failed to load referees.');
+  const referees = ensureData(refereeResponse.data || [], refereeResponse.error, notFoundMessage);
 
   const evaluationsResponse = await admin
     .from('ranking_evaluations')
@@ -1178,7 +1417,7 @@ const buildRankingState = async (admin) => {
   );
 
   const performanceResponse = await admin
-    .from('ranking_match_performance')
+    .from(performanceTable)
     .select('*')
     .order('evaluation_date', { ascending: true })
     .order('created_at', { ascending: true });
@@ -1202,8 +1441,8 @@ const buildRankingState = async (admin) => {
   const performanceEntries = performanceRows.map((row) => {
     const entry = {
       id: row.id,
-      refereeId: row.referee_id,
-      refereeName: refereeNameMap.get(row.referee_id) || 'Unknown referee',
+      refereeId: row[subjectIdColumn],
+      refereeName: refereeNameMap.get(row[subjectIdColumn]) || `Unknown ${subjectRole}`,
       gameCode: row.game_code,
       evaluationDate: row.evaluation_date,
       note: row.note || '',
@@ -1858,6 +2097,39 @@ const editNominationOfficials = async (admin, currentUser, nominationId, referee
   return nominations.find((item) => item.id === nominationId);
 };
 
+const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
+  await requireRole(admin, currentUser.id, 'TO Supervisor');
+  await requireSingle(
+    admin.from('nominations').select('id').eq('id', nominationId),
+    'Nomination not found.',
+    'Failed to load nomination.',
+  );
+
+  const normalizedTOIds = ensureDistinctTOs(toIds);
+  await requireTOUsers(admin, normalizedTOIds);
+
+  const { error: deleteError } = await admin.from('nomination_tos').delete().eq('nomination_id', nominationId);
+  if (deleteError) {
+    throw new HttpError(500, 'Failed to reset TO crew.');
+  }
+
+  const { error: insertError } = await admin.from('nomination_tos').insert(
+    normalizedTOIds.map((toId, index) => ({
+      nomination_id: nominationId,
+      to_id: toId,
+      slot_number: index + 1,
+      assigned_by: currentUser.id,
+    })),
+  );
+
+  if (insertError) {
+    throw new HttpError(500, 'Failed to assign TO crew.');
+  }
+
+  const nominations = await getInstructorNominationsData(admin, currentUser.id);
+  return nominations.find((item) => item.id === nominationId);
+};
+
 const updateNominationScore = async (admin, currentUser, nominationId, finalScore) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
@@ -2434,11 +2706,34 @@ const extendReportDeadline = async (admin, currentUser, nominationId, refereeId)
   return getReportDetail(admin, currentUser, nominationId, refereeId);
 };
 
+const getRankingDashboardConfig = (role) => {
+  if (role === 'TO' || role === 'TO Supervisor') {
+    return {
+      subjectRole: 'TO',
+      performanceTable: 'ranking_to_match_performance',
+      subjectIdColumn: 'to_id',
+      notFoundMessage: 'Failed to load TO ranking.',
+      adminRoles: ['TO Supervisor'],
+      selfRoles: ['TO'],
+    };
+  }
+
+  return {
+    subjectRole: 'Referee',
+    performanceTable: 'ranking_match_performance',
+    subjectIdColumn: 'referee_id',
+    notFoundMessage: 'Failed to load referee ranking.',
+    adminRoles: ['Instructor', 'Staff'],
+    selfRoles: ['Referee'],
+  };
+};
+
 const getRankingDashboard = async (admin, currentUser) => {
-  const rankingState = await buildRankingState(admin);
+  const rankingConfig = getRankingDashboardConfig(currentUser.role);
+  const rankingState = await buildRankingState(admin, rankingConfig);
   const totalReferees = rankingState.leaderboard.length;
 
-  if (currentUser.role === 'Referee') {
+  if (rankingConfig.selfRoles.includes(currentUser.role)) {
     const currentUserItem = rankingState.leaderboard.find((item) => item.refereeId === currentUser.id) || null;
     const currentUserPerformanceProfile = rankingState.performanceProfiles.get(currentUser.id) || null;
     const currentUserHistory = buildRankingHistory(currentUser.id, rankingState);
@@ -2458,7 +2753,7 @@ const getRankingDashboard = async (admin, currentUser) => {
     };
   }
 
-  if (currentUser.role === 'Instructor' || currentUser.role === 'Staff') {
+  if (rankingConfig.adminRoles.includes(currentUser.role)) {
     const refereeHistories = Object.fromEntries(
       rankingState.referees.map((referee) => [referee.id, buildRankingHistory(referee.id, rankingState)]),
     );
@@ -2490,8 +2785,12 @@ const getRankingDashboard = async (admin, currentUser) => {
 };
 
 const getRankingAdminData = async (admin, currentUser) => {
-  await requireRole(admin, currentUser.id, 'Instructor');
-  const rankingState = await buildRankingState(admin);
+  if (!['Instructor', 'TO Supervisor'].includes(currentUser.role)) {
+    throw new HttpError(403, 'This role cannot manage ranking data.');
+  }
+
+  const rankingConfig = getRankingDashboardConfig(currentUser.role);
+  const rankingState = await buildRankingState(admin, rankingConfig);
   const gamesResponse = await admin
     .from('nominations')
     .select('id, game_code, match_date, teams')
@@ -2551,8 +2850,17 @@ const createRankingEvaluation = async (admin, currentUser, body) => {
 };
 
 const saveRankingPerformance = async (admin, currentUser, body) => {
-  await requireRole(admin, currentUser.id, 'Instructor');
-  await requireReferees(admin, [body.refereeId]);
+  if (!['Instructor', 'TO Supervisor'].includes(currentUser.role)) {
+    throw new HttpError(403, 'This role cannot save ranking performance.');
+  }
+
+  const rankingConfig = getRankingDashboardConfig(currentUser.role);
+
+  if (currentUser.role === 'TO Supervisor') {
+    await requireTOUsers(admin, [body.refereeId]);
+  } else {
+    await requireReferees(admin, [body.refereeId]);
+  }
 
   const gameCode = String(body.gameCode || '').trim();
   const evaluationDate = String(body.evaluationDate || '').trim();
@@ -2577,9 +2885,10 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
     throw new HttpError(400, 'Game number and evaluation date are required.');
   }
 
-  const { error } = await admin.from('ranking_match_performance').upsert(
+  const subjectColumn = rankingConfig.subjectIdColumn;
+  const { error } = await admin.from(rankingConfig.performanceTable).upsert(
     {
-      referee_id: body.refereeId,
+      [subjectColumn]: body.refereeId,
       game_code: gameCode,
       evaluation_date: evaluationDate,
       note,
@@ -2596,7 +2905,7 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
       updated_at: new Date().toISOString(),
     },
     {
-      onConflict: 'referee_id,game_code,evaluation_date',
+      onConflict: `${subjectColumn},game_code,evaluation_date`,
     },
   );
 
@@ -2875,6 +3184,12 @@ const routeRequest = async (event) => {
       String(body.refereeId || ''),
     );
     return json(200, { message: 'Referee replaced.', nomination });
+  }
+
+  const nominationTOMatch = path.match(/^\/nominations\/([^/]+)\/tos$/);
+  if (method === 'PATCH' && nominationTOMatch) {
+    const nomination = await assignNominationTOs(admin, currentUser, nominationTOMatch[1], body.toIds);
+    return json(200, { message: 'TO crew updated.', nomination });
   }
 
   const nominationScoreMatch = path.match(/^\/nominations\/([^/]+)\/score$/);
