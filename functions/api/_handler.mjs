@@ -166,7 +166,25 @@ const getNominationSlotLabel = (slotNumber) => {
   return `Official ${slotNumber}`;
 };
 
-const getTOAssignmentLabel = (slotNumber) => `TO ${slotNumber}`;
+const getTOAssignmentLabel = (slotNumber) => {
+  if (slotNumber === 1) {
+    return 'Scorer';
+  }
+
+  if (slotNumber === 2) {
+    return 'Assistant Scorer';
+  }
+
+  if (slotNumber === 3) {
+    return 'Timer';
+  }
+
+  if (slotNumber === 4) {
+    return '24sec Operator';
+  }
+
+  return `TO ${slotNumber}`;
+};
 
 const sortByMatchAsc = (left, right) => {
   const leftKey = `${left.matchDate}T${left.matchTime}`;
@@ -213,6 +231,19 @@ const createMatchDateTime = (matchDate, matchTime) => {
 const createDeadlineDate = (matchDate, matchTime) => {
   const deadline = new Date(`${matchDate}T${normalizeMatchTime(matchTime)}${BAKU_OFFSET}`);
   return Number.isNaN(deadline.getTime()) ? null : new Date(deadline.getTime() + 24 * 60 * 60 * 1000);
+};
+
+const isYoutubeUrl = (value) => {
+  if (!value) {
+    return true;
+  }
+
+  try {
+    const parsedUrl = new URL(String(value).trim());
+    return parsedUrl.hostname.includes('youtube.com') || parsedUrl.hostname.includes('youtu.be');
+  } catch {
+    return false;
+  }
 };
 
 const getReportDeadlineDate = (assignment) => {
@@ -466,6 +497,28 @@ const listTOAssignmentsByUserId = async (admin, toId) => {
     .order('created_at', { ascending: false });
 
   return ensureData(data || [], error, 'Failed to load TO assignments.');
+};
+
+const buildTOCrew = (toAssignments, nominationId, toMap, options = {}) => {
+  const { acceptedOnly = false, requireFullAcceptedCrew = false } = options;
+
+  const crew = toAssignments
+    .filter((assignment) => assignment.nomination_id === nominationId)
+    .filter((assignment) => !acceptedOnly || assignment.status === ASSIGNMENT_STATUS.ACCEPTED)
+    .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+    .map((assignment) => ({
+      slotNumber: Number(assignment.slot_number),
+      toId: assignment.to_id,
+      toName: toMap.get(assignment.to_id)?.full_name || toMap.get(assignment.to_id)?.fullName || 'Unknown TO',
+      status: assignment.status || ASSIGNMENT_STATUS.PENDING,
+      respondedAt: assignment.responded_at || null,
+    }));
+
+  if (requireFullAcceptedCrew && crew.length !== 4) {
+    return [];
+  }
+
+  return crew;
 };
 
 const expirePendingAssignments = async (admin, nominationIds = []) => {
@@ -991,6 +1044,7 @@ const getInstructorNominationsData = async (admin, instructorId) => {
     matchTime: nomination.match_time,
     venue: nomination.venue,
     finalScore: nomination.final_score || null,
+    matchVideoUrl: nomination.match_video_url || null,
     createdAt: nomination.created_at,
     createdById: nomination.created_by,
     createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
@@ -1011,6 +1065,8 @@ const getInstructorNominationsData = async (admin, instructorId) => {
         slotNumber: Number(assignment.slot_number),
         toId: assignment.to_id,
         toName: toMap.get(assignment.to_id)?.full_name || 'Unknown TO',
+        status: assignment.status || ASSIGNMENT_STATUS.PENDING,
+        respondedAt: assignment.responded_at || null,
       })),
   }));
 };
@@ -1025,8 +1081,9 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
 
   if (user.role === 'TO') {
     const assignments = await listTOAssignmentsByUserId(admin, refereeId);
+    const visibleAssignments = assignments.filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
 
-    if (!assignments.length) {
+    if (!visibleAssignments.length) {
       return {
         nominations: [],
         replacementNotices: [],
@@ -1035,7 +1092,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
 
     const nominations = await listNominationsByIds(
       admin,
-      [...new Set(assignments.map((assignment) => assignment.nomination_id))],
+      [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
     );
     const instructors = await listProfilesByIds(
       admin,
@@ -1043,11 +1100,11 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
     );
     const nominationAssignments = await listAssignmentsByNominationIds(
       admin,
-      [...new Set(assignments.map((assignment) => assignment.nomination_id))],
+      [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
     );
     const toAssignments = await listTOAssignmentsByNominationIds(
       admin,
-      [...new Set(assignments.map((assignment) => assignment.nomination_id))],
+      [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
     );
     const refereeCrewProfiles = await listProfilesByIds(
       admin,
@@ -1063,7 +1120,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
     const toCrewMap = new Map(toCrewProfiles.map((item) => [item.id, item]));
 
     return {
-      nominations: assignments
+      nominations: visibleAssignments
         .map((assignment) => {
           const nomination = nominationMap.get(assignment.nomination_id);
           if (!nomination) {
@@ -1079,9 +1136,10 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
             matchTime: nomination.match_time,
             venue: nomination.venue,
             finalScore: nomination.final_score || null,
+            matchVideoUrl: nomination.match_video_url || null,
             slotNumber: Number(assignment.slot_number),
-            status: 'Assigned',
-            respondedAt: assignment.created_at || null,
+            status: assignment.status || ASSIGNMENT_STATUS.PENDING,
+            respondedAt: assignment.responded_at || null,
             autoDeclineAt: null,
             instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
             assignmentGroup: 'TO',
@@ -1096,14 +1154,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
                 status: nominationAssignment.status,
                 respondedAt: nominationAssignment.responded_at || null,
               })),
-            toCrew: toAssignments
-              .filter((toAssignment) => toAssignment.nomination_id === nomination.id)
-              .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-              .map((toAssignment) => ({
-                slotNumber: Number(toAssignment.slot_number),
-                toId: toAssignment.to_id,
-                toName: toCrewMap.get(toAssignment.to_id)?.full_name || 'Unknown TO',
-              })),
+            toCrew: buildTOCrew(toAssignments, nomination.id, toCrewMap),
           };
         })
         .filter(Boolean)
@@ -1176,6 +1227,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
           matchTime: nomination.match_time,
           venue: nomination.venue,
           finalScore: nomination.final_score || null,
+          matchVideoUrl: nomination.match_video_url || null,
           slotNumber: Number(assignment.slot_number),
           status: assignment.status,
           respondedAt: assignment.responded_at || null,
@@ -1193,14 +1245,10 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
               status: nominationAssignment.status,
               respondedAt: nominationAssignment.responded_at || null,
             })),
-          toCrew: toAssignments
-            .filter((toAssignment) => toAssignment.nomination_id === nomination.id)
-            .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-            .map((toAssignment) => ({
-              slotNumber: Number(toAssignment.slot_number),
-              toId: toAssignment.to_id,
-              toName: toMap.get(toAssignment.to_id)?.full_name || 'Unknown TO',
-            })),
+          toCrew: buildTOCrew(toAssignments, nomination.id, toMap, {
+            acceptedOnly: user.role === 'Referee',
+            requireFullAcceptedCrew: user.role === 'Referee',
+          }),
         };
       })
       .filter(Boolean)
@@ -1266,6 +1314,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     matchTime: nomination.match_time,
     venue: nomination.venue,
     finalScore: nomination.final_score || null,
+    matchVideoUrl: nomination.match_video_url || null,
     createdAt: nomination.created_at,
     createdById: nomination.created_by,
     createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
@@ -1286,6 +1335,8 @@ const getInstructorDashboardData = async (admin, instructorId) => {
         slotNumber: Number(assignment.slot_number),
         toId: assignment.to_id,
         toName: toMap.get(assignment.to_id)?.fullName || 'Unknown TO',
+        status: assignment.status || ASSIGNMENT_STATUS.PENDING,
+        respondedAt: assignment.responded_at || null,
       })),
   }));
 
@@ -1305,6 +1356,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
         matchTime: nomination.match_time,
         venue: nomination.venue,
         finalScore: nomination.final_score || null,
+        matchVideoUrl: nomination.match_video_url || null,
         slotNumber: Number(assignment.slot_number),
         status: assignment.status,
         respondedAt: assignment.responded_at || null,
@@ -1322,14 +1374,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
             status: nominationAssignment.status,
             respondedAt: nominationAssignment.responded_at || null,
           })),
-        toCrew: nominationTOAssignments
-          .filter((nominationTOAssignment) => nominationTOAssignment.nomination_id === nomination.id)
-          .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-          .map((nominationTOAssignment) => ({
-            slotNumber: Number(nominationTOAssignment.slot_number),
-            toId: nominationTOAssignment.to_id,
-            toName: toMap.get(nominationTOAssignment.to_id)?.fullName || 'Unknown TO',
-          })),
+        toCrew: buildTOCrew(nominationTOAssignments, nomination.id, toMap),
       };
     })
     .filter(Boolean)
@@ -2099,11 +2144,16 @@ const editNominationOfficials = async (admin, currentUser, nominationId, referee
 
 const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
   await requireRole(admin, currentUser.id, 'TO Supervisor');
-  await requireSingle(
-    admin.from('nominations').select('id').eq('id', nominationId),
+  const nomination = await requireSingle(
+    admin.from('nominations').select('id, match_date, match_time').eq('id', nominationId),
     'Nomination not found.',
     'Failed to load nomination.',
   );
+
+  const matchDateTime = createMatchDateTime(nomination.match_date, nomination.match_time);
+  if (!matchDateTime || Date.now() >= matchDateTime.getTime()) {
+    throw new HttpError(409, 'TO crew can be assigned only before the match starts.');
+  }
 
   const normalizedTOIds = ensureDistinctTOs(toIds);
   await requireTOUsers(admin, normalizedTOIds);
@@ -2119,6 +2169,8 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
       to_id: toId,
       slot_number: index + 1,
       assigned_by: currentUser.id,
+      status: ASSIGNMENT_STATUS.PENDING,
+      responded_at: null,
     })),
   );
 
@@ -2130,31 +2182,39 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
   return nominations.find((item) => item.id === nominationId);
 };
 
-const updateNominationScore = async (admin, currentUser, nominationId, finalScore) => {
+const updateNominationScore = async (admin, currentUser, nominationId, finalScore, matchVideoUrl) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
   const normalizedFinalScore = String(finalScore || '').trim();
+  const normalizedMatchVideoUrl = String(matchVideoUrl || '').trim();
 
-  if (!normalizedFinalScore) {
-    throw new HttpError(400, 'Final score is required.');
+  if (!normalizedFinalScore && !normalizedMatchVideoUrl) {
+    throw new HttpError(400, 'Add a final score or a YouTube match link first.');
   }
 
-  if (normalizedFinalScore.length > 32) {
+  if (normalizedFinalScore && normalizedFinalScore.length > 32) {
     throw new HttpError(400, 'Final score is too long.');
+  }
+
+  if (normalizedMatchVideoUrl && !isYoutubeUrl(normalizedMatchVideoUrl)) {
+    throw new HttpError(400, 'Enter a valid YouTube link.');
   }
 
   const matchDateTime = createMatchDateTime(nomination.match_date, nomination.match_time);
   if (!matchDateTime || Date.now() < matchDateTime.getTime()) {
-    throw new HttpError(409, 'Final score can be saved only after the match starts.');
+    throw new HttpError(409, 'Match updates can be saved only after the match starts.');
   }
 
   const { error } = await admin
     .from('nominations')
-    .update({ final_score: normalizedFinalScore })
+    .update({
+      final_score: normalizedFinalScore || null,
+      match_video_url: normalizedMatchVideoUrl || null,
+    })
     .eq('id', nominationId);
 
   if (error) {
-    throw new HttpError(500, 'Failed to update final score.');
+    throw new HttpError(500, 'Failed to update match details.');
   }
 
   const nominations = await getInstructorNominationsData(admin, currentUser.id);
@@ -2162,12 +2222,47 @@ const updateNominationScore = async (admin, currentUser, nominationId, finalScor
 };
 
 const respondToNomination = async (admin, currentUser, nominationId, response) => {
-  if (!['Referee', 'Instructor'].includes(currentUser.role)) {
-    throw new HttpError(403, 'Only Referee and Instructor accounts can respond to nominations.');
+  if (!['Referee', 'Instructor', 'TO'].includes(currentUser.role)) {
+    throw new HttpError(403, 'Only Referee, Instructor and TO accounts can respond to nominations.');
   }
 
   if (![ASSIGNMENT_STATUS.ACCEPTED, ASSIGNMENT_STATUS.DECLINED].includes(response)) {
     throw new HttpError(400, 'Response must be Accepted or Declined.');
+  }
+
+  if (currentUser.role === 'TO') {
+    const assignment = await maybeSingle(
+      admin
+        .from('nomination_tos')
+        .select('*')
+        .eq('nomination_id', nominationId)
+        .eq('to_id', currentUser.id),
+      'Failed to load nomination response.',
+    );
+
+    if (!assignment) {
+      throw new HttpError(404, 'Assignment not found.');
+    }
+
+    if (assignment.status !== ASSIGNMENT_STATUS.PENDING) {
+      throw new HttpError(409, 'Only pending assignments can be answered.');
+    }
+
+    const { error } = await admin
+      .from('nomination_tos')
+      .update({
+        status: response,
+        responded_at: new Date().toISOString(),
+      })
+      .eq('nomination_id', nominationId)
+      .eq('to_id', currentUser.id);
+
+    if (error) {
+      throw new HttpError(500, 'Failed to save response.');
+    }
+
+    const nominations = await getRefereeAssignmentsData(admin, currentUser.id);
+    return nominations.nominations.find((nomination) => nomination.nominationId === nominationId) || null;
   }
 
   await expirePendingAssignments(admin, [nominationId]);
@@ -2203,7 +2298,7 @@ const respondToNomination = async (admin, currentUser, nominationId, response) =
   }
 
   const nominations = await getRefereeAssignmentsData(admin, currentUser.id);
-  return nominations.find((nomination) => nomination.nominationId === nominationId);
+  return nominations.nominations.find((nomination) => nomination.nominationId === nominationId) || null;
 };
 
 const deleteNomination = async (admin, currentUser, nominationId) => {
@@ -3199,8 +3294,9 @@ const routeRequest = async (event) => {
       currentUser,
       nominationScoreMatch[1],
       body.finalScore,
+      body.matchVideoUrl,
     );
-    return json(200, { message: 'Final score updated.', nomination });
+    return json(200, { message: 'Match details updated.', nomination });
   }
 
   const nominationResponseMatch = path.match(/^\/nominations\/([^/]+)\/respond$/);

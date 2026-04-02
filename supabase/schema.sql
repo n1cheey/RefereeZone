@@ -32,11 +32,15 @@ create table if not exists public.nominations (
   match_time time not null,
   venue text not null,
   final_score text,
+  match_video_url text,
   created_at timestamptz not null default now()
 );
 
 alter table public.nominations
 add column if not exists final_score text;
+
+alter table public.nominations
+add column if not exists match_video_url text;
 
 create table if not exists public.nomination_referees (
   id uuid primary key default gen_random_uuid(),
@@ -58,10 +62,23 @@ create table if not exists public.nomination_tos (
   to_id uuid not null references public.profiles(id) on delete cascade,
   slot_number integer not null check (slot_number between 1 and 4),
   assigned_by uuid not null references public.profiles(id) on delete cascade,
+  status text not null default 'Pending' check (status in ('Pending', 'Accepted', 'Declined')),
+  responded_at timestamptz,
   created_at timestamptz not null default now(),
   unique (nomination_id, slot_number),
   unique (nomination_id, to_id)
 );
+
+alter table public.nomination_tos
+add column if not exists status text not null default 'Pending';
+
+alter table public.nomination_tos
+add column if not exists responded_at timestamptz;
+
+alter table public.nomination_tos drop constraint if exists nomination_tos_status_check;
+alter table public.nomination_tos
+  add constraint nomination_tos_status_check
+  check (status in ('Pending', 'Accepted', 'Declined'));
 
 create table if not exists public.reports (
   id uuid primary key default gen_random_uuid(),

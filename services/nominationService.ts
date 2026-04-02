@@ -116,7 +116,7 @@ export function respondToNomination(payload: {
   refereeId: string;
   response: 'Accepted' | 'Declined';
 }) {
-  return apiRequest<{ message: string; nomination: RefereeNomination }>(
+  return apiRequest<{ message: string; nomination: RefereeNomination | null }>(
     `/api/nominations/${encodeURIComponent(payload.nominationId)}/respond`,
     {
       method: 'POST',
@@ -130,6 +130,7 @@ export function updateNominationScore(payload: {
   nominationId: string;
   instructorId: string;
   finalScore: string;
+  matchVideoUrl: string;
 }) {
   return apiRequest<{ message: string; nomination: InstructorNomination }>(
     `/api/nominations/${encodeURIComponent(payload.nominationId)}/score`,
@@ -139,6 +140,7 @@ export function updateNominationScore(payload: {
       body: JSON.stringify({
         instructorId: payload.instructorId,
         finalScore: payload.finalScore,
+        matchVideoUrl: payload.matchVideoUrl,
       }),
     },
   );

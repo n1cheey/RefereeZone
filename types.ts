@@ -46,6 +46,8 @@ export interface TONominationSlot {
   slotNumber: number;
   toId: string;
   toName: string;
+  status: AssignmentStatus;
+  respondedAt: string | null;
 }
 
 export interface InstructorNomination {
@@ -56,6 +58,7 @@ export interface InstructorNomination {
   matchTime: string;
   venue: string;
   finalScore: string | null;
+  matchVideoUrl: string | null;
   createdAt: string;
   createdById: string;
   createdByName: string;
@@ -72,6 +75,7 @@ export interface RefereeNomination {
   matchTime: string;
   venue: string;
   finalScore: string | null;
+  matchVideoUrl: string | null;
   slotNumber: number;
   status: AssignmentStatus;
   respondedAt: string | null;

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
-import { getNominationSlotLabel } from '../slotLabels';
+import { getNominationSlotLabel, getTOSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import { getMatchTimestamp, isPastMatch } from '../matchTiming';
 import Layout from './Layout';
@@ -23,6 +23,7 @@ import {
   Users,
   UserPlus,
   Trash2,
+  Youtube,
 } from 'lucide-react';
 import {
   assignNominationTOs,
@@ -65,6 +66,22 @@ const isUpcomingMatchDay = (matchDate: string, matchTime: string, now: number) =
   return BAKU_DATE_FORMATTER.format(new Date(now)) === matchDate;
 };
 
+const getAssignmentStatusClasses = (status: string) => {
+  if (status === 'Accepted') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+
+  if (status === 'Declined') {
+    return 'bg-red-100 text-red-700';
+  }
+
+  if (status === 'Assigned') {
+    return 'bg-blue-100 text-blue-700';
+  }
+
+  return 'bg-amber-100 text-amber-700';
+};
+
 const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpdateUser }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [referees, setReferees] = useState<RefereeDirectoryItem[]>([]);
@@ -86,6 +103,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [toSelections, setTOSelections] = useState<Record<string, string[]>>({});
   const [scoreActionId, setScoreActionId] = useState<string | null>(null);
   const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({});
+  const [videoInputs, setVideoInputs] = useState<Record<string, string>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const dashboardLoadPromiseRef = useRef<Promise<void> | null>(null);
   const [form, setForm] = useState({
@@ -500,8 +518,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
   const handleSaveScore = async (nomination: InstructorNomination) => {
     const finalScore = (scoreInputs[nomination.id] ?? nomination.finalScore ?? '').trim();
-    if (!finalScore) {
-      setDashboardError('Enter the final score first.');
+    const matchVideoUrl = (videoInputs[nomination.id] ?? nomination.matchVideoUrl ?? '').trim();
+    if (!finalScore && !matchVideoUrl) {
+      setDashboardError('Enter the final score or paste a YouTube link first.');
       return;
     }
 
@@ -514,15 +533,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         nominationId: nomination.id,
         instructorId: user.id,
         finalScore,
+        matchVideoUrl,
       });
       await refreshInstructorData();
       setScoreInputs((prev) => ({
         ...prev,
         [nomination.id]: finalScore,
       }));
-      setDashboardMessage('Final score saved.');
+      setVideoInputs((prev) => ({
+        ...prev,
+        [nomination.id]: matchVideoUrl,
+      }));
+      setDashboardMessage('Match details saved.');
     } catch (error) {
-      setDashboardError(error instanceof Error ? error.message : 'Failed to save final score.');
+      setDashboardError(error instanceof Error ? error.message : 'Failed to save match details.');
     } finally {
       setScoreActionId(null);
     }
@@ -535,6 +559,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       </div>
     ) : null;
 
+  const renderMatchVideoButton = (matchVideoUrl: string | null) =>
+    matchVideoUrl ? (
+      <a
+        href={matchVideoUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700 transition-colors hover:bg-red-100"
+      >
+        <Youtube size={16} />
+        YouTube
+      </a>
+    ) : null;
+
   const renderInstructorScoreEditor = (nomination: InstructorNomination) => {
     const isOwner = nomination.createdById === user.id;
     const isPast = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
@@ -545,8 +582,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
     return (
       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Final Score</div>
-        <div className="mt-3 flex flex-col gap-3 md:flex-row">
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Match Details</div>
+        <div className="mt-3 grid gap-3">
           <input
             value={scoreInputs[nomination.id] ?? nomination.finalScore ?? ''}
             onChange={(event) =>
@@ -558,12 +595,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             placeholder="e.g. 89:76"
             className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
           />
+          <input
+            value={videoInputs[nomination.id] ?? nomination.matchVideoUrl ?? ''}
+            onChange={(event) =>
+              setVideoInputs((prev) => ({
+                ...prev,
+                [nomination.id]: event.target.value,
+              }))
+            }
+            placeholder="https://www.youtube.com/watch?v=..."
+            className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+          />
           <button
             onClick={() => handleSaveScore(nomination)}
             disabled={scoreActionId === nomination.id}
             className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
           >
-            {scoreActionId === nomination.id ? 'Saving...' : 'Save score'}
+            {scoreActionId === nomination.id ? 'Saving...' : 'Save match details'}
           </button>
         </div>
       </div>
@@ -614,6 +662,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         ) : null}
       </div>
       {renderFinalScore(nomination.finalScore)}
+      {renderMatchVideoButton(nomination.matchVideoUrl)}
       {renderInstructorScoreEditor(nomination)}
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         {nomination.referees.map((referee) => {
@@ -689,11 +738,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
           {[1, 2, 3, 4].map((slotNumber) => {
+            const existingAssignment = nomination.toCrew.find((item) => item.slotNumber === slotNumber);
             const currentSelection = getTONominationSelection(nomination)[slotNumber - 1] || '';
+            const canAssignTOCrew = isTOSupervisor && !isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
             return (
               <div key={`${nomination.id}-to-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="text-xs font-bold uppercase text-slate-500">{`TO ${slotNumber}`}</div>
-                {isTOSupervisor ? (
+                <div className="text-xs font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber)}</div>
+                {canAssignTOCrew ? (
                   <select
                     value={currentSelection}
                     onChange={(event) =>
@@ -713,15 +764,30 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                     ))}
                   </select>
                 ) : (
-                  <div className="mt-1 font-semibold text-slate-900">
-                    {nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toName || 'Not assigned'}
-                  </div>
+                  <>
+                    <div className="mt-1 font-semibold text-slate-900">{existingAssignment?.toName || 'Not assigned'}</div>
+                    {existingAssignment ? (
+                      <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
+                        {existingAssignment.status}
+                      </div>
+                    ) : null}
+                  </>
                 )}
+                {canAssignTOCrew && existingAssignment ? (
+                  <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
+                    {existingAssignment.status}
+                  </div>
+                ) : null}
               </div>
             );
           })}
         </div>
-        {isTOSupervisor && (
+        {isTOSupervisor && isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) ? (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+            TO crew can no longer be assigned after the match starts.
+          </div>
+        ) : null}
+        {isTOSupervisor && !isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) && (
           <div className="mt-4 flex justify-end">
             <button
               onClick={() => handleSaveTOCrew(nomination.id)}
@@ -789,19 +855,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             </div>
           </div>
         </div>
-        <div className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
-          assignment.status === 'Accepted'
-            ? 'bg-emerald-100 text-emerald-700'
-            : assignment.status === 'Declined'
-              ? 'bg-red-100 text-red-700'
-              : assignment.status === 'Assigned'
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-amber-100 text-amber-700'
+      <div className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
+          getAssignmentStatusClasses(assignment.status)
         }`}>
           {assignment.status}
         </div>
       </div>
       {renderFinalScore(assignment.finalScore)}
+      {renderMatchVideoButton(assignment.matchVideoUrl)}
       <div className="mt-4 rounded-xl bg-slate-50 p-3">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
           {assignment.assignmentGroup === 'TO' ? 'Referee Crew' : 'Crew'}
@@ -815,20 +876,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           ))}
         </div>
       </div>
-      <div className="mt-4 rounded-xl bg-slate-50 p-3">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
-        <div className="mt-3 grid gap-2 md:grid-cols-4">
-          {[1, 2, 3, 4].map((slotNumber) => (
-            <div key={`${assignment.id}-to-${slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-              <div className="text-[11px] font-bold uppercase text-slate-500">{`TO ${slotNumber}`}</div>
-              <div className="mt-1 text-sm font-semibold text-slate-900">
-                {assignment.toCrew.find((item) => item.slotNumber === slotNumber)?.toName || 'Not assigned'}
-              </div>
-            </div>
-          ))}
+      {user.role === 'Referee' && assignment.toCrew.length === 0 ? (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+          TO crew will appear after the TO Supervisor assigns officials and they accept the game.
         </div>
-      </div>
-      {assignment.assignmentGroup === 'Referee' && assignment.status === 'Pending' && (
+      ) : (
+        <div className="mt-4 rounded-xl bg-slate-50 p-3">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
+          <div className="mt-3 grid gap-2 md:grid-cols-4">
+            {[1, 2, 3, 4].map((slotNumber) => {
+              const toSlot = assignment.toCrew.find((item) => item.slotNumber === slotNumber);
+              return (
+                <div key={`${assignment.id}-to-${slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <div className="text-[11px] font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber)}</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-900">
+                    {toSlot?.toName || (user.role === 'Referee' ? 'Awaiting confirmation' : 'Not assigned')}
+                  </div>
+                  {toSlot ? (
+                    <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(toSlot.status)}`}>
+                      {toSlot.status}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {assignment.status === 'Pending' && (
         <div className="grid grid-cols-2 gap-3 mt-4">
           <button
             onClick={() => handleNominationResponse(assignment.nominationId, 'Accepted', assignment.id)}

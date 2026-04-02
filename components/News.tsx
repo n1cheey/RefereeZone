@@ -157,7 +157,7 @@ const News: React.FC<NewsProps> = ({ user, onBack }) => {
             />
           </div>
           {previewEmbedUrl && (
-            <div className="overflow-hidden rounded-2xl border border-slate-200">
+            <div className="overflow-hidden rounded-2xl border border-slate-200 md:max-w-3xl">
               <div className="aspect-video">
                 <iframe
                   src={previewEmbedUrl}
@@ -194,14 +194,18 @@ const News: React.FC<NewsProps> = ({ user, onBack }) => {
             return (
               <div key={item.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                 {embedUrl ? (
-                  <div className="aspect-video">
-                    <iframe
-                      src={embedUrl}
-                      title={`News video ${item.id}`}
-                      className="h-full w-full"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
+                  <div className="p-4 pb-0 md:p-5 md:pb-0">
+                    <div className="overflow-hidden rounded-2xl border border-slate-200 md:mx-auto md:max-w-3xl">
+                      <div className="aspect-video">
+                        <iframe
+                          src={embedUrl}
+                          title={`News video ${item.id}`}
+                          className="h-full w-full"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-center justify-center bg-slate-100 px-6 py-10 text-sm text-slate-500">
