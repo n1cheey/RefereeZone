@@ -137,6 +137,16 @@ create table if not exists public.user_activity (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.replacement_notices (
+  id uuid primary key default gen_random_uuid(),
+  nomination_id uuid not null references public.nominations(id) on delete cascade,
+  replaced_referee_id uuid not null references public.profiles(id) on delete cascade,
+  new_referee_id uuid not null references public.profiles(id) on delete cascade,
+  slot_number integer not null check (slot_number between 1 and 3),
+  created_by uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists profiles_role_full_name_idx
   on public.profiles (role, full_name);
 
@@ -158,6 +168,9 @@ create index if not exists ranking_match_performance_referee_match_idx
 create index if not exists user_activity_last_seen_idx
   on public.user_activity (last_seen_at desc);
 
+create index if not exists replacement_notices_referee_created_idx
+  on public.replacement_notices (replaced_referee_id, created_at desc);
+
 alter table public.allowed_access enable row level security;
 alter table public.profiles enable row level security;
 alter table public.nominations enable row level security;
@@ -168,6 +181,7 @@ alter table public.ranking_performance enable row level security;
 alter table public.ranking_match_performance enable row level security;
 alter table public.news_posts enable row level security;
 alter table public.user_activity enable row level security;
+alter table public.replacement_notices enable row level security;
 
 alter table public.allowed_access drop constraint if exists allowed_access_allowed_role_check;
 alter table public.allowed_access
@@ -239,3 +253,7 @@ for select using (public.current_user_role() in ('Instructor', 'Referee', 'Table
 drop policy if exists "activity instructor read" on public.user_activity;
 create policy "activity instructor read" on public.user_activity
 for select using (public.current_user_role() in ('Instructor', 'Staff', 'Stuff'));
+
+drop policy if exists "replacement notices owner read" on public.replacement_notices;
+create policy "replacement notices owner read" on public.replacement_notices
+for select using (replaced_referee_id = auth.uid());

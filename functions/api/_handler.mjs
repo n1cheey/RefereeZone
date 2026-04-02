@@ -238,6 +238,19 @@ const mapAllowedAccess = (item) => ({
   role: normalizeRole(item.allowed_role),
 });
 
+const mapReplacementNotice = ({ notice, nomination, newRefereeName }) => ({
+  id: notice.id,
+  nominationId: nomination.id,
+  gameCode: nomination.game_code || 'ABL-NEW',
+  teams: nomination.teams,
+  matchDate: nomination.match_date,
+  matchTime: nomination.match_time,
+  venue: nomination.venue,
+  slotNumber: Number(notice.slot_number),
+  newRefereeName,
+  createdAt: notice.created_at,
+});
+
 const mapReportEntry = (entry) =>
   entry
     ? {
@@ -590,6 +603,46 @@ const requireReferees = async (admin, refereeIds) => {
   return rows;
 };
 
+const listReplacementNotices = async (admin, refereeId) => {
+  const { data, error } = await admin
+    .from('replacement_notices')
+    .select('*')
+    .eq('replaced_referee_id', refereeId)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  const notices = ensureData(data || [], error, 'Failed to load replacement notices.');
+
+  if (!notices.length) {
+    return [];
+  }
+
+  const nominations = await listNominationsByIds(
+    admin,
+    [...new Set(notices.map((notice) => notice.nomination_id))],
+  );
+  const newReferees = await listProfilesByIds(
+    admin,
+    [...new Set(notices.map((notice) => notice.new_referee_id))],
+  );
+  const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+  const refereeMap = new Map(newReferees.map((referee) => [referee.id, referee]));
+
+  return notices
+    .map((notice) => {
+      const nomination = nominationMap.get(notice.nomination_id);
+      if (!nomination) {
+        return null;
+      }
+
+      return mapReplacementNotice({
+        notice,
+        nomination,
+        newRefereeName: refereeMap.get(notice.new_referee_id)?.full_name || 'Unknown referee',
+      });
+    })
+    .filter(Boolean);
+};
+
 const requireAssignableOfficials = async (admin, refereeIds) => {
   const rows = await listProfilesByIds(admin, refereeIds);
 
@@ -883,6 +936,8 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
     throw new HttpError(403, 'Only Referee and Instructor accounts have game assignments.');
   }
 
+  const replacementNotices = await listReplacementNotices(admin, refereeId);
+
   const { data, error } = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
   const assignments = ensureData(data || [], error, 'Failed to load referee nominations.');
   await expirePendingAssignments(
@@ -898,7 +953,10 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
   const visibleAssignments = refreshedAssignments.filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
 
   if (!visibleAssignments.length) {
-    return [];
+    return {
+      nominations: [],
+      replacementNotices,
+    };
   }
 
   const nominations = await listNominationsByIds(
@@ -921,41 +979,44 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
   const instructorMap = new Map(instructors.map((instructor) => [instructor.id, instructor]));
   const officialMap = new Map(assignedOfficials.map((official) => [official.id, official]));
 
-  return visibleAssignments
-    .map((assignment) => {
-      const nomination = nominationMap.get(assignment.nomination_id);
-      if (!nomination) {
-        return null;
-      }
+  return {
+    nominations: visibleAssignments
+      .map((assignment) => {
+        const nomination = nominationMap.get(assignment.nomination_id);
+        if (!nomination) {
+          return null;
+        }
 
-      return {
-        id: assignment.id,
-        nominationId: nomination.id,
-        gameCode: nomination.game_code || 'ABL-NEW',
-        teams: nomination.teams,
-        matchDate: nomination.match_date,
-        matchTime: nomination.match_time,
-        venue: nomination.venue,
-        finalScore: nomination.final_score || null,
-        slotNumber: Number(assignment.slot_number),
-        status: assignment.status,
-        respondedAt: assignment.responded_at || null,
-        autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
-        instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
-        crew: nominationAssignments
-          .filter((nominationAssignment) => nominationAssignment.nomination_id === nomination.id)
-          .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-          .map((nominationAssignment) => ({
-            slotNumber: Number(nominationAssignment.slot_number),
-            refereeId: nominationAssignment.referee_id,
-            refereeName: officialMap.get(nominationAssignment.referee_id)?.full_name || 'Unknown referee',
-            status: nominationAssignment.status,
-            respondedAt: nominationAssignment.responded_at || null,
-          })),
-      };
-    })
-    .filter(Boolean)
-    .sort(sortByMatchAsc);
+        return {
+          id: assignment.id,
+          nominationId: nomination.id,
+          gameCode: nomination.game_code || 'ABL-NEW',
+          teams: nomination.teams,
+          matchDate: nomination.match_date,
+          matchTime: nomination.match_time,
+          venue: nomination.venue,
+          finalScore: nomination.final_score || null,
+          slotNumber: Number(assignment.slot_number),
+          status: assignment.status,
+          respondedAt: assignment.responded_at || null,
+          autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
+          instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
+          crew: nominationAssignments
+            .filter((nominationAssignment) => nominationAssignment.nomination_id === nomination.id)
+            .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
+            .map((nominationAssignment) => ({
+              slotNumber: Number(nominationAssignment.slot_number),
+              refereeId: nominationAssignment.referee_id,
+              refereeName: officialMap.get(nominationAssignment.referee_id)?.full_name || 'Unknown referee',
+              status: nominationAssignment.status,
+              respondedAt: nominationAssignment.responded_at || null,
+            })),
+        };
+      })
+      .filter(Boolean)
+      .sort(sortByMatchAsc),
+    replacementNotices,
+  };
 };
 
 const getInstructorDashboardData = async (admin, instructorId) => {
@@ -1048,6 +1109,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     referees: officials,
     nominations,
     assignments,
+    replacementNotices: await listReplacementNotices(admin, instructorId),
   };
 };
 
@@ -1583,6 +1645,40 @@ const deleteNewsPost = async (admin, currentUser, postId) => {
   }
 };
 
+const removeReportsForRefereeChange = async (admin, nominationId, previousRefereeId, nextRefereeId) => {
+  if (!previousRefereeId || previousRefereeId === nextRefereeId) {
+    return;
+  }
+
+  const { error } = await admin
+    .from('reports')
+    .delete()
+    .eq('nomination_id', nominationId)
+    .eq('referee_id', previousRefereeId);
+
+  if (error) {
+    throw new HttpError(500, 'Failed to clean up reports for the replaced referee.');
+  }
+};
+
+const createReplacementNotice = async (admin, nominationId, slotNumber, previousRefereeId, nextRefereeId, createdBy) => {
+  if (!previousRefereeId || previousRefereeId === nextRefereeId) {
+    return;
+  }
+
+  const { error } = await admin.from('replacement_notices').insert({
+    nomination_id: nominationId,
+    replaced_referee_id: previousRefereeId,
+    new_referee_id: nextRefereeId,
+    slot_number: slotNumber,
+    created_by: createdBy,
+  });
+
+  if (error) {
+    throw new HttpError(500, 'Failed to create replacement notice.');
+  }
+};
+
 const createNomination = async (admin, currentUser, body) => {
   await requireRole(admin, currentUser.id, 'Instructor');
 
@@ -1678,6 +1774,8 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
 
   const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
   const reportDeadlineAt = createDeadlineDate(nomination.match_date, nomination.match_time)?.toISOString() || null;
+  await removeReportsForRefereeChange(admin, nominationId, slot.referee_id, refereeId);
+  await createReplacementNotice(admin, nominationId, slotNumber, slot.referee_id, refereeId, currentUser.id);
 
   const { error } = await admin
     .from('nomination_referees')
@@ -1696,6 +1794,68 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
 
   const nominations = await getInstructorNominationsData(admin, currentUser.id);
   return nominations.find((nomination) => nomination.id === nominationId);
+};
+
+const editNominationOfficials = async (admin, currentUser, nominationId, refereeIds) => {
+  await requireRole(admin, currentUser.id, 'Instructor');
+  const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
+  const normalizedRefereeIds = ensureDistinctReferees(refereeIds || []);
+  const assignableOfficials = await requireAssignableOfficials(admin, normalizedRefereeIds);
+  const officialMap = new Map(assignableOfficials.map((official) => [official.id, official]));
+  const currentSlots = await listAssignmentsByNominationIds(admin, [nominationId]);
+
+  if (currentSlots.length !== 3) {
+    throw new HttpError(409, 'This game does not have a complete crew to edit.');
+  }
+
+  const slotMap = new Map(currentSlots.map((slot) => [Number(slot.slot_number), slot]));
+  const reportDeadlineAt = createDeadlineDate(nomination.match_date, nomination.match_time)?.toISOString() || null;
+  const respondedAt = new Date().toISOString();
+
+  for (const [index, refereeId] of normalizedRefereeIds.entries()) {
+    const slotNumber = index + 1;
+    const existingSlot = slotMap.get(slotNumber);
+    if (!existingSlot) {
+      throw new HttpError(404, 'Nomination slot not found.');
+    }
+
+    const assignedOfficial = officialMap.get(refereeId);
+    const isSelfAssignedInstructor = assignedOfficial?.id === currentUser.id && assignedOfficial.role === 'Instructor';
+    const isSameOfficial = existingSlot.referee_id === refereeId;
+
+    await removeReportsForRefereeChange(admin, nominationId, existingSlot.referee_id, refereeId);
+    await createReplacementNotice(admin, nominationId, slotNumber, existingSlot.referee_id, refereeId, currentUser.id);
+
+    const nextStatus = isSameOfficial
+      ? existingSlot.status
+      : isSelfAssignedInstructor
+        ? ASSIGNMENT_STATUS.ACCEPTED
+        : ASSIGNMENT_STATUS.PENDING;
+
+    const nextRespondedAt = isSameOfficial
+      ? existingSlot.responded_at || null
+      : isSelfAssignedInstructor
+        ? respondedAt
+        : null;
+
+    const { error } = await admin
+      .from('nomination_referees')
+      .update({
+        referee_id: refereeId,
+        status: nextStatus,
+        responded_at: nextRespondedAt,
+        report_deadline_at: reportDeadlineAt,
+      })
+      .eq('nomination_id', nominationId)
+      .eq('slot_number', slotNumber);
+
+    if (error) {
+      throw new HttpError(500, 'Failed to update the crew.');
+    }
+  }
+
+  const nominations = await getInstructorNominationsData(admin, currentUser.id);
+  return nominations.find((item) => item.id === nominationId);
 };
 
 const updateNominationScore = async (admin, currentUser, nominationId, finalScore) => {
@@ -2201,11 +2361,6 @@ const saveReport = async (admin, currentUser, nominationId, refereeId, body) => 
       throw new HttpError(409, 'Instructor can evaluate only after the referee submits their report.');
     }
 
-    const existing = await loadReportByAuthor(admin, nominationId, refereeId, currentUser.id);
-    if (existing?.status === REPORT_STATUS.REVIEWED) {
-      throw new HttpError(409, 'Reviewed report cannot be edited.');
-    }
-
     await upsertReport({
       admin,
       nominationId,
@@ -2686,6 +2841,17 @@ const routeRequest = async (event) => {
   }
 
   const deleteNominationMatch = path.match(/^\/nominations\/([^/]+)$/);
+  const editNominationMatch = path.match(/^\/nominations\/([^/]+)$/);
+  if (method === 'PATCH' && editNominationMatch) {
+    const nomination = await editNominationOfficials(
+      admin,
+      currentUser,
+      editNominationMatch[1],
+      body.refereeIds,
+    );
+    return json(200, { message: 'Nomination updated.', nomination });
+  }
+
   if (method === 'DELETE' && deleteNominationMatch) {
     await deleteNomination(admin, currentUser, deleteNominationMatch[1]);
     return json(200, { message: 'Nomination deleted.' });
@@ -2696,7 +2862,7 @@ const routeRequest = async (event) => {
   }
 
   if (method === 'GET' && path === `/nominations/referee/${currentUser.id}`) {
-    return json(200, { nominations: await getRefereeAssignmentsData(admin, currentUser.id) });
+    return json(200, await getRefereeAssignmentsData(admin, currentUser.id));
   }
 
   const replaceNominationMatch = path.match(/^\/nominations\/([^/]+)\/slots\/([^/]+)$/);

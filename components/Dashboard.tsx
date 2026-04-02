@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination } from '../types';
+import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
 import { getNominationSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import { getMatchTimestamp, isPastMatch } from '../matchTiming';
@@ -15,6 +15,7 @@ import {
   History,
   MapPin,
   Newspaper,
+  Pencil,
   Plus,
   Shield,
   TrendingUp,
@@ -26,6 +27,7 @@ import {
 import {
   createNomination,
   deleteNomination,
+  editNominationOfficials,
   getInstructorDashboard,
   getRefereeNominations,
   replaceNominationReferee,
@@ -67,6 +69,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [referees, setReferees] = useState<RefereeDirectoryItem[]>([]);
   const [instructorNominations, setInstructorNominations] = useState<InstructorNomination[]>([]);
   const [refereeAssignments, setRefereeAssignments] = useState<RefereeNomination[]>([]);
+  const [replacementNotices, setReplacementNotices] = useState<ReplacementNotice[]>([]);
   const [dashboardError, setDashboardError] = useState('');
   const [dashboardMessage, setDashboardMessage] = useState('');
   const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
@@ -74,6 +77,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [actionAssignmentId, setActionAssignmentId] = useState<string | null>(null);
   const [replaceActionKey, setReplaceActionKey] = useState<string | null>(null);
   const [replaceSelections, setReplaceSelections] = useState<Record<string, string>>({});
+  const [editingNominationId, setEditingNominationId] = useState<string | null>(null);
+  const [editSelections, setEditSelections] = useState<Record<string, string>>({});
+  const [editActionNominationId, setEditActionNominationId] = useState<string | null>(null);
   const [scoreActionId, setScoreActionId] = useState<string | null>(null);
   const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
@@ -104,6 +110,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       setReferees(response.referees);
       setInstructorNominations(response.nominations);
       setRefereeAssignments(response.assignments);
+      setReplacementNotices(response.replacementNotices);
     };
 
     const loadRefereeData = async () => {
@@ -114,6 +121,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       }
 
       setRefereeAssignments(response.nominations);
+      setReplacementNotices(response.replacementNotices);
     };
 
     const loadData = async (showLoader: boolean) => {
@@ -246,11 +254,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     setReferees(response.referees);
     setInstructorNominations(response.nominations);
     setRefereeAssignments(response.assignments);
+    setReplacementNotices(response.replacementNotices);
   };
 
   const refreshRefereeData = async () => {
     const response = await getRefereeNominations(user.id);
     setRefereeAssignments(response.nominations);
+    setReplacementNotices(response.replacementNotices);
   };
 
   const handleCreateNomination = async (e: React.FormEvent) => {
@@ -355,6 +365,50 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       setDashboardMessage('Game deleted.');
     } catch (error) {
       setDashboardError(error instanceof Error ? error.message : 'Failed to delete game.');
+    }
+  };
+
+  const handleStartEditNomination = (nomination: InstructorNomination) => {
+    setEditingNominationId(nomination.id);
+    setEditSelections({
+      referee1: nomination.referees.find((item) => item.slotNumber === 1)?.refereeId || '',
+      referee2: nomination.referees.find((item) => item.slotNumber === 2)?.refereeId || '',
+      referee3: nomination.referees.find((item) => item.slotNumber === 3)?.refereeId || '',
+    });
+    setDashboardError('');
+    setDashboardMessage('');
+  };
+
+  const handleCancelEditNomination = () => {
+    setEditingNominationId(null);
+    setEditSelections({});
+  };
+
+  const handleSaveEditedNomination = async (nominationId: string) => {
+    const refereeIds = [editSelections.referee1, editSelections.referee2, editSelections.referee3];
+
+    if (new Set(refereeIds).size !== 3 || refereeIds.some((item) => !item)) {
+      setDashboardError('Choose 3 different officials.');
+      return;
+    }
+
+    setEditActionNominationId(nominationId);
+    setDashboardError('');
+    setDashboardMessage('');
+
+    try {
+      await editNominationOfficials({
+        nominationId,
+        instructorId: user.id,
+        refereeIds,
+      });
+      await refreshInstructorData();
+      handleCancelEditNomination();
+      setDashboardMessage('Game crew updated.');
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : 'Failed to update game crew.');
+    } finally {
+      setEditActionNominationId(null);
     }
   };
 
@@ -494,13 +548,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           </div>
         </div>
         {nomination.createdById === user.id ? (
-          <button
-            onClick={() => handleDeleteNomination(nomination.id)}
-            className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
-          >
-            <Trash2 size={14} />
-            Delete Game
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() =>
+                editingNominationId === nomination.id ? handleCancelEditNomination() : handleStartEditNomination(nomination)
+              }
+              className="inline-flex items-center gap-2 self-start rounded-xl bg-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
+            >
+              <Pencil size={14} />
+              {editingNominationId === nomination.id ? 'Cancel Edit' : 'Edit'}
+            </button>
+            <button
+              onClick={() => handleDeleteNomination(nomination.id)}
+              className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
+            >
+              <Trash2 size={14} />
+              Delete Game
+            </button>
+          </div>
         ) : null}
       </div>
       {renderFinalScore(nomination.finalScore)}
@@ -514,17 +579,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           return (
             <div key={replaceKey} className="rounded-xl bg-slate-50 p-3">
               <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber)}</div>
-              <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
-              <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                referee.status === 'Accepted'
-                  ? 'bg-emerald-100 text-emerald-700'
-                  : referee.status === 'Declined'
-                    ? 'bg-red-100 text-red-700'
-                    : 'bg-amber-100 text-amber-700'
-              }`}>
-                {referee.status}
-              </div>
-              {canReplaceSlot ? (
+              {editingNominationId === nomination.id ? (
+                <select
+                  value={editSelections[`referee${referee.slotNumber}`] || ''}
+                  onChange={(e) =>
+                    setEditSelections((prev) => ({ ...prev, [`referee${referee.slotNumber}`]: e.target.value }))
+                  }
+                  className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                >
+                  <option value="">Select official</option>
+                  {getReplacementOptions(nomination, referee.slotNumber)
+                    .concat(
+                      referees.filter((option) => option.id === referee.refereeId),
+                    )
+                    .filter((option, index, array) => array.findIndex((item) => item.id === option.id) === index)
+                    .map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {`${option.fullName} (${option.role})`}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <>
+                  <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
+                  <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                    referee.status === 'Accepted'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : referee.status === 'Declined'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {referee.status}
+                  </div>
+                </>
+              )}
+              {editingNominationId !== nomination.id && canReplaceSlot ? (
                 <div className="mt-3 space-y-2">
                   <select
                     value={replaceSelections[replaceKey] || ''}
@@ -551,6 +640,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           );
         })}
       </div>
+      {editingNominationId === nomination.id && (
+        <div className="mt-4 flex flex-wrap justify-end gap-3">
+          <button
+            onClick={handleCancelEditNomination}
+            className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => handleSaveEditedNomination(nomination.id)}
+            disabled={editActionNominationId === nomination.id}
+            className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
+          >
+            {editActionNominationId === nomination.id ? 'Saving...' : 'Save Crew'}
+          </button>
+        </div>
+      )}
     </div>
   );
 
@@ -872,6 +978,29 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
       {(user.role === 'Referee' || user.role === 'Instructor') && (
         <div className="space-y-5 mb-8">
+          {replacementNotices.length > 0 && (
+            <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <AlertTriangle size={18} className="text-red-600" />
+                <h3 className="text-base font-bold text-slate-900">Replacement Notices</h3>
+              </div>
+              <div className="space-y-3">
+                {replacementNotices.map((notice) => (
+                  <div key={notice.id} className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                    <div className="text-sm font-bold text-red-800">
+                      You were replaced for {notice.gameCode} as {getNominationSlotLabel(notice.slotNumber)}.
+                    </div>
+                    <div className="mt-1 text-sm text-red-700">
+                      {notice.teams} | {notice.matchDate} at {notice.matchTime}
+                    </div>
+                    <div className="mt-1 text-xs font-medium text-red-700">
+                      New official: {notice.newRefereeName}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <div className="flex items-center gap-2 mb-4">
               <Bell size={18} className="text-[#581c1c]" />

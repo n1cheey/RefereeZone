@@ -1,4 +1,4 @@
-import { InstructorNomination, RefereeDirectoryItem, RefereeNomination } from '../types';
+import { InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
 import { apiRequest } from './apiClient';
 
 const JSON_HEADERS = {
@@ -9,6 +9,7 @@ export interface InstructorDashboardResponse {
   referees: RefereeDirectoryItem[];
   nominations: InstructorNomination[];
   assignments: RefereeNomination[];
+  replacementNotices: ReplacementNotice[];
 }
 
 export function getReferees(instructorId: string) {
@@ -24,7 +25,9 @@ export function getInstructorNominations(instructorId: string) {
 }
 
 export function getRefereeNominations(refereeId: string) {
-  return apiRequest<{ nominations: RefereeNomination[] }>(`/api/nominations/referee/${encodeURIComponent(refereeId)}`);
+  return apiRequest<{ nominations: RefereeNomination[]; replacementNotices: ReplacementNotice[] }>(
+    `/api/nominations/referee/${encodeURIComponent(refereeId)}`,
+  );
 }
 
 export function createNomination(payload: {
@@ -57,6 +60,24 @@ export function replaceNominationReferee(payload: {
       body: JSON.stringify({
         instructorId: payload.instructorId,
         refereeId: payload.refereeId,
+      }),
+    },
+  );
+}
+
+export function editNominationOfficials(payload: {
+  nominationId: string;
+  instructorId: string;
+  refereeIds: string[];
+}) {
+  return apiRequest<{ message: string; nomination: InstructorNomination }>(
+    `/api/nominations/${encodeURIComponent(payload.nominationId)}`,
+    {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        instructorId: payload.instructorId,
+        refereeIds: payload.refereeIds,
       }),
     },
   );

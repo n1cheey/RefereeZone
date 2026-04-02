@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import Layout from './Layout';
 import { ReportDetail, ReportListItem, ReportStatus, User } from '../types';
 import { getNominationSlotLabel } from '../slotLabels';
-import { AlarmClockPlus, ArrowRight, CheckCircle, Clock, FileWarning, Plus, Trash2, X } from 'lucide-react';
+import { AlarmClockPlus, ArrowRight, CheckCircle, Clock, FileWarning, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { deleteReport, extendReportDeadline, getReportDetail, getReports, saveReport } from '../services/reportsService';
 
 interface ReportsProps {
@@ -35,6 +35,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [isEditingCurrentReport, setIsEditingCurrentReport] = useState(false);
   const [formData, setFormData] = useState({
     feedbackScore: 0,
     threePO_IOT: '',
@@ -100,6 +101,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
         teamwork: editorReport?.teamwork ?? '',
         generally: editorReport?.generally ?? '',
       });
+      setIsEditingCurrentReport(false);
       setIsChoosingNew(false);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to load report detail.');
@@ -139,6 +141,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
         teamwork: editorReport?.teamwork ?? '',
         generally: editorReport?.generally ?? '',
       });
+      setIsEditingCurrentReport(false);
       await loadReports();
       setSuccessMessage(action === 'Draft' ? 'Report saved as draft.' : 'Report submitted.');
     } catch (error) {
@@ -165,6 +168,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
       });
       await loadReports();
       setSelectedDetail(null);
+      setIsEditingCurrentReport(false);
       setSuccessMessage('Draft report deleted.');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to delete report.');
@@ -217,6 +221,8 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
     const isInstructor = user.role === 'Instructor';
     const isReferee = user.role === 'Referee';
     const currentReport = isInstructor ? selectedDetail.instructorReport : isReferee ? selectedDetail.refereeReport : null;
+    const canEditForm =
+      selectedDetail.canEditCurrentUserReport || (isInstructor && Boolean(currentReport) && isEditingCurrentReport);
     const showRefereeReport = user.role === 'Instructor' || user.role === 'Staff';
     const showInstructorReport = user.role === 'Referee' || user.role === 'Staff';
 
@@ -292,7 +298,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <h3 className="text-base font-bold text-slate-900 mb-4">{isInstructor ? 'Instructor Evaluation' : 'My Report'}</h3>
 
-            {!selectedDetail.canEditCurrentUserReport && currentReport ? (
+            {!canEditForm && currentReport ? (
               <div className="space-y-3 text-sm text-slate-700">
                 <div><span className="font-bold">3PO & IOT:</span> {currentReport.threePO_IOT}</div>
                 <div><span className="font-bold">Criteria:</span> {currentReport.criteria}</div>
@@ -301,6 +307,15 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
                 <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500">
                   Status: {item.instructorReportStatus === 'Reviewed' ? 'Reviewed' : currentReport.status}
                 </div>
+                {isInstructor && (
+                  <button
+                    onClick={() => setIsEditingCurrentReport(true)}
+                    className="inline-flex items-center gap-2 rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white"
+                  >
+                    <Pencil size={16} />
+                    Edit
+                  </button>
+                )}
               </div>
             ) : (
               <div className="space-y-4">
@@ -356,6 +371,15 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack }) => {
                     {isSaving ? 'Saving...' : isInstructor ? 'Submit Review' : 'Submit'}
                   </button>
                 </div>
+                {isInstructor && currentReport && (
+                  <button
+                    onClick={() => setIsEditingCurrentReport(false)}
+                    disabled={isSaving}
+                    className="w-full rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700 disabled:opacity-70"
+                  >
+                    Cancel Edit
+                  </button>
+                )}
                 {currentReport?.status === 'Draft' && (
                   <button
                     onClick={handleDeleteReport}

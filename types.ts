@@ -73,6 +73,19 @@ export interface RefereeNomination {
   crew: NominationSlot[];
 }
 
+export interface ReplacementNotice {
+  id: string;
+  nominationId: string;
+  gameCode: string;
+  teams: string;
+  matchDate: string;
+  matchTime: string;
+  venue: string;
+  slotNumber: number;
+  newRefereeName: string;
+  createdAt: string;
+}
+
 export interface ReportEntry {
   id: string;
   authorRole: 'Referee' | 'Instructor';
