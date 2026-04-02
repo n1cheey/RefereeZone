@@ -15,6 +15,10 @@ export function getRankingDashboard(userId: string) {
   return apiRequest<RankingDashboardData>(`/api/rankings?userId=${encodeURIComponent(userId)}`);
 }
 
+export function getTORankingDashboard(userId: string) {
+  return apiRequest<RankingDashboardData>(`/api/rankings/to?userId=${encodeURIComponent(userId)}`);
+}
+
 export function getRankingAdminData(instructorId: string) {
   return apiRequest<{
     leaderboard: RankingLeaderboardItem[];
@@ -24,6 +28,17 @@ export function getRankingAdminData(instructorId: string) {
     games: RankingGameOption[];
     referees: Array<{ id: string; fullName: string }>;
   }>(`/api/rankings/admin?instructorId=${encodeURIComponent(instructorId)}`);
+}
+
+export function getTORankingAdminData(userId: string) {
+  return apiRequest<{
+    leaderboard: RankingLeaderboardItem[];
+    evaluations: RankingEvaluation[];
+    performanceEntries: RankingPerformanceEntry[];
+    performanceProfiles: RankingPerformanceProfile[];
+    games: RankingGameOption[];
+    referees: Array<{ id: string; fullName: string }>;
+  }>(`/api/rankings/admin/to?userId=${encodeURIComponent(userId)}`);
 }
 
 export function createRankingEvaluation(payload: {

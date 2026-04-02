@@ -39,7 +39,7 @@ import {
 
 interface DashboardProps {
   user: User;
-  onNavigate: (view: 'nominations' | 'teyinat' | 'ranking' | 'reports' | 'news' | 'members' | 'access' | 'activity') => void;
+  onNavigate: (view: 'nominations' | 'teyinat' | 'ranking' | 'toRanking' | 'reports' | 'news' | 'members' | 'access' | 'activity') => void;
   onLogout: () => void;
   onUpdateUser: (user: User) => void;
 }
@@ -481,6 +481,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       ? [
           { id: 'teyinat' as const, label: 'Teyinat', icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
           { id: 'activity' as const, label: 'Activity', icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
+          { id: 'toRanking' as const, label: 'TO Ranking', icon: TrendingUp, iconColor: 'text-teal-600', color: 'bg-teal-50' },
         ]
       : []),
     { id: 'ranking' as const, label: isInstructor || isTOSupervisor || isStaff ? 'Ranking' : 'My Ranking', icon: TrendingUp, iconColor: 'text-green-500', color: 'bg-green-50' },

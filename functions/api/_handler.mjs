@@ -2801,14 +2801,15 @@ const extendReportDeadline = async (admin, currentUser, nominationId, refereeId)
   return getReportDetail(admin, currentUser, nominationId, refereeId);
 };
 
-const getRankingDashboardConfig = (role) => {
-  if (role === 'TO' || role === 'TO Supervisor') {
+const getRankingDashboardConfig = (role, subjectRole = null) => {
+  if (subjectRole === 'TO' || role === 'TO' || role === 'TO Supervisor') {
     return {
       subjectRole: 'TO',
       performanceTable: 'ranking_to_match_performance',
       subjectIdColumn: 'to_id',
       notFoundMessage: 'Failed to load TO ranking.',
       adminRoles: ['TO Supervisor'],
+      viewerRoles: ['Instructor'],
       selfRoles: ['TO'],
     };
   }
@@ -2819,12 +2820,13 @@ const getRankingDashboardConfig = (role) => {
     subjectIdColumn: 'referee_id',
     notFoundMessage: 'Failed to load referee ranking.',
     adminRoles: ['Instructor', 'Staff'],
+    viewerRoles: [],
     selfRoles: ['Referee'],
   };
 };
 
-const getRankingDashboard = async (admin, currentUser) => {
-  const rankingConfig = getRankingDashboardConfig(currentUser.role);
+const getRankingDashboard = async (admin, currentUser, subjectRole = null) => {
+  const rankingConfig = getRankingDashboardConfig(currentUser.role, subjectRole);
   const rankingState = await buildRankingState(admin, rankingConfig);
   const totalReferees = rankingState.leaderboard.length;
 
@@ -2848,7 +2850,7 @@ const getRankingDashboard = async (admin, currentUser) => {
     };
   }
 
-  if (rankingConfig.adminRoles.includes(currentUser.role)) {
+  if (rankingConfig.adminRoles.includes(currentUser.role) || rankingConfig.viewerRoles.includes(currentUser.role)) {
     const refereeHistories = Object.fromEntries(
       rankingState.referees.map((referee) => [referee.id, buildRankingHistory(referee.id, rankingState)]),
     );
@@ -2879,12 +2881,12 @@ const getRankingDashboard = async (admin, currentUser) => {
   };
 };
 
-const getRankingAdminData = async (admin, currentUser) => {
-  if (!['Instructor', 'TO Supervisor'].includes(currentUser.role)) {
+const getRankingAdminData = async (admin, currentUser, subjectRole = null) => {
+  const rankingConfig = getRankingDashboardConfig(currentUser.role, subjectRole);
+  if (!rankingConfig.adminRoles.includes(currentUser.role)) {
     throw new HttpError(403, 'This role cannot manage ranking data.');
   }
 
-  const rankingConfig = getRankingDashboardConfig(currentUser.role);
   const rankingState = await buildRankingState(admin, rankingConfig);
   const gamesResponse = await admin
     .from('nominations')
@@ -3335,8 +3337,16 @@ const routeRequest = async (event) => {
     return json(200, await getRankingDashboard(admin, currentUser));
   }
 
+  if (method === 'GET' && path === '/rankings/to') {
+    return json(200, await getRankingDashboard(admin, currentUser, 'TO'));
+  }
+
   if (method === 'GET' && path === '/rankings/admin') {
     return json(200, await getRankingAdminData(admin, currentUser));
+  }
+
+  if (method === 'GET' && path === '/rankings/admin/to') {
+    return json(200, await getRankingAdminData(admin, currentUser, 'TO'));
   }
 
   if (method === 'POST' && path === '/teyinat/export') {

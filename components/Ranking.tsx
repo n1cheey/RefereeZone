@@ -3,7 +3,7 @@ import Layout from './Layout';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Award, Save, Shield, TrendingUp } from 'lucide-react';
 import { RankingDashboardData, RankingGameOption, RankingPerformanceEntry, RankingPerformanceProfile, User } from '../types';
-import { getRankingAdminData, getRankingDashboard, saveRankingPerformance } from '../services/rankingService';
+import { getRankingAdminData, getRankingDashboard, getTORankingAdminData, getTORankingDashboard, saveRankingPerformance } from '../services/rankingService';
 
 const scoreOptions = [-1, 0, 1];
 const CORRECTION_GAME_ID = '__correction__';
@@ -12,6 +12,7 @@ const CORRECTION_GAME_CODE = 'Correction';
 interface RankingProps {
   user: User;
   onBack: () => void;
+  rankingMode?: 'referee' | 'to';
 }
 
 const emptyMatchPerformanceForm = {
@@ -52,12 +53,13 @@ const getMatchAverage = (values: typeof emptyMatchPerformanceForm) => {
 const shouldShowScoreLegend = (role: User['role']) =>
   role === 'Referee' || role === 'Staff' || role === 'TO' || role === 'TO Supervisor';
 
-const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
+const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee' }) => {
   const isInstructor = user.role === 'Instructor';
   const isStaff = user.role === 'Staff';
   const isTOSupervisor = user.role === 'TO Supervisor';
   const isTO = user.role === 'TO';
-  const isTOFlow = isTOSupervisor || isTO;
+  const isTOFlow = rankingMode === 'to';
+  const canManageSubject = (rankingMode === 'referee' && isInstructor) || (rankingMode === 'to' && isTOSupervisor);
   const entityLabel = isTOFlow ? 'TO' : 'Referee';
   const rankingTitle = isInstructor || isStaff || isTOSupervisor ? `${entityLabel} Ranking` : `My ${entityLabel} Ranking`;
 
@@ -80,8 +82,12 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
     setIsLoading(true);
     try {
       const [dashboardResponse, adminResponse] = await Promise.all([
-        getRankingDashboard(user.id),
-        isInstructor || isTOSupervisor ? getRankingAdminData(user.id) : Promise.resolve(null),
+        rankingMode === 'to' ? getTORankingDashboard(user.id) : getRankingDashboard(user.id),
+        canManageSubject
+          ? rankingMode === 'to'
+            ? getTORankingAdminData(user.id)
+            : getRankingAdminData(user.id)
+          : Promise.resolve(null),
       ]);
 
       setDashboard(dashboardResponse);
@@ -116,7 +122,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
 
   useEffect(() => {
     void loadData();
-  }, [user.id, user.role]);
+  }, [user.id, user.role, rankingMode]);
 
   const canViewFullLeaderboard = dashboard?.canViewFullLeaderboard || false;
   const rankingItems = dashboard?.leaderboard || [];
@@ -245,7 +251,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack }) => {
         </div>
       )}
 
-      {isInstructor && adminData && (
+      {canManageSubject && adminData && (
         <div className="space-y-6 mb-6">
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <div className="flex items-center gap-2 mb-4">
