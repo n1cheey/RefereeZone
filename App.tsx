@@ -19,7 +19,19 @@ const Members = lazy(() => import('./components/Members'));
 const AccessManager = lazy(() => import('./components/AccessManager'));
 const Activity = lazy(() => import('./components/Activity'));
 
-type View = 'login' | 'dashboard' | 'nominations' | 'teyinat' | 'ranking' | 'toRanking' | 'reports' | 'news' | 'members' | 'access' | 'activity';
+type View =
+  | 'login'
+  | 'dashboard'
+  | 'nominations'
+  | 'teyinat'
+  | 'ranking'
+  | 'toRanking'
+  | 'reports'
+  | 'testToReports'
+  | 'news'
+  | 'members'
+  | 'access'
+  | 'activity';
 
 const AUTH_LOADING_TIMEOUT_MS = 4000;
 const SESSION_SYNC_COOLDOWN_MS = 60000;
@@ -76,6 +88,7 @@ const normalizeStoredView = (value: unknown): View => {
     case 'ranking':
     case 'toRanking':
     case 'reports':
+    case 'testToReports':
     case 'news':
     case 'members':
     case 'access':
@@ -379,6 +392,8 @@ const App: React.FC = () => {
         return <Ranking user={currentUser!} onBack={() => setCurrentView('dashboard')} rankingMode="to" />;
       case 'reports':
         return <Reports user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+      case 'testToReports':
+        return <Reports user={currentUser!} onBack={() => setCurrentView('dashboard')} reportMode="test_to" />;
       case 'news':
         return <News user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'members':

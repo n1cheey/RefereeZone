@@ -2,6 +2,7 @@
 export type UserRole = 'Instructor' | 'TO' | 'TO Supervisor' | 'Referee' | 'Staff';
 export type AssignmentStatus = 'Pending' | 'Accepted' | 'Declined' | 'Assigned';
 export type ReportStatus = 'Draft' | 'Submitted' | 'Reviewed';
+export type ReportMode = 'standard' | 'test_to';
 
 export interface User {
   id: string;
@@ -109,6 +110,8 @@ export interface ReportEntry {
   criteria: string;
   teamwork: string;
   generally: string;
+  googleDriveUrl: string;
+  visibleToRefereeIds: string[];
   updatedAt: string;
 }
 
@@ -129,6 +132,15 @@ export interface ReportListItem {
   deadlineMessage: string | null;
   reportDeadlineAt: string | null;
   canAddTime: boolean;
+  reportMode: ReportMode;
+  googleDriveUrl: string | null;
+  visibleToRefereeIds: string[];
+}
+
+export interface ReportVisibilityOption {
+  id: string;
+  fullName: string;
+  slotNumber: number;
 }
 
 export interface ReportDetail {
@@ -140,6 +152,7 @@ export interface ReportDetail {
   deadlineMessage: string | null;
   reportDeadlineAt: string | null;
   canAddTime: boolean;
+  visibilityOptions: ReportVisibilityOption[];
 }
 
 export interface Nomination {

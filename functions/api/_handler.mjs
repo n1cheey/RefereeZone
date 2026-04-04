@@ -17,6 +17,11 @@ const REPORT_STATUS = {
   SUBMITTED: 'Submitted',
   REVIEWED: 'Reviewed',
 };
+const REPORT_MODE = {
+  STANDARD: 'standard',
+  TEST_TO: 'test_to',
+};
+const TEST_REPORT_TO_TABLE = 'test_report_tos';
 const REPORT_DEADLINE_EXTENSION_MS = 24 * 60 * 60 * 1000;
 const ROLE_PREFIX = {
   Instructor: 'INS',
@@ -73,6 +78,14 @@ const normalizeProfileRow = (profile) => ({
   ...profile,
   role: normalizeRole(profile.role),
 });
+const normalizeReportMode = (mode) => (mode === REPORT_MODE.TEST_TO ? REPORT_MODE.TEST_TO : REPORT_MODE.STANDARD);
+const normalizeVisibleToRefereeIds = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))];
+};
 const clampScore = (score) => {
   const numeric = Number(score);
   if (!Number.isFinite(numeric)) {
@@ -313,6 +326,8 @@ const mapReportEntry = (entry) =>
         criteria: entry.criteria || '',
         teamwork: entry.teamwork || '',
         generally: entry.generally || '',
+        googleDriveUrl: entry.google_drive_url || '',
+        visibleToRefereeIds: normalizeVisibleToRefereeIds(entry.visible_to_referee_ids),
         updatedAt: entry.updated_at,
       }
     : null;
@@ -325,6 +340,9 @@ const buildReportListItem = ({
   instructorReportStatus,
   reviewScore,
   currentUserRole,
+  reportMode = REPORT_MODE.STANDARD,
+  googleDriveUrl = null,
+  visibleToRefereeIds = [],
 }) => {
   const deadlineContext = {
     matchDate: nomination.match_date,
@@ -352,7 +370,10 @@ const buildReportListItem = ({
       assignment.report_deadline_at ||
       createDeadlineDate(nomination.match_date, nomination.match_time)?.toISOString() ||
       null,
-    canAddTime: currentUserRole === 'Instructor' && deadlineExceeded,
+    canAddTime: reportMode === REPORT_MODE.STANDARD && currentUserRole === 'Instructor' && deadlineExceeded,
+    reportMode,
+    googleDriveUrl,
+    visibleToRefereeIds: normalizeVisibleToRefereeIds(visibleToRefereeIds),
   };
 };
 
@@ -631,6 +652,53 @@ const loadVisibleInstructorReport = async (admin, nominationId, refereeId) =>
     'Failed to load instructor report.',
   );
 
+const loadTestReportsForPairs = async (admin, pairs) => {
+  if (!pairs.length) {
+    return [];
+  }
+
+  const nominationIds = [...new Set(pairs.map((pair) => pair.nominationId))];
+  const refereeIds = [...new Set(pairs.map((pair) => pair.refereeId))];
+  const { data, error } = await admin
+    .from(TEST_REPORT_TO_TABLE)
+    .select('*')
+    .in('nomination_id', nominationIds)
+    .in('referee_id', refereeIds);
+
+  const rows = ensureData(data || [], error, 'Failed to load test reports.');
+  const pairSet = new Set(pairs.map((pair) => `${pair.nominationId}:${pair.refereeId}`));
+  return rows.filter((row) => pairSet.has(`${row.nomination_id}:${row.referee_id}`));
+};
+
+const loadTestReportByAuthor = async (admin, nominationId, refereeId, authorId) =>
+  maybeSingle(
+    admin
+      .from(TEST_REPORT_TO_TABLE)
+      .select('*')
+      .eq('nomination_id', nominationId)
+      .eq('referee_id', refereeId)
+      .eq('author_id', authorId),
+    'Failed to load test report.',
+  );
+
+const loadVisibleTestReportForReferee = async (admin, nominationId, refereeId, viewerRefereeId) => {
+  const report = await maybeSingle(
+    admin
+      .from(TEST_REPORT_TO_TABLE)
+      .select('*')
+      .eq('nomination_id', nominationId)
+      .eq('referee_id', refereeId)
+      .eq('status', REPORT_STATUS.REVIEWED),
+    'Failed to load test report.',
+  );
+
+  if (!report) {
+    return null;
+  }
+
+  return normalizeVisibleToRefereeIds(report.visible_to_referee_ids).includes(viewerRefereeId) ? report : null;
+};
+
 const requireAssignment = async (admin, nominationId, refereeId) => {
   await expirePendingAssignments(admin, [nominationId]);
 
@@ -671,6 +739,48 @@ const requireAssignment = async (admin, nominationId, refereeId) => {
     venue: nomination.venue,
     refereeName: referee.full_name,
   };
+};
+
+const requireVisibleTestReportViewerAssignment = async (admin, nominationId, viewerRefereeId) => {
+  await expirePendingAssignments(admin, [nominationId]);
+
+  const assignment = await requireSingle(
+    admin
+      .from('nomination_referees')
+      .select('*')
+      .eq('nomination_id', nominationId)
+      .eq('referee_id', viewerRefereeId),
+    'Assignment not found.',
+    'Failed to load assignment.',
+  );
+
+  if (assignment.status === ASSIGNMENT_STATUS.DECLINED) {
+    throw new HttpError(403, 'Declined assignments do not have access to Report Test TO.');
+  }
+
+  return assignment;
+};
+
+const listTestReportVisibilityOptions = async (admin, nominationId) => {
+  const assignments = (await listAssignmentsByNominationIds(admin, [nominationId])).filter(
+    (assignment) => assignment.nomination_id === nominationId && assignment.status !== ASSIGNMENT_STATUS.DECLINED,
+  );
+
+  if (!assignments.length) {
+    return [];
+  }
+
+  const referees = await listProfilesByIds(
+    admin,
+    [...new Set(assignments.map((assignment) => assignment.referee_id))],
+  );
+  const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
+
+  return assignments.map((assignment) => ({
+    id: assignment.referee_id,
+    fullName: refereeMap.get(assignment.referee_id)?.full_name || 'Unknown referee',
+    slotNumber: Number(assignment.slot_number),
+  }));
 };
 
 const ensureDistinctReferees = (refereeIds) => {
@@ -1718,6 +1828,44 @@ const upsertReport = async ({
   }
 };
 
+const upsertTestReportTO = async ({
+  admin,
+  nominationId,
+  refereeId,
+  authorId,
+  status,
+  score,
+  threePO_IOT,
+  criteria,
+  teamwork,
+  generally,
+  googleDriveUrl,
+  visibleToRefereeIds,
+}) => {
+  const payload = {
+    nomination_id: nominationId,
+    referee_id: refereeId,
+    author_id: authorId,
+    status,
+    score: clampScore(score),
+    three_po_iot: threePO_IOT,
+    criteria,
+    teamwork,
+    generally,
+    google_drive_url: googleDriveUrl,
+    visible_to_referee_ids: normalizeVisibleToRefereeIds(visibleToRefereeIds),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await admin.from(TEST_REPORT_TO_TABLE).upsert(payload, {
+    onConflict: 'nomination_id,referee_id,author_id',
+  });
+
+  if (error) {
+    throw new HttpError(500, 'Failed to save Report Test TO.');
+  }
+};
+
 const listReferees = async (admin, currentUser) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const { data, error } = await admin
@@ -2337,7 +2485,161 @@ const deleteNomination = async (admin, currentUser, nominationId) => {
   }
 };
 
-const listReportItems = async (admin, currentUser) => {
+const listTestReportTOItems = async (admin, currentUser) => {
+  if (currentUser.role === 'Referee') {
+    const assignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', currentUser.id);
+    const initialAssignments = ensureData(assignmentsResponse.data || [], assignmentsResponse.error, 'Failed to load reports.');
+    await expirePendingAssignments(
+      admin,
+      [...new Set(initialAssignments.map((assignment) => assignment.nomination_id))],
+    );
+    const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', currentUser.id);
+    const viewerAssignments = ensureData(
+      refreshedAssignmentsResponse.data || [],
+      refreshedAssignmentsResponse.error,
+      'Failed to load reports.',
+    ).filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
+
+    if (!viewerAssignments.length) {
+      return [];
+    }
+
+    const nominationIds = [...new Set(viewerAssignments.map((assignment) => assignment.nomination_id))];
+    const nominations = await listNominationsByIds(admin, nominationIds);
+    const assignments = (await listAssignmentsByNominationIds(admin, nominationIds)).filter(
+      (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
+    );
+    const reports = await loadTestReportsForPairs(
+      admin,
+      assignments.map((assignment) => ({
+        nominationId: assignment.nomination_id,
+        refereeId: assignment.referee_id,
+      })),
+    );
+    const referees = await listProfilesByIds(
+      admin,
+      [...new Set(assignments.map((assignment) => assignment.referee_id))],
+    );
+
+    const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+    const assignmentMap = new Map(assignments.map((assignment) => [`${assignment.nomination_id}:${assignment.referee_id}`, assignment]));
+    const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
+
+    return reports
+      .filter(
+        (report) =>
+          report.status === REPORT_STATUS.REVIEWED &&
+          normalizeVisibleToRefereeIds(report.visible_to_referee_ids).includes(currentUser.id),
+      )
+      .map((report) => {
+        const nomination = nominationMap.get(report.nomination_id);
+        const assignment = assignmentMap.get(`${report.nomination_id}:${report.referee_id}`);
+
+        if (!nomination || !assignment) {
+          return null;
+        }
+
+        return buildReportListItem({
+          nomination,
+          assignment,
+          refereeName: refereeMap.get(report.referee_id)?.full_name || 'Unknown referee',
+          refereeReportStatus: null,
+          instructorReportStatus: report.status,
+          reviewScore: report.score ?? null,
+          currentUserRole: currentUser.role,
+          reportMode: REPORT_MODE.TEST_TO,
+          googleDriveUrl: report.google_drive_url || null,
+          visibleToRefereeIds: report.visible_to_referee_ids,
+        });
+      })
+      .filter(Boolean)
+      .sort((left, right) => {
+        const matchOrder = sortByMatchDesc(left, right);
+        if (matchOrder !== 0) {
+          return matchOrder;
+        }
+
+        return left.slotNumber - right.slotNumber;
+      });
+  }
+
+  if (currentUser.role === 'Instructor') {
+    const { data, error } = await admin.from('nominations').select('*').eq('created_by', currentUser.id);
+    const nominations = ensureData(data || [], error, 'Failed to load reports.');
+
+    if (!nominations.length) {
+      return [];
+    }
+
+    await expirePendingAssignments(admin, nominations.map((nomination) => nomination.id));
+    const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id))).filter(
+      (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
+    );
+
+    if (!assignments.length) {
+      return [];
+    }
+
+    const reports = await loadTestReportsForPairs(
+      admin,
+      assignments.map((assignment) => ({
+        nominationId: assignment.nomination_id,
+        refereeId: assignment.referee_id,
+      })),
+    );
+    const referees = await listProfilesByIds(
+      admin,
+      [...new Set(assignments.map((assignment) => assignment.referee_id))],
+    );
+    const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+    const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
+
+    const standardItems = assignments
+      .map((assignment) => {
+        const nomination = nominationMap.get(assignment.nomination_id);
+        if (!nomination) {
+          return null;
+        }
+
+        const ownReport = reports.find(
+          (report) =>
+            report.nomination_id === assignment.nomination_id &&
+            report.referee_id === assignment.referee_id &&
+            report.author_id === currentUser.id,
+        );
+
+        return buildReportListItem({
+          nomination,
+          assignment,
+          refereeName: refereeMap.get(assignment.referee_id)?.full_name || 'Unknown referee',
+          refereeReportStatus: null,
+          instructorReportStatus: ownReport?.status || null,
+          reviewScore: ownReport?.score ?? null,
+          currentUserRole: currentUser.role,
+          reportMode: REPORT_MODE.TEST_TO,
+          googleDriveUrl: ownReport?.google_drive_url || null,
+          visibleToRefereeIds: ownReport?.visible_to_referee_ids || [],
+        });
+      })
+      .filter(Boolean)
+      .sort((left, right) => {
+        const matchOrder = sortByMatchDesc(left, right);
+        if (matchOrder !== 0) {
+          return matchOrder;
+        }
+
+        return left.slotNumber - right.slotNumber;
+      });
+  }
+
+  return [];
+};
+
+const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STANDARD) => {
+  if (normalizeReportMode(reportMode) === REPORT_MODE.TEST_TO) {
+    return listTestReportTOItems(admin, currentUser);
+  }
+
   if (currentUser.role === 'Referee') {
     const assignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', currentUser.id);
     const initialAssignments = ensureData(assignmentsResponse.data || [], assignmentsResponse.error, 'Failed to load reports.');
@@ -2397,6 +2699,21 @@ const listReportItems = async (admin, currentUser) => {
       })
       .filter(Boolean)
       .sort(sortByMatchDesc);
+
+    const testReportItems = await listTestReportTOItems(admin, currentUser);
+    return [...standardItems, ...testReportItems].sort((left, right) => {
+      const matchOrder = sortByMatchDesc(left, right);
+      if (matchOrder !== 0) {
+        return matchOrder;
+      }
+
+      const typeOrder = left.reportMode.localeCompare(right.reportMode);
+      if (typeOrder !== 0) {
+        return typeOrder;
+      }
+
+      return left.slotNumber - right.slotNumber;
+    });
   }
 
   if (currentUser.role === 'Instructor') {
@@ -2545,7 +2862,96 @@ const listReportItems = async (admin, currentUser) => {
   return [];
 };
 
-const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
+const getTestReportTODetail = async (admin, currentUser, nominationId, refereeId) => {
+  const assignment = await requireAssignment(admin, nominationId, refereeId);
+  const visibilityOptions = await listTestReportVisibilityOptions(admin, nominationId);
+
+  if (currentUser.role === 'Instructor') {
+    await requireNominationOwner(admin, nominationId, currentUser.id);
+    const ownReport = await loadTestReportByAuthor(admin, nominationId, refereeId, currentUser.id);
+
+    return {
+      item: {
+        nominationId: assignment.nominationId,
+        refereeId,
+        gameCode: assignment.gameCode,
+        teams: assignment.teams,
+        matchDate: assignment.matchDate,
+        matchTime: assignment.matchTime,
+        venue: assignment.venue,
+        refereeName: assignment.refereeName,
+        slotNumber: assignment.slotNumber,
+        refereeReportStatus: null,
+        instructorReportStatus: ownReport?.status || null,
+        reviewScore: ownReport?.score ?? null,
+        deadlineExceeded: false,
+        deadlineMessage: null,
+        reportDeadlineAt: null,
+        canAddTime: false,
+        reportMode: REPORT_MODE.TEST_TO,
+        googleDriveUrl: ownReport?.google_drive_url || null,
+        visibleToRefereeIds: ownReport?.visible_to_referee_ids || [],
+      },
+      refereeReport: null,
+      instructorReport: mapReportEntry(ownReport),
+      canEditCurrentUserReport: !ownReport || ownReport.status === REPORT_STATUS.DRAFT,
+      deadlineExceeded: false,
+      deadlineMessage: null,
+      reportDeadlineAt: null,
+      canAddTime: false,
+      visibilityOptions,
+    };
+  }
+
+  if (currentUser.role === 'Referee') {
+    await requireVisibleTestReportViewerAssignment(admin, nominationId, currentUser.id);
+    const instructorReport = await loadVisibleTestReportForReferee(admin, nominationId, refereeId, currentUser.id);
+
+    if (!instructorReport) {
+      throw new HttpError(404, 'Report Test TO not found.');
+    }
+
+    return {
+      item: {
+        nominationId: assignment.nominationId,
+        refereeId,
+        gameCode: assignment.gameCode,
+        teams: assignment.teams,
+        matchDate: assignment.matchDate,
+        matchTime: assignment.matchTime,
+        venue: assignment.venue,
+        refereeName: assignment.refereeName,
+        slotNumber: assignment.slotNumber,
+        refereeReportStatus: null,
+        instructorReportStatus: instructorReport.status,
+        reviewScore: instructorReport.score ?? null,
+        deadlineExceeded: false,
+        deadlineMessage: null,
+        reportDeadlineAt: null,
+        canAddTime: false,
+        reportMode: REPORT_MODE.TEST_TO,
+        googleDriveUrl: instructorReport.google_drive_url || null,
+        visibleToRefereeIds: instructorReport.visible_to_referee_ids || [],
+      },
+      refereeReport: null,
+      instructorReport: mapReportEntry(instructorReport),
+      canEditCurrentUserReport: false,
+      deadlineExceeded: false,
+      deadlineMessage: null,
+      reportDeadlineAt: null,
+      canAddTime: false,
+      visibilityOptions,
+    };
+  }
+
+  throw new HttpError(403, 'This role cannot access Report Test TO.');
+};
+
+const getReportDetail = async (admin, currentUser, nominationId, refereeId, reportMode = REPORT_MODE.STANDARD) => {
+  if (normalizeReportMode(reportMode) === REPORT_MODE.TEST_TO) {
+    return getTestReportTODetail(admin, currentUser, nominationId, refereeId);
+  }
+
   const assignment = await requireAssignment(admin, nominationId, refereeId);
   const deadlineExceeded = isDeadlineExceeded(assignment);
   const deadlineMessage = deadlineExceeded ? getDeadlineMessage(assignment) : null;
@@ -2583,6 +2989,9 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
         deadlineMessage,
         reportDeadlineAt,
         canAddTime: false,
+        reportMode: REPORT_MODE.STANDARD,
+        googleDriveUrl: instructorReport?.google_drive_url || null,
+        visibleToRefereeIds: [],
       },
       refereeReport: mapReportEntry(ownReport),
       instructorReport: mapReportEntry(instructorReport),
@@ -2591,6 +3000,7 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
       deadlineMessage,
       reportDeadlineAt,
       canAddTime: false,
+      visibilityOptions: [],
     };
   }
 
@@ -2619,6 +3029,9 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
         deadlineMessage,
         reportDeadlineAt,
         canAddTime: deadlineExceeded,
+        reportMode: REPORT_MODE.STANDARD,
+        googleDriveUrl: ownReport?.google_drive_url || null,
+        visibleToRefereeIds: [],
       },
       refereeReport: mapReportEntry(refereeReport),
       instructorReport: mapReportEntry(ownReport),
@@ -2627,6 +3040,7 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
       deadlineMessage: null,
       reportDeadlineAt,
       canAddTime: deadlineExceeded,
+      visibilityOptions: [],
     };
   }
 
@@ -2654,6 +3068,9 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
         deadlineMessage,
         reportDeadlineAt,
         canAddTime: false,
+        reportMode: REPORT_MODE.STANDARD,
+        googleDriveUrl: instructorReport?.google_drive_url || null,
+        visibleToRefereeIds: [],
       },
       refereeReport: mapReportEntry(refereeReport),
       instructorReport: mapReportEntry(instructorReport),
@@ -2662,13 +3079,57 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId) => {
       deadlineMessage: null,
       reportDeadlineAt,
       canAddTime: false,
+      visibilityOptions: [],
     };
   }
 
   throw new HttpError(403, 'This role cannot access reports.');
 };
 
-const saveReport = async (admin, currentUser, nominationId, refereeId, body) => {
+const saveTestReportTO = async (admin, currentUser, nominationId, refereeId, body) => {
+  if (currentUser.role !== 'Instructor') {
+    throw new HttpError(403, 'Only instructors can save Report Test TO.');
+  }
+
+  await requireNominationOwner(admin, nominationId, currentUser.id);
+  await requireAssignment(admin, nominationId, refereeId);
+
+  const action = body.action;
+  if (![REPORT_STATUS.DRAFT, REPORT_STATUS.SUBMITTED].includes(action)) {
+    throw new HttpError(400, 'Action must be Draft or Submitted.');
+  }
+
+  const visibilityOptions = await listTestReportVisibilityOptions(admin, nominationId);
+  const allowedRefereeIds = new Set(visibilityOptions.map((option) => option.id));
+  const visibleToRefereeIds = normalizeVisibleToRefereeIds(body.visibleToRefereeIds).filter((id) => allowedRefereeIds.has(id));
+
+  if (action === REPORT_STATUS.SUBMITTED && visibleToRefereeIds.length !== 1) {
+    throw new HttpError(400, 'Choose exactly one referee who will receive Report Test TO.');
+  }
+
+  await upsertTestReportTO({
+    admin,
+    nominationId,
+    refereeId,
+    authorId: currentUser.id,
+    status: action === REPORT_STATUS.SUBMITTED ? REPORT_STATUS.REVIEWED : REPORT_STATUS.DRAFT,
+    score: clampScore(body.feedbackScore),
+    threePO_IOT: String(body.threePO_IOT || '').trim(),
+    criteria: String(body.criteria || '').trim(),
+    teamwork: String(body.teamwork || '').trim(),
+    generally: String(body.generally || '').trim(),
+    googleDriveUrl: String(body.googleDriveUrl || '').trim(),
+    visibleToRefereeIds,
+  });
+
+  return getTestReportTODetail(admin, currentUser, nominationId, refereeId);
+};
+
+const saveReport = async (admin, currentUser, nominationId, refereeId, body, reportMode = REPORT_MODE.STANDARD) => {
+  if (normalizeReportMode(reportMode) === REPORT_MODE.TEST_TO) {
+    return saveTestReportTO(admin, currentUser, nominationId, refereeId, body);
+  }
+
   if (currentUser.role === 'Staff') {
     throw new HttpError(403, 'Staff can view reports but cannot write them.');
   }
@@ -2745,7 +3206,33 @@ const saveReport = async (admin, currentUser, nominationId, refereeId, body) => 
   throw new HttpError(403, 'This role cannot save reports.');
 };
 
-const deleteReport = async (admin, currentUser, nominationId, refereeId) => {
+const deleteTestReportTO = async (admin, currentUser, nominationId, refereeId) => {
+  if (currentUser.role !== 'Instructor') {
+    throw new HttpError(403, 'Only instructors can delete Report Test TO.');
+  }
+
+  await requireNominationOwner(admin, nominationId, currentUser.id);
+  const report = await loadTestReportByAuthor(admin, nominationId, refereeId, currentUser.id);
+
+  if (!report) {
+    throw new HttpError(404, 'Report Test TO not found.');
+  }
+
+  if (report.status !== REPORT_STATUS.DRAFT) {
+    throw new HttpError(409, 'Only draft Report Test TO can be deleted.');
+  }
+
+  const { error } = await admin.from(TEST_REPORT_TO_TABLE).delete().eq('id', report.id);
+  if (error) {
+    throw new HttpError(500, 'Failed to delete Report Test TO.');
+  }
+};
+
+const deleteReport = async (admin, currentUser, nominationId, refereeId, reportMode = REPORT_MODE.STANDARD) => {
+  if (normalizeReportMode(reportMode) === REPORT_MODE.TEST_TO) {
+    return deleteTestReportTO(admin, currentUser, nominationId, refereeId);
+  }
+
   if (!['Referee', 'Instructor'].includes(currentUser.role)) {
     throw new HttpError(403, 'This role cannot delete reports.');
   }
@@ -3141,6 +3628,8 @@ const routeRequest = async (event) => {
   const method = event.httpMethod.toUpperCase();
   const path = getApiPath(event);
   const body = ['POST', 'PATCH', 'PUT'].includes(method) ? parseJsonBody(event) : {};
+  const requestUrl = new URL(event.rawUrl || `https://local.refzone${event.path || '/'}`);
+  const reportMode = normalizeReportMode(requestUrl.searchParams.get('mode') || body.mode);
 
   if (method === 'GET' && path === '/health') {
     return json(200, { status: 'ok' });
@@ -3308,13 +3797,13 @@ const routeRequest = async (event) => {
   }
 
   if (method === 'GET' && path === '/reports') {
-    return json(200, { reports: await listReportItems(admin, currentUser) });
+    return json(200, { reports: await listReportItems(admin, currentUser, reportMode) });
   }
 
   const reportMatch = path.match(/^\/reports\/([^/]+)\/([^/]+)$/);
   const reportExtendMatch = path.match(/^\/reports\/([^/]+)\/([^/]+)\/extend$/);
   if (method === 'GET' && reportMatch) {
-    const report = await getReportDetail(admin, currentUser, reportMatch[1], reportMatch[2]);
+    const report = await getReportDetail(admin, currentUser, reportMatch[1], reportMatch[2], reportMode);
     return json(200, { report });
   }
 
@@ -3324,12 +3813,12 @@ const routeRequest = async (event) => {
   }
 
   if (method === 'POST' && reportMatch) {
-    const report = await saveReport(admin, currentUser, reportMatch[1], reportMatch[2], body);
+    const report = await saveReport(admin, currentUser, reportMatch[1], reportMatch[2], body, reportMode);
     return json(200, { message: 'Report saved.', report });
   }
 
   if (method === 'DELETE' && reportMatch) {
-    await deleteReport(admin, currentUser, reportMatch[1], reportMatch[2]);
+    await deleteReport(admin, currentUser, reportMatch[1], reportMatch[2], reportMode);
     return json(200, { message: 'Report deleted.' });
   }
 
