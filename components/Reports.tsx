@@ -199,6 +199,13 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       return;
     }
 
+    const reportItem = selectedDetail.item;
+    const gameCode = reportItem.reportMode === 'standard' ? reportItem.gameCode : formData.gameCode;
+    const teams = reportItem.reportMode === 'standard' ? reportItem.teams : formData.teams;
+    const matchDate = reportItem.reportMode === 'standard' ? reportItem.matchDate : formData.matchDate;
+    const matchTime = reportItem.reportMode === 'standard' ? reportItem.matchTime : formData.matchTime;
+    const venue = reportItem.reportMode === 'standard' ? reportItem.venue : formData.venue;
+
     setIsSaving(true);
     setErrorMessage('');
     setSuccessMessage('');
@@ -209,11 +216,11 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         nominationId: selectedDetail.item.nominationId,
         refereeId: formData.visibleToRefereeId || selectedDetail.item.refereeId,
         mode: selectedDetail.item.reportMode,
-        gameCode: formData.gameCode,
-        teams: formData.teams,
-        matchDate: formData.matchDate,
-        matchTime: formData.matchTime,
-        venue: formData.venue,
+        gameCode,
+        teams,
+        matchDate,
+        matchTime,
+        venue,
         action,
         feedbackScore: formData.feedbackScore,
         threePO_IOT: formData.threePO_IOT,
@@ -525,53 +532,80 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
               </div>
             ) : (
               <div className="space-y-4">
-                <div>
-                  <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Game Code</label>
-                  <input
-                    value={formData.gameCode}
-                    onChange={(event) => setFormData((prev) => ({ ...prev, gameCode: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
-                    placeholder="TEST-001"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Game</label>
-                  <input
-                    value={formData.teams}
-                    onChange={(event) => setFormData((prev) => ({ ...prev, teams: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
-                    placeholder="Team A vs Team B"
-                  />
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Date</label>
-                    <input
-                      type="date"
-                      value={formData.matchDate}
-                      onChange={(event) => setFormData((prev) => ({ ...prev, matchDate: event.target.value }))}
-                      className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
-                    />
+                {isTestReport ? (
+                  <>
+                    <div>
+                      <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Game Code</label>
+                      <input
+                        value={formData.gameCode}
+                        onChange={(event) => setFormData((prev) => ({ ...prev, gameCode: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
+                        placeholder="TEST-001"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Game</label>
+                      <input
+                        value={formData.teams}
+                        onChange={(event) => setFormData((prev) => ({ ...prev, teams: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
+                        placeholder="Team A vs Team B"
+                      />
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Date</label>
+                        <input
+                          type="date"
+                          value={formData.matchDate}
+                          onChange={(event) => setFormData((prev) => ({ ...prev, matchDate: event.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Time</label>
+                        <input
+                          type="time"
+                          value={formData.matchTime}
+                          onChange={(event) => setFormData((prev) => ({ ...prev, matchTime: event.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Venue</label>
+                      <input
+                        value={formData.venue}
+                        onChange={(event) => setFormData((prev) => ({ ...prev, venue: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
+                        placeholder="Arena name"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="text-xs font-bold uppercase text-slate-500">Game Code</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{item.gameCode}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="text-xs font-bold uppercase text-slate-500">Date</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{item.matchDate}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 md:col-span-2">
+                      <div className="text-xs font-bold uppercase text-slate-500">Game</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{item.teams}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="text-xs font-bold uppercase text-slate-500">Time</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{item.matchTime}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="text-xs font-bold uppercase text-slate-500">Venue</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{item.venue}</div>
+                    </div>
                   </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Time</label>
-                    <input
-                      type="time"
-                      value={formData.matchTime}
-                      onChange={(event) => setFormData((prev) => ({ ...prev, matchTime: event.target.value }))}
-                      className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Venue</label>
-                  <input
-                    value={formData.venue}
-                    onChange={(event) => setFormData((prev) => ({ ...prev, venue: event.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
-                    placeholder="Arena name"
-                  />
-                </div>
+                )}
                 <div>
                   <label className="mb-1 block text-xs font-bold uppercase text-slate-500">3PO & IOT</label>
                   <textarea
