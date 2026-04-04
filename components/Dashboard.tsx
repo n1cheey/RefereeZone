@@ -525,7 +525,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     const matchVideoUrl = (videoInputs[nomination.id] ?? nomination.matchVideoUrl ?? '').trim();
     const matchProtocolUrl = (protocolInputs[nomination.id] ?? nomination.matchProtocolUrl ?? '').trim();
     if (!finalScore && !matchVideoUrl && !matchProtocolUrl) {
-      setDashboardError('Enter the final score, a YouTube link, or a Google Drive protocol link first.');
+      setDashboardError('Enter the final score, a YouTube link, or a Game Scoresheet link first.');
       return;
     }
 
@@ -569,30 +569,41 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       </div>
     ) : null;
 
-  const renderMatchVideoButton = (matchVideoUrl: string | null) =>
-    matchVideoUrl ? (
-      <a
-        href={matchVideoUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700 transition-colors hover:bg-red-100"
-      >
-        <Youtube size={16} />
-        YouTube
-      </a>
-    ) : null;
+  const renderMatchLinks = (matchVideoUrl: string | null, matchProtocolUrl: string | null) => {
+    if (!matchVideoUrl && !matchProtocolUrl) {
+      return null;
+    }
 
-  const renderMatchProtocolButton = (matchProtocolUrl: string | null) =>
-    matchProtocolUrl ? (
-      <a
-        href={matchProtocolUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700 transition-colors hover:bg-emerald-100"
-      >
-        Google Drive
-      </a>
-    ) : null;
+    const baseButtonClass =
+      'inline-flex min-w-[170px] items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm font-bold transition-colors';
+
+    return (
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+        {matchVideoUrl ? (
+          <a
+            href={matchVideoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={`${baseButtonClass} border-red-200 bg-red-50 text-red-700 hover:bg-red-100`}
+          >
+            <Youtube size={16} />
+            YouTube
+          </a>
+        ) : null}
+        {matchProtocolUrl ? (
+          <a
+            href={matchProtocolUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={`${baseButtonClass} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
+          >
+            <FileText size={16} />
+            Game Scoresheet
+          </a>
+        ) : null}
+      </div>
+    );
+  };
 
   const renderInstructorScoreEditor = (nomination: InstructorNomination) => {
     const isOwner = nomination.createdById === user.id;
@@ -636,7 +647,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                 [nomination.id]: event.target.value,
               }))
             }
-            placeholder="https://drive.google.com/... (match protocol)"
+            placeholder="https://drive.google.com/... (game scoresheet)"
             className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
           />
           <button
@@ -695,8 +706,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         ) : null}
       </div>
       {renderFinalScore(nomination.finalScore)}
-      {renderMatchVideoButton(nomination.matchVideoUrl)}
-      {renderMatchProtocolButton(nomination.matchProtocolUrl)}
+      {renderMatchLinks(nomination.matchVideoUrl, nomination.matchProtocolUrl)}
       {renderInstructorScoreEditor(nomination)}
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         {nomination.referees.map((referee) => {
@@ -896,8 +906,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       </div>
       {renderFinalScore(assignment.finalScore)}
-      {renderMatchVideoButton(assignment.matchVideoUrl)}
-      {renderMatchProtocolButton(assignment.matchProtocolUrl)}
+      {renderMatchLinks(assignment.matchVideoUrl, assignment.matchProtocolUrl)}
       <div className="mt-4 rounded-xl bg-slate-50 p-3">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
           {assignment.assignmentGroup === 'TO' ? 'Referee Crew' : 'Crew'}
