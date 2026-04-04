@@ -60,6 +60,7 @@ export interface InstructorNomination {
   venue: string;
   finalScore: string | null;
   matchVideoUrl: string | null;
+  matchProtocolUrl: string | null;
   createdAt: string;
   createdById: string;
   createdByName: string;
@@ -77,6 +78,7 @@ export interface RefereeNomination {
   venue: string;
   finalScore: string | null;
   matchVideoUrl: string | null;
+  matchProtocolUrl: string | null;
   slotNumber: number;
   status: AssignmentStatus;
   respondedAt: string | null;
@@ -110,8 +112,8 @@ export interface ReportEntry {
   criteria: string;
   teamwork: string;
   generally: string;
-  googleDriveUrl: string;
-  visibleToRefereeIds: string[];
+  googleDriveUrl?: string;
+  visibleToRefereeIds?: string[];
   updatedAt: string;
 }
 

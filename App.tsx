@@ -27,7 +27,6 @@ type View =
   | 'ranking'
   | 'toRanking'
   | 'reports'
-  | 'testToReports'
   | 'news'
   | 'members'
   | 'access'
@@ -88,7 +87,6 @@ const normalizeStoredView = (value: unknown): View => {
     case 'ranking':
     case 'toRanking':
     case 'reports':
-    case 'testToReports':
     case 'news':
     case 'members':
     case 'access':
@@ -392,8 +390,6 @@ const App: React.FC = () => {
         return <Ranking user={currentUser!} onBack={() => setCurrentView('dashboard')} rankingMode="to" />;
       case 'reports':
         return <Reports user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
-      case 'testToReports':
-        return <Reports user={currentUser!} onBack={() => setCurrentView('dashboard')} reportMode="test_to" />;
       case 'news':
         return <News user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'members':

@@ -40,7 +40,7 @@ import {
 interface DashboardProps {
   user: User;
   onNavigate: (
-    view: 'nominations' | 'teyinat' | 'ranking' | 'toRanking' | 'reports' | 'testToReports' | 'news' | 'members' | 'access' | 'activity',
+    view: 'nominations' | 'teyinat' | 'ranking' | 'toRanking' | 'reports' | 'news' | 'members' | 'access' | 'activity',
   ) => void;
   onLogout: () => void;
   onUpdateUser: (user: User) => void;
@@ -106,6 +106,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [scoreActionId, setScoreActionId] = useState<string | null>(null);
   const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({});
   const [videoInputs, setVideoInputs] = useState<Record<string, string>>({});
+  const [protocolInputs, setProtocolInputs] = useState<Record<string, string>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const dashboardLoadPromiseRef = useRef<Promise<void> | null>(null);
   const [form, setForm] = useState({
@@ -484,7 +485,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           { id: 'teyinat' as const, label: 'Teyinat', icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
           { id: 'activity' as const, label: 'Activity', icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
           { id: 'toRanking' as const, label: 'TO Ranking', icon: TrendingUp, iconColor: 'text-teal-600', color: 'bg-teal-50' },
-          { id: 'testToReports' as const, label: 'Report Test TO', icon: Pencil, iconColor: 'text-indigo-600', color: 'bg-indigo-50' },
         ]
       : []),
     { id: 'ranking' as const, label: isInstructor || isTOSupervisor || isStaff ? 'Ranking' : 'My Ranking', icon: TrendingUp, iconColor: 'text-green-500', color: 'bg-green-50' },
@@ -523,8 +523,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const handleSaveScore = async (nomination: InstructorNomination) => {
     const finalScore = (scoreInputs[nomination.id] ?? nomination.finalScore ?? '').trim();
     const matchVideoUrl = (videoInputs[nomination.id] ?? nomination.matchVideoUrl ?? '').trim();
-    if (!finalScore && !matchVideoUrl) {
-      setDashboardError('Enter the final score or paste a YouTube link first.');
+    const matchProtocolUrl = (protocolInputs[nomination.id] ?? nomination.matchProtocolUrl ?? '').trim();
+    if (!finalScore && !matchVideoUrl && !matchProtocolUrl) {
+      setDashboardError('Enter the final score, a YouTube link, or a Google Drive protocol link first.');
       return;
     }
 
@@ -538,6 +539,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         instructorId: user.id,
         finalScore,
         matchVideoUrl,
+        matchProtocolUrl,
       });
       await refreshInstructorData();
       setScoreInputs((prev) => ({
@@ -547,6 +549,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       setVideoInputs((prev) => ({
         ...prev,
         [nomination.id]: matchVideoUrl,
+      }));
+      setProtocolInputs((prev) => ({
+        ...prev,
+        [nomination.id]: matchProtocolUrl,
       }));
       setDashboardMessage('Match details saved.');
     } catch (error) {
@@ -573,6 +579,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       >
         <Youtube size={16} />
         YouTube
+      </a>
+    ) : null;
+
+  const renderMatchProtocolButton = (matchProtocolUrl: string | null) =>
+    matchProtocolUrl ? (
+      <a
+        href={matchProtocolUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700 transition-colors hover:bg-emerald-100"
+      >
+        Google Drive
       </a>
     ) : null;
 
@@ -608,6 +626,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
               }))
             }
             placeholder="https://www.youtube.com/watch?v=..."
+            className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+          />
+          <input
+            value={protocolInputs[nomination.id] ?? nomination.matchProtocolUrl ?? ''}
+            onChange={(event) =>
+              setProtocolInputs((prev) => ({
+                ...prev,
+                [nomination.id]: event.target.value,
+              }))
+            }
+            placeholder="https://drive.google.com/... (match protocol)"
             className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
           />
           <button
@@ -667,6 +696,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       </div>
       {renderFinalScore(nomination.finalScore)}
       {renderMatchVideoButton(nomination.matchVideoUrl)}
+      {renderMatchProtocolButton(nomination.matchProtocolUrl)}
       {renderInstructorScoreEditor(nomination)}
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         {nomination.referees.map((referee) => {
@@ -867,6 +897,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       </div>
       {renderFinalScore(assignment.finalScore)}
       {renderMatchVideoButton(assignment.matchVideoUrl)}
+      {renderMatchProtocolButton(assignment.matchProtocolUrl)}
       <div className="mt-4 rounded-xl bg-slate-50 p-3">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
           {assignment.assignmentGroup === 'TO' ? 'Referee Crew' : 'Crew'}
