@@ -60,6 +60,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const [scoreActionId, setScoreActionId] = useState<string | null>(null);
   const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({});
   const [videoInputs, setVideoInputs] = useState<Record<string, string>>({});
+  const [protocolInputs, setProtocolInputs] = useState<Record<string, string>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const isInstructor = user.role === 'Instructor';
   const isStaff = user.role === 'Staff';
@@ -205,8 +206,9 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const handleSaveScore = async (nomination: InstructorNomination) => {
     const finalScore = (scoreInputs[nomination.id] ?? nomination.finalScore ?? '').trim();
     const matchVideoUrl = (videoInputs[nomination.id] ?? nomination.matchVideoUrl ?? '').trim();
-    if (!finalScore && !matchVideoUrl) {
-      setErrorMessage('Enter the final score or paste a YouTube link first.');
+    const matchProtocolUrl = (protocolInputs[nomination.id] ?? nomination.matchProtocolUrl ?? '').trim();
+    if (!finalScore && !matchVideoUrl && !matchProtocolUrl) {
+      setErrorMessage('Enter the final score, a YouTube link, or a Google Drive protocol link first.');
       return;
     }
 
@@ -217,6 +219,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         instructorId: user.id,
         finalScore,
         matchVideoUrl,
+        matchProtocolUrl,
       });
 
       const response = await getInstructorDashboard(user.id);
@@ -231,6 +234,10 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       setVideoInputs((prev) => ({
         ...prev,
         [nomination.id]: matchVideoUrl,
+      }));
+      setProtocolInputs((prev) => ({
+        ...prev,
+        [nomination.id]: matchProtocolUrl,
       }));
       setErrorMessage('');
     } catch (error) {
@@ -375,6 +382,18 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       </a>
     ) : null;
 
+  const renderMatchProtocolButton = (matchProtocolUrl: string | null) =>
+    matchProtocolUrl ? (
+      <a
+        href={matchProtocolUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700 transition-colors hover:bg-emerald-100"
+      >
+        Google Drive
+      </a>
+    ) : null;
+
   const renderInstructorScoreEditor = (nomination: InstructorNomination) => {
     const isOwner = user.role === 'Instructor' && nomination.createdById === user.id;
     const isPast = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
@@ -407,6 +426,17 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
               }))
             }
             placeholder="https://www.youtube.com/watch?v=..."
+            className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+          />
+          <input
+            value={protocolInputs[nomination.id] ?? nomination.matchProtocolUrl ?? ''}
+            onChange={(event) =>
+              setProtocolInputs((prev) => ({
+                ...prev,
+                [nomination.id]: event.target.value,
+              }))
+            }
+            placeholder="https://drive.google.com/... (match protocol)"
             className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
           />
           <button
@@ -471,6 +501,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         </div>
         {renderFinalScore(nomination.finalScore)}
         {renderMatchVideoButton(nomination.matchVideoUrl)}
+        {renderMatchProtocolButton(nomination.matchProtocolUrl)}
         {renderInstructorScoreEditor(nomination)}
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {nomination.referees.map((referee) => (
@@ -639,6 +670,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         </div>
         {renderFinalScore(nom.finalScore)}
         {renderMatchVideoButton(nom.matchVideoUrl)}
+        {renderMatchProtocolButton(nom.matchProtocolUrl)}
         {renderCrew(nom.crew)}
         {user.role === 'Referee' && nom.toCrew.length === 0 ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">

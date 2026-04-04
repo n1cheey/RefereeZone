@@ -25,6 +25,7 @@ import {
   ROLE_OPTIONS,
   saveRankingPerformance,
   saveReport,
+  updateNominationScore,
   updateMemberProfile,
 } from './db.js';
 
@@ -228,6 +229,25 @@ app.post('/api/nominations/:nominationId/respond', (request, response) => {
     });
   } catch (error) {
     handleError(error, response, 'Server error while saving response.');
+  }
+});
+
+app.patch('/api/nominations/:nominationId/score', (request, response) => {
+  try {
+    const nomination = updateNominationScore({
+      nominationId: request.params.nominationId,
+      instructorId: request.body.instructorId,
+      finalScore: request.body.finalScore,
+      matchVideoUrl: request.body.matchVideoUrl,
+      matchProtocolUrl: request.body.matchProtocolUrl,
+    });
+
+    response.json({
+      message: 'Match details updated.',
+      nomination,
+    });
+  } catch (error) {
+    handleError(error, response, 'Server error while updating match details.');
   }
 });
 

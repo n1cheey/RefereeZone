@@ -33,6 +33,7 @@ create table if not exists public.nominations (
   venue text not null,
   final_score text,
   match_video_url text,
+  match_protocol_url text,
   created_at timestamptz not null default now()
 );
 
@@ -41,6 +42,9 @@ add column if not exists final_score text;
 
 alter table public.nominations
 add column if not exists match_video_url text;
+
+alter table public.nominations
+add column if not exists match_protocol_url text;
 
 create table if not exists public.nomination_referees (
   id uuid primary key default gen_random_uuid(),

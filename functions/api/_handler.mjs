@@ -259,6 +259,19 @@ const isYoutubeUrl = (value) => {
   }
 };
 
+const isGoogleDriveUrl = (value) => {
+  if (!value) {
+    return true;
+  }
+
+  try {
+    const parsedUrl = new URL(String(value).trim());
+    return parsedUrl.hostname.includes('drive.google.com') || parsedUrl.hostname.includes('docs.google.com');
+  } catch {
+    return false;
+  }
+};
+
 const getReportDeadlineDate = (assignment) => {
   if (assignment.reportDeadlineAt) {
     const customDeadline = new Date(assignment.reportDeadlineAt);
@@ -1184,6 +1197,7 @@ const getInstructorNominationsData = async (admin, instructorId) => {
     venue: nomination.venue,
     finalScore: nomination.final_score || null,
     matchVideoUrl: nomination.match_video_url || null,
+    matchProtocolUrl: nomination.match_protocol_url || null,
     createdAt: nomination.created_at,
     createdById: nomination.created_by,
     createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
@@ -1276,6 +1290,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
             venue: nomination.venue,
             finalScore: nomination.final_score || null,
             matchVideoUrl: nomination.match_video_url || null,
+            matchProtocolUrl: nomination.match_protocol_url || null,
             slotNumber: Number(assignment.slot_number),
             status: assignment.status || ASSIGNMENT_STATUS.PENDING,
             respondedAt: assignment.responded_at || null,
@@ -1367,6 +1382,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
           venue: nomination.venue,
           finalScore: nomination.final_score || null,
           matchVideoUrl: nomination.match_video_url || null,
+          matchProtocolUrl: nomination.match_protocol_url || null,
           slotNumber: Number(assignment.slot_number),
           status: assignment.status,
           respondedAt: assignment.responded_at || null,
@@ -1454,6 +1470,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     venue: nomination.venue,
     finalScore: nomination.final_score || null,
     matchVideoUrl: nomination.match_video_url || null,
+    matchProtocolUrl: nomination.match_protocol_url || null,
     createdAt: nomination.created_at,
     createdById: nomination.created_by,
     createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
@@ -1496,6 +1513,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
         venue: nomination.venue,
         finalScore: nomination.final_score || null,
         matchVideoUrl: nomination.match_video_url || null,
+        matchProtocolUrl: nomination.match_protocol_url || null,
         slotNumber: Number(assignment.slot_number),
         status: assignment.status,
         respondedAt: assignment.responded_at || null,
@@ -2369,14 +2387,15 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
   return nominations.find((item) => item.id === nominationId);
 };
 
-const updateNominationScore = async (admin, currentUser, nominationId, finalScore, matchVideoUrl) => {
+const updateNominationScore = async (admin, currentUser, nominationId, finalScore, matchVideoUrl, matchProtocolUrl) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
   const normalizedFinalScore = String(finalScore || '').trim();
   const normalizedMatchVideoUrl = String(matchVideoUrl || '').trim();
+  const normalizedMatchProtocolUrl = String(matchProtocolUrl || '').trim();
 
-  if (!normalizedFinalScore && !normalizedMatchVideoUrl) {
-    throw new HttpError(400, 'Add a final score or a YouTube match link first.');
+  if (!normalizedFinalScore && !normalizedMatchVideoUrl && !normalizedMatchProtocolUrl) {
+    throw new HttpError(400, 'Add a final score, a YouTube link, or a Google Drive protocol link first.');
   }
 
   if (normalizedFinalScore && normalizedFinalScore.length > 32) {
@@ -2385,6 +2404,10 @@ const updateNominationScore = async (admin, currentUser, nominationId, finalScor
 
   if (normalizedMatchVideoUrl && !isYoutubeUrl(normalizedMatchVideoUrl)) {
     throw new HttpError(400, 'Enter a valid YouTube link.');
+  }
+
+  if (normalizedMatchProtocolUrl && !isGoogleDriveUrl(normalizedMatchProtocolUrl)) {
+    throw new HttpError(400, 'Enter a valid Google Drive link.');
   }
 
   const matchDateTime = createMatchDateTime(nomination.match_date, nomination.match_time);
@@ -2397,6 +2420,7 @@ const updateNominationScore = async (admin, currentUser, nominationId, finalScor
     .update({
       final_score: normalizedFinalScore || null,
       match_video_url: normalizedMatchVideoUrl || null,
+      match_protocol_url: normalizedMatchProtocolUrl || null,
     })
     .eq('id', nominationId);
 
@@ -3738,6 +3762,7 @@ const routeRequest = async (event) => {
       nominationScoreMatch[1],
       body.finalScore,
       body.matchVideoUrl,
+      body.matchProtocolUrl,
     );
     return json(200, { message: 'Match details updated.', nomination });
   }

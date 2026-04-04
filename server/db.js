@@ -46,6 +46,31 @@ export class HttpError extends Error {
 }
 
 const normalizeEmail = (email) => email.trim().toLowerCase();
+const isYoutubeUrl = (value) => {
+  if (!value) {
+    return true;
+  }
+
+  try {
+    const parsedUrl = new URL(String(value).trim());
+    return parsedUrl.hostname.includes('youtube.com') || parsedUrl.hostname.includes('youtu.be');
+  } catch {
+    return false;
+  }
+};
+
+const isGoogleDriveUrl = (value) => {
+  if (!value) {
+    return true;
+  }
+
+  try {
+    const parsedUrl = new URL(String(value).trim());
+    return parsedUrl.hostname.includes('drive.google.com') || parsedUrl.hostname.includes('docs.google.com');
+  } catch {
+    return false;
+  }
+};
 
 const buildLicenseNumber = (role, id) => {
   const prefix = {
@@ -123,6 +148,9 @@ const createTables = () => {
       match_date TEXT NOT NULL,
       match_time TEXT NOT NULL,
       venue TEXT NOT NULL,
+      final_score TEXT,
+      match_video_url TEXT,
+      match_protocol_url TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (created_by) REFERENCES users(id)
     );
@@ -231,6 +259,18 @@ const migrateTables = () => {
 
   if (!tableHasColumn('nominations', 'game_code')) {
     dbInstance.run('ALTER TABLE nominations ADD COLUMN game_code TEXT');
+  }
+
+  if (!tableHasColumn('nominations', 'final_score')) {
+    dbInstance.run('ALTER TABLE nominations ADD COLUMN final_score TEXT');
+  }
+
+  if (!tableHasColumn('nominations', 'match_video_url')) {
+    dbInstance.run('ALTER TABLE nominations ADD COLUMN match_video_url TEXT');
+  }
+
+  if (!tableHasColumn('nominations', 'match_protocol_url')) {
+    dbInstance.run('ALTER TABLE nominations ADD COLUMN match_protocol_url TEXT');
   }
 };
 
@@ -663,6 +703,9 @@ const groupInstructorNominations = (rows) => {
         matchDate: row.match_date,
         matchTime: row.match_time,
         venue: row.venue,
+        finalScore: row.final_score || null,
+        matchVideoUrl: row.match_video_url || null,
+        matchProtocolUrl: row.match_protocol_url || null,
         createdAt: row.created_at,
         referees: [],
       });
@@ -1184,6 +1227,9 @@ export const getInstructorNominations = (instructorId) => {
         n.match_date,
         n.match_time,
         n.venue,
+        n.final_score,
+        n.match_video_url,
+        n.match_protocol_url,
         n.created_at,
         nr.slot_number,
         nr.status,
@@ -1264,6 +1310,9 @@ export const getRefereeAssignments = (refereeId) => {
         n.match_date,
         n.match_time,
         n.venue,
+        n.final_score,
+        n.match_video_url,
+        n.match_protocol_url,
         nr.slot_number,
         nr.status,
         nr.responded_at,
@@ -1283,6 +1332,9 @@ export const getRefereeAssignments = (refereeId) => {
     matchDate: row.match_date,
     matchTime: row.match_time,
     venue: row.venue,
+    finalScore: row.final_score || null,
+    matchVideoUrl: row.match_video_url || null,
+    matchProtocolUrl: row.match_protocol_url || null,
     slotNumber: Number(row.slot_number),
     status: row.status,
     respondedAt: row.responded_at || null,
@@ -1322,6 +1374,43 @@ export const respondToNomination = ({ nominationId, refereeId, response }) => {
   persistDatabase();
 
   return getRefereeAssignments(refereeId).find((item) => item.nominationId === String(nominationId));
+};
+
+export const updateNominationScore = ({ nominationId, instructorId, finalScore, matchVideoUrl, matchProtocolUrl }) => {
+  requireRole(instructorId, 'Instructor');
+  requireNominationOwner(nominationId, instructorId);
+
+  const normalizedFinalScore = (finalScore || '').trim();
+  const normalizedMatchVideoUrl = (matchVideoUrl || '').trim();
+  const normalizedMatchProtocolUrl = (matchProtocolUrl || '').trim();
+
+  if (!normalizedFinalScore && !normalizedMatchVideoUrl && !normalizedMatchProtocolUrl) {
+    throw new HttpError(400, 'Add a final score, a YouTube link, or a Google Drive protocol link first.');
+  }
+
+  if (normalizedFinalScore && normalizedFinalScore.length > 32) {
+    throw new HttpError(400, 'Final score is too long.');
+  }
+
+  if (!isYoutubeUrl(normalizedMatchVideoUrl)) {
+    throw new HttpError(400, 'Enter a valid YouTube link.');
+  }
+
+  if (!isGoogleDriveUrl(normalizedMatchProtocolUrl)) {
+    throw new HttpError(400, 'Enter a valid Google Drive link.');
+  }
+
+  dbInstance.run(
+    `
+      UPDATE nominations
+      SET final_score = ?, match_video_url = ?, match_protocol_url = ?
+      WHERE id = ?
+    `,
+    [normalizedFinalScore || null, normalizedMatchVideoUrl || null, normalizedMatchProtocolUrl || null, Number(nominationId)],
+  );
+
+  persistDatabase();
+  return getInstructorNominations(instructorId).find((item) => item.id === String(nominationId)) || null;
 };
 
 export const listReportItems = (userId, mode = REPORT_MODE.STANDARD) => {
