@@ -319,7 +319,7 @@ const mapReportEntry = (entry) =>
   entry
     ? {
         id: entry.id,
-        authorRole: entry.author_role,
+        authorRole: entry.author_role || 'Instructor',
         status: entry.status,
         feedbackScore: Number(entry.score || 0),
         threePO_IOT: entry.three_po_iot || '',
@@ -327,7 +327,7 @@ const mapReportEntry = (entry) =>
         teamwork: entry.teamwork || '',
         generally: entry.generally || '',
         googleDriveUrl: entry.google_drive_url || '',
-        visibleToRefereeIds: normalizeVisibleToRefereeIds(entry.visible_to_referee_ids),
+        visibleToRefereeIds: entry.referee_id ? [entry.referee_id] : normalizeVisibleToRefereeIds(entry.visible_to_referee_ids),
         updatedAt: entry.updated_at,
       }
     : null;
@@ -698,6 +698,35 @@ const loadVisibleTestReportForReferee = async (admin, nominationId, refereeId, v
 
   return normalizeVisibleToRefereeIds(report.visible_to_referee_ids).includes(viewerRefereeId) ? report : null;
 };
+
+const loadManualTestReportTOById = async (admin, reportId) =>
+  requireSingle(
+    admin.from(TEST_REPORT_TO_TABLE).select('*').eq('id', reportId),
+    'Report Test TO not found.',
+    'Failed to load Report Test TO.',
+  );
+
+const buildManualTestReportTOItem = ({ report, refereeName }) => ({
+  nominationId: report.id,
+  refereeId: report.referee_id,
+  gameCode: report.game_code || 'NEW',
+  teams: report.teams || '',
+  matchDate: report.match_date || '',
+  matchTime: report.match_time || '',
+  venue: report.venue || '',
+  refereeName,
+  slotNumber: 0,
+  refereeReportStatus: null,
+  instructorReportStatus: report.status || null,
+  reviewScore: report.score === null || report.score === undefined ? null : Number(report.score),
+  deadlineExceeded: false,
+  deadlineMessage: null,
+  reportDeadlineAt: null,
+  canAddTime: false,
+  reportMode: REPORT_MODE.TEST_TO,
+  googleDriveUrl: report.google_drive_url || null,
+  visibleToRefereeIds: [report.referee_id],
+});
 
 const requireAssignment = async (admin, nominationId, refereeId) => {
   await expirePendingAssignments(admin, [nominationId]);
@@ -1830,10 +1859,15 @@ const upsertReport = async ({
 
 const upsertTestReportTO = async ({
   admin,
-  nominationId,
+  reportId,
   refereeId,
   authorId,
   status,
+  gameCode,
+  teams,
+  matchDate,
+  matchTime,
+  venue,
   score,
   threePO_IOT,
   criteria,
@@ -1843,9 +1877,15 @@ const upsertTestReportTO = async ({
   visibleToRefereeIds,
 }) => {
   const payload = {
-    nomination_id: nominationId,
+    id: reportId || undefined,
     referee_id: refereeId,
     author_id: authorId,
+    author_role: 'Instructor',
+    game_code: gameCode,
+    teams,
+    match_date: matchDate,
+    match_time: matchTime,
+    venue,
     status,
     score: clampScore(score),
     three_po_iot: threePO_IOT,
@@ -1853,12 +1893,11 @@ const upsertTestReportTO = async ({
     teamwork,
     generally,
     google_drive_url: googleDriveUrl,
-    visible_to_referee_ids: normalizeVisibleToRefereeIds(visibleToRefereeIds),
     updated_at: new Date().toISOString(),
   };
 
   const { error } = await admin.from(TEST_REPORT_TO_TABLE).upsert(payload, {
-    onConflict: 'nomination_id,referee_id,author_id',
+    onConflict: 'id',
   });
 
   if (error) {
@@ -2487,149 +2526,42 @@ const deleteNomination = async (admin, currentUser, nominationId) => {
 
 const listTestReportTOItems = async (admin, currentUser) => {
   if (currentUser.role === 'Referee') {
-    const assignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', currentUser.id);
-    const initialAssignments = ensureData(assignmentsResponse.data || [], assignmentsResponse.error, 'Failed to load reports.');
-    await expirePendingAssignments(
-      admin,
-      [...new Set(initialAssignments.map((assignment) => assignment.nomination_id))],
+    const { data, error } = await admin
+      .from(TEST_REPORT_TO_TABLE)
+      .select('*')
+      .eq('referee_id', currentUser.id)
+      .eq('status', REPORT_STATUS.REVIEWED)
+      .order('updated_at', { ascending: false });
+
+    const reports = ensureData(data || [], error, 'Failed to load reports.');
+    return reports.map((report) =>
+      buildManualTestReportTOItem({
+        report,
+        refereeName: currentUser.full_name,
+      }),
     );
-    const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', currentUser.id);
-    const viewerAssignments = ensureData(
-      refreshedAssignmentsResponse.data || [],
-      refreshedAssignmentsResponse.error,
-      'Failed to load reports.',
-    ).filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
-
-    if (!viewerAssignments.length) {
-      return [];
-    }
-
-    const nominationIds = [...new Set(viewerAssignments.map((assignment) => assignment.nomination_id))];
-    const nominations = await listNominationsByIds(admin, nominationIds);
-    const assignments = (await listAssignmentsByNominationIds(admin, nominationIds)).filter(
-      (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
-    );
-    const reports = await loadTestReportsForPairs(
-      admin,
-      assignments.map((assignment) => ({
-        nominationId: assignment.nomination_id,
-        refereeId: assignment.referee_id,
-      })),
-    );
-    const referees = await listProfilesByIds(
-      admin,
-      [...new Set(assignments.map((assignment) => assignment.referee_id))],
-    );
-
-    const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
-    const assignmentMap = new Map(assignments.map((assignment) => [`${assignment.nomination_id}:${assignment.referee_id}`, assignment]));
-    const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
-
-    return reports
-      .filter(
-        (report) =>
-          report.status === REPORT_STATUS.REVIEWED &&
-          normalizeVisibleToRefereeIds(report.visible_to_referee_ids).includes(currentUser.id),
-      )
-      .map((report) => {
-        const nomination = nominationMap.get(report.nomination_id);
-        const assignment = assignmentMap.get(`${report.nomination_id}:${report.referee_id}`);
-
-        if (!nomination || !assignment) {
-          return null;
-        }
-
-        return buildReportListItem({
-          nomination,
-          assignment,
-          refereeName: refereeMap.get(report.referee_id)?.full_name || 'Unknown referee',
-          refereeReportStatus: null,
-          instructorReportStatus: report.status,
-          reviewScore: report.score ?? null,
-          currentUserRole: currentUser.role,
-          reportMode: REPORT_MODE.TEST_TO,
-          googleDriveUrl: report.google_drive_url || null,
-          visibleToRefereeIds: report.visible_to_referee_ids,
-        });
-      })
-      .filter(Boolean)
-      .sort((left, right) => {
-        const matchOrder = sortByMatchDesc(left, right);
-        if (matchOrder !== 0) {
-          return matchOrder;
-        }
-
-        return left.slotNumber - right.slotNumber;
-      });
   }
 
   if (currentUser.role === 'Instructor') {
-    const { data, error } = await admin.from('nominations').select('*').eq('created_by', currentUser.id);
-    const nominations = ensureData(data || [], error, 'Failed to load reports.');
+    const { data, error } = await admin
+      .from(TEST_REPORT_TO_TABLE)
+      .select('*')
+      .eq('author_id', currentUser.id)
+      .order('updated_at', { ascending: false });
 
-    if (!nominations.length) {
-      return [];
-    }
-
-    await expirePendingAssignments(admin, nominations.map((nomination) => nomination.id));
-    const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id))).filter(
-      (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
-    );
-
-    if (!assignments.length) {
-      return [];
-    }
-
-    const reports = await loadTestReportsForPairs(
-      admin,
-      assignments.map((assignment) => ({
-        nominationId: assignment.nomination_id,
-        refereeId: assignment.referee_id,
-      })),
-    );
+    const reports = ensureData(data || [], error, 'Failed to load reports.');
     const referees = await listProfilesByIds(
       admin,
-      [...new Set(assignments.map((assignment) => assignment.referee_id))],
+      [...new Set(reports.map((report) => report.referee_id))],
     );
-    const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
     const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
 
-    const standardItems = assignments
-      .map((assignment) => {
-        const nomination = nominationMap.get(assignment.nomination_id);
-        if (!nomination) {
-          return null;
-        }
-
-        const ownReport = reports.find(
-          (report) =>
-            report.nomination_id === assignment.nomination_id &&
-            report.referee_id === assignment.referee_id &&
-            report.author_id === currentUser.id,
-        );
-
-        return buildReportListItem({
-          nomination,
-          assignment,
-          refereeName: refereeMap.get(assignment.referee_id)?.full_name || 'Unknown referee',
-          refereeReportStatus: null,
-          instructorReportStatus: ownReport?.status || null,
-          reviewScore: ownReport?.score ?? null,
-          currentUserRole: currentUser.role,
-          reportMode: REPORT_MODE.TEST_TO,
-          googleDriveUrl: ownReport?.google_drive_url || null,
-          visibleToRefereeIds: ownReport?.visible_to_referee_ids || [],
-        });
-      })
-      .filter(Boolean)
-      .sort((left, right) => {
-        const matchOrder = sortByMatchDesc(left, right);
-        if (matchOrder !== 0) {
-          return matchOrder;
-        }
-
-        return left.slotNumber - right.slotNumber;
-      });
+    return reports.map((report) =>
+      buildManualTestReportTOItem({
+        report,
+        refereeName: refereeMap.get(report.referee_id)?.full_name || 'Unknown referee',
+      }),
+    );
   }
 
   return [];
@@ -2862,39 +2794,33 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
   return [];
 };
 
-const getTestReportTODetail = async (admin, currentUser, nominationId, refereeId) => {
-  const assignment = await requireAssignment(admin, nominationId, refereeId);
-  const visibilityOptions = await listTestReportVisibilityOptions(admin, nominationId);
+const getTestReportTODetail = async (admin, currentUser, reportId) => {
+  const report = await loadManualTestReportTOById(admin, reportId);
+  const referee = await requireSingle(
+    admin.from('profiles').select('*').eq('id', report.referee_id),
+    'Recipient referee not found.',
+    'Failed to load recipient referee.',
+  );
 
   if (currentUser.role === 'Instructor') {
-    await requireNominationOwner(admin, nominationId, currentUser.id);
-    const ownReport = await loadTestReportByAuthor(admin, nominationId, refereeId, currentUser.id);
+    if (report.author_id !== currentUser.id) {
+      throw new HttpError(403, 'This Report Test TO belongs to another instructor.');
+    }
+
+    const visibilityOptions = (await listReferees(admin, currentUser)).map((item) => ({
+      id: item.id,
+      fullName: item.fullName,
+      slotNumber: 0,
+    }));
 
     return {
-      item: {
-        nominationId: assignment.nominationId,
-        refereeId,
-        gameCode: assignment.gameCode,
-        teams: assignment.teams,
-        matchDate: assignment.matchDate,
-        matchTime: assignment.matchTime,
-        venue: assignment.venue,
-        refereeName: assignment.refereeName,
-        slotNumber: assignment.slotNumber,
-        refereeReportStatus: null,
-        instructorReportStatus: ownReport?.status || null,
-        reviewScore: ownReport?.score ?? null,
-        deadlineExceeded: false,
-        deadlineMessage: null,
-        reportDeadlineAt: null,
-        canAddTime: false,
-        reportMode: REPORT_MODE.TEST_TO,
-        googleDriveUrl: ownReport?.google_drive_url || null,
-        visibleToRefereeIds: ownReport?.visible_to_referee_ids || [],
-      },
+      item: buildManualTestReportTOItem({
+        report,
+        refereeName: referee.full_name,
+      }),
       refereeReport: null,
-      instructorReport: mapReportEntry(ownReport),
-      canEditCurrentUserReport: !ownReport || ownReport.status === REPORT_STATUS.DRAFT,
+      instructorReport: mapReportEntry(report),
+      canEditCurrentUserReport: report.status === REPORT_STATUS.DRAFT,
       deadlineExceeded: false,
       deadlineMessage: null,
       reportDeadlineAt: null,
@@ -2904,43 +2830,23 @@ const getTestReportTODetail = async (admin, currentUser, nominationId, refereeId
   }
 
   if (currentUser.role === 'Referee') {
-    await requireVisibleTestReportViewerAssignment(admin, nominationId, currentUser.id);
-    const instructorReport = await loadVisibleTestReportForReferee(admin, nominationId, refereeId, currentUser.id);
-
-    if (!instructorReport) {
+    if (report.referee_id !== currentUser.id || report.status !== REPORT_STATUS.REVIEWED) {
       throw new HttpError(404, 'Report Test TO not found.');
     }
 
     return {
-      item: {
-        nominationId: assignment.nominationId,
-        refereeId,
-        gameCode: assignment.gameCode,
-        teams: assignment.teams,
-        matchDate: assignment.matchDate,
-        matchTime: assignment.matchTime,
-        venue: assignment.venue,
-        refereeName: assignment.refereeName,
-        slotNumber: assignment.slotNumber,
-        refereeReportStatus: null,
-        instructorReportStatus: instructorReport.status,
-        reviewScore: instructorReport.score ?? null,
-        deadlineExceeded: false,
-        deadlineMessage: null,
-        reportDeadlineAt: null,
-        canAddTime: false,
-        reportMode: REPORT_MODE.TEST_TO,
-        googleDriveUrl: instructorReport.google_drive_url || null,
-        visibleToRefereeIds: instructorReport.visible_to_referee_ids || [],
-      },
+      item: buildManualTestReportTOItem({
+        report,
+        refereeName: referee.full_name,
+      }),
       refereeReport: null,
-      instructorReport: mapReportEntry(instructorReport),
+      instructorReport: mapReportEntry(report),
       canEditCurrentUserReport: false,
       deadlineExceeded: false,
       deadlineMessage: null,
       reportDeadlineAt: null,
       canAddTime: false,
-      visibilityOptions,
+      visibilityOptions: [],
     };
   }
 
@@ -3086,33 +2992,62 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId, repo
   throw new HttpError(403, 'This role cannot access reports.');
 };
 
-const saveTestReportTO = async (admin, currentUser, nominationId, refereeId, body) => {
+const saveTestReportTO = async (admin, currentUser, reportId, refereeId, body) => {
   if (currentUser.role !== 'Instructor') {
     throw new HttpError(403, 'Only instructors can save Report Test TO.');
   }
-
-  await requireNominationOwner(admin, nominationId, currentUser.id);
-  await requireAssignment(admin, nominationId, refereeId);
 
   const action = body.action;
   if (![REPORT_STATUS.DRAFT, REPORT_STATUS.SUBMITTED].includes(action)) {
     throw new HttpError(400, 'Action must be Draft or Submitted.');
   }
 
-  const visibilityOptions = await listTestReportVisibilityOptions(admin, nominationId);
-  const allowedRefereeIds = new Set(visibilityOptions.map((option) => option.id));
-  const visibleToRefereeIds = normalizeVisibleToRefereeIds(body.visibleToRefereeIds).filter((id) => allowedRefereeIds.has(id));
+  const availableReferees = await listReferees(admin, currentUser);
+  const allowedRefereeIds = new Set(availableReferees.map((item) => item.id));
+  const visibleToRefereeIds = normalizeVisibleToRefereeIds(body.visibleToRefereeIds);
+  const recipientRefereeId = String(refereeId || visibleToRefereeIds[0] || '').trim();
+
+  if (!recipientRefereeId || !allowedRefereeIds.has(recipientRefereeId)) {
+    throw new HttpError(400, 'Choose a referee for Report Test TO.');
+  }
 
   if (action === REPORT_STATUS.SUBMITTED && visibleToRefereeIds.length !== 1) {
     throw new HttpError(400, 'Choose exactly one referee who will receive Report Test TO.');
   }
 
+  const normalizedGameCode = String(body.gameCode || '').trim();
+  const normalizedTeams = String(body.teams || '').trim();
+  const normalizedMatchDate = String(body.matchDate || '').trim();
+  const normalizedMatchTime = String(body.matchTime || '').trim();
+  const normalizedVenue = String(body.venue || '').trim();
+
+  if (action === REPORT_STATUS.SUBMITTED) {
+    if (!normalizedGameCode || !normalizedTeams || !normalizedMatchDate || !normalizedMatchTime || !normalizedVenue) {
+      throw new HttpError(400, 'Fill in game code, game, date, time and venue before submitting Report Test TO.');
+    }
+  }
+
+  if (reportId !== 'new') {
+    const existing = await loadManualTestReportTOById(admin, reportId);
+    if (existing.author_id !== currentUser.id) {
+      throw new HttpError(403, 'This Report Test TO belongs to another instructor.');
+    }
+    if (existing.status === REPORT_STATUS.REVIEWED) {
+      throw new HttpError(409, 'Submitted Report Test TO cannot be edited.');
+    }
+  }
+
   await upsertTestReportTO({
     admin,
-    nominationId,
-    refereeId,
+    reportId: reportId === 'new' ? null : reportId,
+    refereeId: recipientRefereeId,
     authorId: currentUser.id,
     status: action === REPORT_STATUS.SUBMITTED ? REPORT_STATUS.REVIEWED : REPORT_STATUS.DRAFT,
+    gameCode: normalizedGameCode,
+    teams: normalizedTeams,
+    matchDate: normalizedMatchDate,
+    matchTime: normalizedMatchTime,
+    venue: normalizedVenue,
     score: clampScore(body.feedbackScore),
     threePO_IOT: String(body.threePO_IOT || '').trim(),
     criteria: String(body.criteria || '').trim(),
@@ -3122,7 +3057,26 @@ const saveTestReportTO = async (admin, currentUser, nominationId, refereeId, bod
     visibleToRefereeIds,
   });
 
-  return getTestReportTODetail(admin, currentUser, nominationId, refereeId);
+  if (reportId === 'new') {
+    const { data, error } = await admin
+      .from(TEST_REPORT_TO_TABLE)
+      .select('id')
+      .eq('author_id', currentUser.id)
+      .eq('referee_id', recipientRefereeId)
+      .eq('game_code', normalizedGameCode)
+      .eq('teams', normalizedTeams)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data?.id) {
+      throw new HttpError(500, 'Failed to load saved Report Test TO.');
+    }
+
+    return getTestReportTODetail(admin, currentUser, data.id);
+  }
+
+  return getTestReportTODetail(admin, currentUser, reportId);
 };
 
 const saveReport = async (admin, currentUser, nominationId, refereeId, body, reportMode = REPORT_MODE.STANDARD) => {
@@ -3206,16 +3160,14 @@ const saveReport = async (admin, currentUser, nominationId, refereeId, body, rep
   throw new HttpError(403, 'This role cannot save reports.');
 };
 
-const deleteTestReportTO = async (admin, currentUser, nominationId, refereeId) => {
+const deleteTestReportTO = async (admin, currentUser, reportId) => {
   if (currentUser.role !== 'Instructor') {
     throw new HttpError(403, 'Only instructors can delete Report Test TO.');
   }
+  const report = await loadManualTestReportTOById(admin, reportId);
 
-  await requireNominationOwner(admin, nominationId, currentUser.id);
-  const report = await loadTestReportByAuthor(admin, nominationId, refereeId, currentUser.id);
-
-  if (!report) {
-    throw new HttpError(404, 'Report Test TO not found.');
+  if (report.author_id !== currentUser.id) {
+    throw new HttpError(403, 'This Report Test TO belongs to another instructor.');
   }
 
   if (report.status !== REPORT_STATUS.DRAFT) {

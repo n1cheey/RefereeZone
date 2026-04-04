@@ -233,7 +233,7 @@ app.post('/api/nominations/:nominationId/respond', (request, response) => {
 
 app.get('/api/reports', (request, response) => {
   try {
-    const reports = listReportItems(request.query.userId);
+    const reports = listReportItems(request.query.userId, request.query.mode);
     response.json({ reports });
   } catch (error) {
     handleError(error, response, 'Server error while loading reports.');
@@ -246,6 +246,7 @@ app.get('/api/reports/:nominationId/:refereeId', (request, response) => {
       userId: request.query.userId,
       nominationId: request.params.nominationId,
       refereeId: request.params.refereeId,
+      mode: request.query.mode,
     });
     response.json({ report });
   } catch (error) {
@@ -259,12 +260,19 @@ app.post('/api/reports/:nominationId/:refereeId', (request, response) => {
       userId: request.body.userId,
       nominationId: request.params.nominationId,
       refereeId: request.params.refereeId,
+      mode: request.body.mode,
+      gameCode: request.body.gameCode,
+      teams: request.body.teams,
+      matchDate: request.body.matchDate,
+      matchTime: request.body.matchTime,
+      venue: request.body.venue,
       action: request.body.action,
       feedbackScore: request.body.feedbackScore,
       threePO_IOT: request.body.threePO_IOT,
       criteria: request.body.criteria,
       teamwork: request.body.teamwork,
       generally: request.body.generally,
+      googleDriveUrl: request.body.googleDriveUrl,
     });
     response.json({ message: 'Report saved.', report });
   } catch (error) {
@@ -278,6 +286,7 @@ app.delete('/api/reports/:nominationId/:refereeId', (request, response) => {
       userId: request.query.userId,
       nominationId: request.params.nominationId,
       refereeId: request.params.refereeId,
+      mode: request.query.mode,
     });
     response.json({ message: 'Report deleted.' });
   } catch (error) {

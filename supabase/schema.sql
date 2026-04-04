@@ -99,9 +99,14 @@ create table if not exists public.reports (
 
 create table if not exists public.test_report_tos (
   id uuid primary key default gen_random_uuid(),
-  nomination_id uuid not null references public.nominations(id) on delete cascade,
-  referee_id uuid not null references public.profiles(id) on delete cascade,
   author_id uuid not null references public.profiles(id) on delete cascade,
+  author_role text not null default 'Instructor' check (author_role in ('Instructor')),
+  referee_id uuid not null references public.profiles(id) on delete cascade,
+  game_code text not null default '',
+  teams text not null default '',
+  match_date text not null default '',
+  match_time text not null default '',
+  venue text not null default '',
   status text not null default 'Draft' check (status in ('Draft', 'Submitted', 'Reviewed')),
   score integer not null default 0,
   three_po_iot text not null default '',
@@ -109,10 +114,8 @@ create table if not exists public.test_report_tos (
   teamwork text not null default '',
   generally text not null default '',
   google_drive_url text not null default '',
-  visible_to_referee_ids jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (nomination_id, referee_id, author_id)
+  updated_at timestamptz not null default now()
 );
 
 create table if not exists public.ranking_evaluations (
@@ -235,8 +238,8 @@ create index if not exists nomination_referees_referee_status_idx
 create index if not exists reports_nomination_referee_author_idx
   on public.reports (nomination_id, referee_id, author_id);
 
-create index if not exists test_report_tos_nomination_referee_author_idx
-  on public.test_report_tos (nomination_id, referee_id, author_id);
+create index if not exists test_report_tos_author_referee_idx
+  on public.test_report_tos (author_id, referee_id, status, updated_at desc);
 
 create index if not exists ranking_match_performance_referee_match_idx
   on public.ranking_match_performance (referee_id, evaluation_date, game_code);

@@ -29,6 +29,11 @@ export function saveReport(payload: {
   nominationId: string;
   refereeId: string;
   mode?: ReportMode;
+  gameCode?: string;
+  teams?: string;
+  matchDate?: string;
+  matchTime?: string;
+  venue?: string;
   action: ReportStatus;
   feedbackScore: number;
   threePO_IOT: string;

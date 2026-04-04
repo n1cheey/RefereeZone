@@ -23,6 +23,10 @@ export const REPORT_STATUS = {
   SUBMITTED: 'Submitted',
   REVIEWED: 'Reviewed',
 };
+const REPORT_MODE = {
+  STANDARD: 'standard',
+  TEST_TO: 'test_to',
+};
 
 const DEFAULT_ALLOWED_EMAILS = [
   { email: 'instructor@abl.az', displayName: 'ABL Instructor', role: 'Instructor' },
@@ -157,6 +161,31 @@ const createTables = () => {
       FOREIGN KEY (referee_id) REFERENCES users(id),
       FOREIGN KEY (author_id) REFERENCES users(id),
       UNIQUE (nomination_id, referee_id, author_id)
+    );
+  `);
+
+  dbInstance.run(`
+    CREATE TABLE IF NOT EXISTS test_report_tos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      author_id INTEGER NOT NULL,
+      author_role TEXT NOT NULL DEFAULT 'Instructor',
+      referee_id INTEGER NOT NULL,
+      game_code TEXT NOT NULL DEFAULT '',
+      teams TEXT NOT NULL DEFAULT '',
+      match_date TEXT NOT NULL DEFAULT '',
+      match_time TEXT NOT NULL DEFAULT '',
+      venue TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT '${REPORT_STATUS.DRAFT}',
+      score INTEGER NOT NULL DEFAULT 0,
+      three_po_iot TEXT NOT NULL DEFAULT '',
+      criteria TEXT NOT NULL DEFAULT '',
+      teamwork TEXT NOT NULL DEFAULT '',
+      generally TEXT NOT NULL DEFAULT '',
+      google_drive_url TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (author_id) REFERENCES users(id),
+      FOREIGN KEY (referee_id) REFERENCES users(id)
     );
   `);
 
@@ -313,13 +342,15 @@ const mapReportEntry = (row) =>
   row
     ? {
         id: String(row.id),
-        authorRole: row.author_role,
+        authorRole: row.author_role || 'Instructor',
         status: row.status,
         feedbackScore: Number(row.score ?? 0),
         threePO_IOT: row.three_po_iot || '',
         criteria: row.criteria || '',
         teamwork: row.teamwork || '',
         generally: row.generally || '',
+        googleDriveUrl: row.google_drive_url || '',
+        visibleToRefereeIds: row.referee_id ? [String(row.referee_id)] : [],
         updatedAt: row.updated_at,
       }
     : null;
@@ -682,6 +713,16 @@ const getVisibleInstructorReportForReferee = (nominationId, refereeId) =>
     [Number(nominationId), Number(refereeId), REPORT_STATUS.REVIEWED],
   );
 
+const getManualTestReportTOById = (reportId) =>
+  queryOne(
+    `
+      SELECT *
+      FROM test_report_tos
+      WHERE id = ?
+    `,
+    [Number(reportId)],
+  );
+
 const buildReportListItem = (row) => ({
   nominationId: String(row.nomination_id),
   refereeId: String(row.referee_id),
@@ -695,7 +736,32 @@ const buildReportListItem = (row) => ({
   refereeReportStatus: row.referee_report_status || null,
   instructorReportStatus: row.instructor_report_status || null,
   reviewScore: row.review_score === null || row.review_score === undefined ? null : Number(row.review_score),
+  deadlineExceeded: false,
+  deadlineMessage: null,
+  reportDeadlineAt: null,
+  canAddTime: false,
+  reportMode: row.report_mode || REPORT_MODE.STANDARD,
+  googleDriveUrl: row.google_drive_url || null,
+  visibleToRefereeIds: row.referee_id ? [String(row.referee_id)] : [],
 });
+
+const buildManualTestReportTOListItem = (row) =>
+  buildReportListItem({
+    nomination_id: row.id,
+    referee_id: row.referee_id,
+    game_code: row.game_code || 'NEW',
+    teams: row.teams || '',
+    match_date: row.match_date || '',
+    match_time: row.match_time || '',
+    venue: row.venue || '',
+    referee_name: row.referee_name,
+    slot_number: 0,
+    referee_report_status: null,
+    instructor_report_status: row.status || null,
+    review_score: row.score ?? null,
+    report_mode: REPORT_MODE.TEST_TO,
+    google_drive_url: row.google_drive_url || null,
+  });
 
 const upsertReport = ({
   nominationId,
@@ -733,6 +799,65 @@ const upsertReport = ({
     `,
     [Number(nominationId), Number(refereeId), Number(authorId), authorRole, status, normalizedScore, threePO_IOT, criteria, teamwork, generally],
   );
+};
+
+const upsertManualTestReportTO = ({
+  reportId,
+  authorId,
+  refereeId,
+  gameCode,
+  teams,
+  matchDate,
+  matchTime,
+  venue,
+  status,
+  score,
+  threePO_IOT,
+  criteria,
+  teamwork,
+  generally,
+  googleDriveUrl,
+}) => {
+  const normalizedScore = Number.isFinite(Number(score)) ? Math.max(0, Math.min(100, Number(score))) : 0;
+
+  if (reportId && Number(reportId) > 0) {
+    dbInstance.run(
+      `
+        UPDATE test_report_tos
+        SET referee_id = ?, game_code = ?, teams = ?, match_date = ?, match_time = ?, venue = ?, status = ?, score = ?, three_po_iot = ?, criteria = ?, teamwork = ?, generally = ?, google_drive_url = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `,
+      [
+        Number(refereeId),
+        gameCode,
+        teams,
+        matchDate,
+        matchTime,
+        venue,
+        status,
+        normalizedScore,
+        threePO_IOT,
+        criteria,
+        teamwork,
+        generally,
+        googleDriveUrl,
+        Number(reportId),
+      ],
+    );
+    return Number(reportId);
+  }
+
+  dbInstance.run(
+    `
+      INSERT INTO test_report_tos (
+        author_id, author_role, referee_id, game_code, teams, match_date, match_time, venue, status, score, three_po_iot, criteria, teamwork, generally, google_drive_url
+      )
+      VALUES (?, 'Instructor', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [Number(authorId), Number(refereeId), gameCode, teams, matchDate, matchTime, venue, status, normalizedScore, threePO_IOT, criteria, teamwork, generally, googleDriveUrl],
+  );
+
+  return queryOne('SELECT last_insert_rowid() AS id')?.id ?? null;
 };
 
 export const initializeDatabase = async () => {
@@ -1199,11 +1324,41 @@ export const respondToNomination = ({ nominationId, refereeId, response }) => {
   return getRefereeAssignments(refereeId).find((item) => item.nominationId === String(nominationId));
 };
 
-export const listReportItems = (userId) => {
+export const listReportItems = (userId, mode = REPORT_MODE.STANDARD) => {
   const user = requireUser(userId);
 
+  if (mode === REPORT_MODE.TEST_TO) {
+    if (user.role === 'Instructor') {
+      return queryAll(
+        `
+          SELECT tr.*, recipient.full_name AS referee_name
+          FROM test_report_tos tr
+          JOIN users recipient ON recipient.id = tr.referee_id
+          WHERE tr.author_id = ?
+          ORDER BY tr.updated_at DESC
+        `,
+        [Number(userId)],
+      ).map(buildManualTestReportTOListItem);
+    }
+
+    if (user.role === 'Referee') {
+      return queryAll(
+        `
+          SELECT tr.*, recipient.full_name AS referee_name
+          FROM test_report_tos tr
+          JOIN users recipient ON recipient.id = tr.referee_id
+          WHERE tr.referee_id = ? AND tr.status = ?
+          ORDER BY tr.updated_at DESC
+        `,
+        [Number(userId), REPORT_STATUS.REVIEWED],
+      ).map(buildManualTestReportTOListItem);
+    }
+
+    return [];
+  }
+
   if (user.role === 'Referee') {
-    return queryAll(
+    const standardItems = queryAll(
       `
         SELECT
           n.id AS nomination_id,
@@ -1236,6 +1391,23 @@ export const listReportItems = (userId) => {
       `,
       [Number(userId)],
     ).map(buildReportListItem);
+
+    const testItems = queryAll(
+      `
+        SELECT tr.*, recipient.full_name AS referee_name
+        FROM test_report_tos tr
+        JOIN users recipient ON recipient.id = tr.referee_id
+        WHERE tr.referee_id = ? AND tr.status = ?
+        ORDER BY tr.updated_at DESC
+      `,
+      [Number(userId), REPORT_STATUS.REVIEWED],
+    ).map(buildManualTestReportTOListItem);
+
+    return [...standardItems, ...testItems].sort((left, right) => {
+      const leftKey = `${left.matchDate}T${left.matchTime}`;
+      const rightKey = `${right.matchDate}T${right.matchTime}`;
+      return rightKey.localeCompare(leftKey);
+    });
   }
 
   if (user.role === 'Instructor') {
@@ -1277,8 +1449,66 @@ export const listReportItems = (userId) => {
   return [];
 };
 
-export const getReportDetail = ({ userId, nominationId, refereeId }) => {
+export const getReportDetail = ({ userId, nominationId, refereeId, mode = REPORT_MODE.STANDARD }) => {
   const user = requireUser(userId);
+
+  if (mode === REPORT_MODE.TEST_TO) {
+    const report = getManualTestReportTOById(nominationId);
+    if (!report) {
+      throw new HttpError(404, 'Report Test TO not found.');
+    }
+
+    const recipient = requireUser(report.referee_id);
+
+    if (user.role === 'Instructor') {
+      if (Number(report.author_id) !== Number(userId)) {
+        throw new HttpError(403, 'This Report Test TO belongs to another instructor.');
+      }
+
+      return {
+        item: buildManualTestReportTOListItem({
+          ...report,
+          referee_name: recipient.fullName,
+        }),
+        refereeReport: null,
+        instructorReport: mapReportEntry(report),
+        canEditCurrentUserReport: report.status === REPORT_STATUS.DRAFT,
+        deadlineExceeded: false,
+        deadlineMessage: null,
+        reportDeadlineAt: null,
+        canAddTime: false,
+        visibilityOptions: listReferees(userId).map((item) => ({
+          id: item.id,
+          fullName: item.fullName,
+          slotNumber: 0,
+        })),
+      };
+    }
+
+    if (user.role === 'Referee') {
+      if (Number(report.referee_id) !== Number(userId) || report.status !== REPORT_STATUS.REVIEWED) {
+        throw new HttpError(404, 'Report Test TO not found.');
+      }
+
+      return {
+        item: buildManualTestReportTOListItem({
+          ...report,
+          referee_name: recipient.fullName,
+        }),
+        refereeReport: null,
+        instructorReport: mapReportEntry(report),
+        canEditCurrentUserReport: false,
+        deadlineExceeded: false,
+        deadlineMessage: null,
+        reportDeadlineAt: null,
+        canAddTime: false,
+        visibilityOptions: [],
+      };
+    }
+
+    throw new HttpError(403, 'This role cannot access Report Test TO.');
+  }
+
   const assignment = requireAssignment(nominationId, refereeId);
   const deadlineExceeded = isReportDeadlineExceeded(assignment);
   const deadlineMessage = deadlineExceeded ? getDeadlineMessage(assignment) : null;
@@ -1351,6 +1581,12 @@ export const saveReport = ({
   userId,
   nominationId,
   refereeId,
+  mode = REPORT_MODE.STANDARD,
+  gameCode,
+  teams,
+  matchDate,
+  matchTime,
+  venue,
   action,
   feedbackScore,
   threePO_IOT,
@@ -1359,6 +1595,67 @@ export const saveReport = ({
   generally,
 }) => {
   const user = requireUser(userId);
+
+  if (mode === REPORT_MODE.TEST_TO) {
+    if (user.role !== 'Instructor') {
+      throw new HttpError(403, 'Only instructors can save Report Test TO.');
+    }
+
+    if (![REPORT_STATUS.DRAFT, REPORT_STATUS.SUBMITTED].includes(action)) {
+      throw new HttpError(400, 'Action must be Draft or Submitted.');
+    }
+
+    const selectedRefereeId = Number(refereeId);
+    const availableRefereeIds = new Set(listReferees(userId).map((item) => Number(item.id)));
+    if (!selectedRefereeId || !availableRefereeIds.has(selectedRefereeId)) {
+      throw new HttpError(400, 'Choose a referee for Report Test TO.');
+    }
+
+    const normalizedGameCode = (gameCode || '').trim();
+    const normalizedTeams = (teams || '').trim();
+    const normalizedMatchDate = (matchDate || '').trim();
+    const normalizedMatchTime = (matchTime || '').trim();
+    const normalizedVenue = (venue || '').trim();
+
+    if (action === REPORT_STATUS.SUBMITTED && (!normalizedGameCode || !normalizedTeams || !normalizedMatchDate || !normalizedMatchTime || !normalizedVenue)) {
+      throw new HttpError(400, 'Fill in game code, game, date, time and venue before submitting Report Test TO.');
+    }
+
+    if (nominationId !== 'new') {
+      const existingManualReport = getManualTestReportTOById(nominationId);
+      if (!existingManualReport) {
+        throw new HttpError(404, 'Report Test TO not found.');
+      }
+      if (Number(existingManualReport.author_id) !== Number(userId)) {
+        throw new HttpError(403, 'This Report Test TO belongs to another instructor.');
+      }
+      if (existingManualReport.status === REPORT_STATUS.REVIEWED) {
+        throw new HttpError(409, 'Submitted Report Test TO cannot be edited.');
+      }
+    }
+
+    const savedReportId = upsertManualTestReportTO({
+      reportId: nominationId === 'new' ? null : nominationId,
+      authorId: userId,
+      refereeId: selectedRefereeId,
+      gameCode: normalizedGameCode,
+      teams: normalizedTeams,
+      matchDate: normalizedMatchDate,
+      matchTime: normalizedMatchTime,
+      venue: normalizedVenue,
+      status: action === REPORT_STATUS.SUBMITTED ? REPORT_STATUS.REVIEWED : REPORT_STATUS.DRAFT,
+      score: Number(feedbackScore || 0),
+      threePO_IOT: (threePO_IOT || '').trim(),
+      criteria: (criteria || '').trim(),
+      teamwork: (teamwork || '').trim(),
+      generally: (generally || '').trim(),
+      googleDriveUrl: (googleDriveUrl || '').trim(),
+    });
+
+    persistDatabase();
+    return getReportDetail({ userId, nominationId: String(savedReportId), refereeId: String(selectedRefereeId), mode });
+  }
+
   const assignment = requireAssignment(nominationId, refereeId);
 
   if (![REPORT_STATUS.DRAFT, REPORT_STATUS.SUBMITTED].includes(action)) {
@@ -1435,8 +1732,29 @@ export const saveReport = ({
   throw new HttpError(403, 'This role cannot save reports.');
 };
 
-export const deleteReport = ({ userId, nominationId, refereeId }) => {
+export const deleteReport = ({ userId, nominationId, refereeId, mode = REPORT_MODE.STANDARD }) => {
   const user = requireUser(userId);
+
+  if (mode === REPORT_MODE.TEST_TO) {
+    if (user.role !== 'Instructor') {
+      throw new HttpError(403, 'Only instructors can delete Report Test TO.');
+    }
+
+    const report = getManualTestReportTOById(nominationId);
+    if (!report) {
+      throw new HttpError(404, 'Report Test TO not found.');
+    }
+    if (Number(report.author_id) !== Number(userId)) {
+      throw new HttpError(403, 'This Report Test TO belongs to another instructor.');
+    }
+    if (report.status !== REPORT_STATUS.DRAFT) {
+      throw new HttpError(409, 'Only draft Report Test TO can be deleted.');
+    }
+
+    dbInstance.run('DELETE FROM test_report_tos WHERE id = ?', [Number(nominationId)]);
+    persistDatabase();
+    return;
+  }
 
   if (user.role !== 'Referee' && user.role !== 'Instructor') {
     throw new HttpError(403, 'This role cannot delete reports.');

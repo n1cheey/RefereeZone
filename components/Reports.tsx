@@ -4,6 +4,7 @@ import Layout from './Layout';
 import { ReportDetail, ReportListItem, ReportMode, ReportStatus, User } from '../types';
 import { getNominationSlotLabel } from '../slotLabels';
 import { deleteReport, extendReportDeadline, getReportDetail, getReports, saveReport } from '../services/reportsService';
+import { getReferees } from '../services/nominationService';
 
 interface ReportsProps {
   user: User;
@@ -65,6 +66,11 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
   const [successMessage, setSuccessMessage] = useState('');
   const [isEditingCurrentReport, setIsEditingCurrentReport] = useState(false);
   const [formData, setFormData] = useState({
+    gameCode: '',
+    teams: '',
+    matchDate: '',
+    matchTime: '',
+    venue: '',
     feedbackScore: 0,
     threePO_IOT: '',
     criteria: '',
@@ -79,6 +85,45 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
   const isTestReportPage = reportMode === 'test_to';
   const canWriteReportsOnPage = isTestReportPage ? isInstructor : isInstructor || isReferee;
   const pageTitle = isTestReportPage ? 'Report Test TO' : user.role === 'Staff' ? 'Reports' : 'My Reports';
+
+  const buildNewTestReportDetail = async (): Promise<ReportDetail> => {
+    const response = await getReferees(user.id);
+    return {
+      item: {
+        nominationId: 'new',
+        refereeId: '',
+        gameCode: '',
+        teams: '',
+        matchDate: '',
+        matchTime: '',
+        venue: '',
+        refereeName: '',
+        slotNumber: 0,
+        refereeReportStatus: null,
+        instructorReportStatus: null,
+        reviewScore: null,
+        deadlineExceeded: false,
+        deadlineMessage: null,
+        reportDeadlineAt: null,
+        canAddTime: false,
+        reportMode: 'test_to',
+        googleDriveUrl: null,
+        visibleToRefereeIds: [],
+      },
+      refereeReport: null,
+      instructorReport: null,
+      canEditCurrentUserReport: true,
+      deadlineExceeded: false,
+      deadlineMessage: null,
+      reportDeadlineAt: null,
+      canAddTime: false,
+      visibilityOptions: response.referees.map((referee) => ({
+        id: referee.id,
+        fullName: referee.fullName,
+        slotNumber: 0,
+      })),
+    };
+  };
 
   const loadReports = async () => {
     const response = await getReports(user.id, reportMode);
@@ -129,6 +174,11 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
       setSelectedDetail(response.report);
       setFormData({
+        gameCode: response.report.item.gameCode ?? '',
+        teams: response.report.item.teams ?? '',
+        matchDate: response.report.item.matchDate ?? '',
+        matchTime: response.report.item.matchTime ?? '',
+        venue: response.report.item.venue ?? '',
         feedbackScore: editorReport?.feedbackScore ?? 0,
         threePO_IOT: editorReport?.threePO_IOT ?? '',
         criteria: editorReport?.criteria ?? '',
@@ -157,8 +207,13 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       const response = await saveReport({
         userId: user.id,
         nominationId: selectedDetail.item.nominationId,
-        refereeId: selectedDetail.item.refereeId,
+        refereeId: formData.visibleToRefereeId || selectedDetail.item.refereeId,
         mode: selectedDetail.item.reportMode,
+        gameCode: formData.gameCode,
+        teams: formData.teams,
+        matchDate: formData.matchDate,
+        matchTime: formData.matchTime,
+        venue: formData.venue,
         action,
         feedbackScore: formData.feedbackScore,
         threePO_IOT: formData.threePO_IOT,
@@ -172,6 +227,11 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       const editorReport = isInstructor ? response.report.instructorReport : response.report.refereeReport;
       setSelectedDetail(response.report);
       setFormData({
+        gameCode: response.report.item.gameCode ?? '',
+        teams: response.report.item.teams ?? '',
+        matchDate: response.report.item.matchDate ?? '',
+        matchTime: response.report.item.matchTime ?? '',
+        venue: response.report.item.venue ?? '',
         feedbackScore: editorReport?.feedbackScore ?? 0,
         threePO_IOT: editorReport?.threePO_IOT ?? '',
         criteria: editorReport?.criteria ?? '',
@@ -279,9 +339,38 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       </a>
     ) : null;
 
+  const openNewTestReport = async () => {
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      const draftDetail = await buildNewTestReportDetail();
+      setSelectedDetail(draftDetail);
+      setFormData({
+        gameCode: '',
+        teams: '',
+        matchDate: '',
+        matchTime: '',
+        venue: '',
+        feedbackScore: 0,
+        threePO_IOT: '',
+        criteria: '',
+        teamwork: '',
+        generally: '',
+        googleDriveUrl: '',
+        visibleToRefereeId: '',
+      });
+      setIsChoosingNew(false);
+      setIsEditingCurrentReport(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to open Report Test TO form.');
+    }
+  };
+
   if (selectedDetail) {
     const item = selectedDetail.item;
     const isTestReport = item.reportMode === 'test_to';
+    const isNewTestReport = isTestReport && item.nominationId === 'new';
     const currentReport =
       isTestReport
         ? isInstructor
@@ -298,9 +387,17 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       (selectedDetail.canEditCurrentUserReport || (isInstructor && Boolean(currentReport) && isEditingCurrentReport));
     const selectedRecipientName =
       selectedDetail.visibilityOptions.find((option) => option.id === (currentReport?.visibleToRefereeIds?.[0] || ''))?.fullName || '';
+    const draftRecipientName =
+      selectedDetail.visibilityOptions.find((option) => option.id === formData.visibleToRefereeId)?.fullName || '';
+    const displayGameCode = isTestReport && canEditForm ? formData.gameCode || 'NEW' : item.gameCode;
+    const displayTeams = isTestReport && canEditForm ? formData.teams || 'Manual Report Test TO' : item.teams;
+    const displayDateLine =
+      isTestReport && canEditForm
+        ? [formData.matchDate, formData.matchTime, formData.venue].filter(Boolean).join(' | ')
+        : `${item.matchDate} at ${item.matchTime} | ${item.venue}`;
 
     return (
-      <Layout title={`${item.gameCode} ${isTestReport ? 'Report Test TO' : 'Report'}`} onBack={() => setSelectedDetail(null)}>
+      <Layout title={`${displayGameCode} ${isTestReport ? 'Report Test TO' : 'Report'}`} onBack={() => setSelectedDetail(null)}>
         {errorMessage && (
           <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {errorMessage}
@@ -313,10 +410,16 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         )}
 
         <div className="mb-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="text-xs font-bold uppercase text-[#581c1c]">{item.gameCode}</div>
-          <h3 className="mt-1 text-xl font-bold text-slate-900">{item.teams}</h3>
-          <p className="mt-2 text-sm text-slate-500">{`${item.matchDate} at ${item.matchTime} | ${item.venue}`}</p>
-          <p className="mt-1 text-sm text-slate-500">{`${getNominationSlotLabel(item.slotNumber)}: ${item.refereeName}`}</p>
+          <div className="text-xs font-bold uppercase text-[#581c1c]">{displayGameCode}</div>
+          <h3 className="mt-1 text-xl font-bold text-slate-900">{displayTeams}</h3>
+          <p className="mt-2 text-sm text-slate-500">{displayDateLine || 'Fill the game details below.'}</p>
+          {isTestReport ? (
+            <p className="mt-1 text-sm text-slate-500">
+              {`Send To: ${canEditForm ? draftRecipientName || 'Select referee below' : selectedRecipientName || item.refereeName || 'No referee selected'}`}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-slate-500">{`${getNominationSlotLabel(item.slotNumber)}: ${item.refereeName}`}</p>
+          )}
         </div>
 
         {!isTestReport && item.deadlineExceeded && item.deadlineMessage && (
@@ -423,6 +526,53 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
             ) : (
               <div className="space-y-4">
                 <div>
+                  <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Game Code</label>
+                  <input
+                    value={formData.gameCode}
+                    onChange={(event) => setFormData((prev) => ({ ...prev, gameCode: event.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
+                    placeholder="TEST-001"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Game</label>
+                  <input
+                    value={formData.teams}
+                    onChange={(event) => setFormData((prev) => ({ ...prev, teams: event.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
+                    placeholder="Team A vs Team B"
+                  />
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Date</label>
+                    <input
+                      type="date"
+                      value={formData.matchDate}
+                      onChange={(event) => setFormData((prev) => ({ ...prev, matchDate: event.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Time</label>
+                    <input
+                      type="time"
+                      value={formData.matchTime}
+                      onChange={(event) => setFormData((prev) => ({ ...prev, matchTime: event.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Venue</label>
+                  <input
+                    value={formData.venue}
+                    onChange={(event) => setFormData((prev) => ({ ...prev, venue: event.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#f97316]"
+                    placeholder="Arena name"
+                  />
+                </div>
+                <div>
                   <label className="mb-1 block text-xs font-bold uppercase text-slate-500">3PO & IOT</label>
                   <textarea
                     rows={3}
@@ -471,7 +621,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                         <option value="">Select referee</option>
                         {selectedDetail.visibilityOptions.map((option) => (
                           <option key={option.id} value={option.id}>
-                            {`${getNominationSlotLabel(option.slotNumber)}: ${option.fullName}`}
+                            {option.fullName}
                           </option>
                         ))}
                       </select>
@@ -506,7 +656,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                   </button>
                 </div>
 
-                {isInstructor && currentReport && (
+                {isInstructor && currentReport && !isNewTestReport && (
                   <button
                     onClick={() => setIsEditingCurrentReport(false)}
                     disabled={isSaving}
@@ -551,7 +701,14 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         <div className="mb-4 flex items-center justify-between px-1">
           <h3 className="px-1 text-sm font-semibold uppercase tracking-widest text-slate-400">Recent Activity</h3>
           <button
-            onClick={() => setIsChoosingNew((prev) => !prev)}
+            onClick={() => {
+              if (isTestReportPage) {
+                void openNewTestReport();
+                return;
+              }
+
+              setIsChoosingNew((prev) => !prev);
+            }}
             className="flex items-center gap-1 rounded-full bg-[#581c1c]/5 px-3 py-1.5 text-xs font-bold text-[#581c1c]"
           >
             {isChoosingNew ? <X size={14} /> : <Plus size={14} />}
@@ -560,15 +717,11 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         </div>
       )}
 
-      {isChoosingNew && (
+      {isChoosingNew && !isTestReportPage && (
         <div className="mb-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <h3 className="mb-3 text-base font-bold text-slate-900">
-            {isTestReportPage ? 'Choose Game For Report Test TO' : 'Choose Game For New Report'}
-          </h3>
+          <h3 className="mb-3 text-base font-bold text-slate-900">Choose Game For New Report</h3>
           {eligibleNewReports.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              {isTestReportPage ? 'No game is available for a new Report Test TO right now.' : 'No report slot is available right now.'}
-            </p>
+            <p className="text-sm text-slate-500">No report slot is available right now.</p>
           ) : (
             <div className="space-y-3">
               {eligibleNewReports.map((item) => (
