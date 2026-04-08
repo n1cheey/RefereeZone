@@ -1562,6 +1562,7 @@ const rankingTOPerformanceFieldMap = [
   ['criteriaScore', 'criteria_score'],
   ['teamworkScore', 'teamwork_score'],
   ['communication', 'communication'],
+  ['externalEvaluation', 'external_evaluation'],
 ];
 
 const createEmptyRankingPerformanceProfile = (refereeId, refereeName) => ({

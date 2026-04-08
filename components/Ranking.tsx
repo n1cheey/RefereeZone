@@ -47,6 +47,7 @@ const toPerformanceFields: Array<[keyof Omit<typeof emptyMatchPerformanceForm, '
   ['criteriaScore', 'Nizam-Intizam'],
   ['teamworkScore', 'Iş fəaliyyəti'],
   ['communication', 'Ünsiyyət'],
+  ['externalEvaluation', 'Kənardan qiymətləndirmə'],
 ];
 
 const getPerformanceFieldLabel = (
@@ -59,6 +60,7 @@ const getPerformanceFieldLabel = (
       criteriaScore: { en: 'Discipline', az: 'Nizam-Intizam', ru: 'Дисциплина' },
       teamworkScore: { en: 'Work Activity', az: 'Iş fəaliyyəti', ru: 'Рабочая деятельность' },
       communication: { en: 'Communication', az: 'Ünsiyyət', ru: 'Коммуникация' },
+      externalEvaluation: { en: 'External Evaluation', az: 'Kənardan qiymətləndirmə', ru: 'Внешняя оценка' },
     } as const;
 
     return toLabels[key as keyof typeof toLabels]?.[language] || String(key);
