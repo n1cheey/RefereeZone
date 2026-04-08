@@ -488,7 +488,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           { id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
         ]
       : []),
-    ...(isInstructor
+    ...(isInstructor || isStaff
       ? [
           {
             id: 'ranking' as const,

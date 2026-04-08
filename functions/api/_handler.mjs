@@ -3374,7 +3374,7 @@ const getRankingDashboardConfig = (role, subjectRole = null) => {
       performanceFieldMap: rankingTOPerformanceFieldMap,
       notFoundMessage: 'Failed to load TO ranking.',
       adminRoles: ['TO Supervisor'],
-      viewerRoles: ['Instructor'],
+      viewerRoles: ['Instructor', 'Staff'],
       selfRoles: ['TO'],
     };
   }
