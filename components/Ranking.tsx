@@ -4,11 +4,10 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { Award, Save, Shield, TrendingUp } from 'lucide-react';
 import { RankingDashboardData, RankingGameOption, RankingPerformanceEntry, RankingPerformanceProfile, User } from '../types';
 import { getRankingAdminData, getRankingDashboard, getTORankingAdminData, getTORankingDashboard, saveRankingPerformance } from '../services/rankingService';
-import { useI18n } from '../i18n';
+import { getRoleLabel, useI18n } from '../i18n';
 
 const scoreOptions = [-1, 0, 1];
 const CORRECTION_GAME_ID = '__correction__';
-const CORRECTION_GAME_CODE = 'Correction';
 
 interface RankingProps {
   user: User;
@@ -101,11 +100,12 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
   const isTO = user.role === 'TO';
   const isTOFlow = rankingMode === 'to';
   const canManageSubject = (rankingMode === 'referee' && isInstructor) || (rankingMode === 'to' && isTOSupervisor);
-  const entityLabel = isTOFlow ? 'TO' : 'Referee';
+  const entityLabel = isTOFlow ? getRoleLabel('TO', language) : getRoleLabel('Referee', language);
+  const correctionGameCode = t('ranking.correction');
   const rankingTitle = isTOFlow
     ? isInstructor || isStaff || isTOSupervisor
       ? t('dashboard.navTORanking')
-      : `My ${t('dashboard.navTORanking')}`
+      : t('ranking.myTORankingTitle')
     : isInstructor || isStaff || isTOSupervisor
       ? t('dashboard.navRanking')
       : t('dashboard.navMyRanking');
@@ -162,7 +162,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
       setMatchPerformanceRefereeId(defaultMatchRefereeId);
       setErrorMessage('');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to load rankings.');
+      setErrorMessage(error instanceof Error ? error.message : t('ranking.failedToLoad'));
     } finally {
       setIsLoading(false);
     }
@@ -250,9 +250,9 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
       });
       await loadData();
       setMatchPerformanceForm(emptyMatchPerformanceForm);
-      setSuccessMessage('Match performance saved.');
+      setSuccessMessage(t('ranking.saved'));
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to save performance.');
+      setErrorMessage(error instanceof Error ? error.message : t('ranking.failedToSave'));
     } finally {
       setIsSavingMatchPerformance(false);
     }
@@ -261,7 +261,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
   if (isLoading || !dashboard) {
     return (
       <Layout title={rankingTitle} onBack={onBack}>
-        <p className="text-sm text-slate-500">Loading ranking data...</p>
+        <p className="text-sm text-slate-500">{t('ranking.loading')}</p>
       </Layout>
     );
   }
@@ -281,19 +281,19 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
 
       {shouldShowScoreLegend(user.role) && (
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-900">Performance Scale</h3>
+          <h3 className="text-sm font-bold text-slate-900">{t('ranking.performanceScale')}</h3>
           <div className="mt-3 flex flex-wrap gap-3">
             <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700">
               <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-emerald-600 px-2 text-white">1</span>
-              very good
+              {t('ranking.scaleVeryGood')}
             </div>
             <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-700">
               <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-amber-500 px-2 text-white">0</span>
-              normal
+              {t('ranking.scaleNormal')}
             </div>
             <div className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1.5 text-sm font-semibold text-red-700">
               <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-2 text-white">-1</span>
-              must improve
+              {t('ranking.scaleImprove')}
             </div>
           </div>
         </div>
@@ -304,17 +304,16 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <div className="flex items-center gap-2 mb-4">
               <Shield size={18} className="text-[#581c1c]" />
-              <h3 className="text-lg font-bold text-slate-900">{`${entityLabel} Ranking Admin`}</h3>
+              <h3 className="text-lg font-bold text-slate-900">{t('ranking.adminTitle', { entity: entityLabel })}</h3>
             </div>
             <p className="text-sm text-slate-500">
-              `Match Performance Sheet` saves one game. `Total Performance Sheet` is calculated automatically from all
-              saved matches. `AVG` = match criteria sum / {performanceFields.length}, then average of all match averages for that {entityLabel}.
+              {t('ranking.adminHelp', { count: performanceFields.length, entity: entityLabel })}
             </p>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-2">
             <form onSubmit={handleSaveMatchPerformance} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
-              <h3 className="text-base font-bold text-slate-900">Match Performance Sheet</h3>
+              <h3 className="text-base font-bold text-slate-900">{t('ranking.matchPerformanceSheet')}</h3>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{entityLabel}</label>
                 <select
@@ -323,7 +322,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                   onChange={(event) => setMatchPerformanceRefereeId(event.target.value)}
                   className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
                 >
-                  <option value="">{`Select ${entityLabel}`}</option>
+                  <option value="">{t('ranking.selectEntity', { entity: entityLabel })}</option>
                   {adminData.referees.map((referee) => (
                     <option key={referee.id} value={referee.id}>
                       {referee.fullName}
@@ -333,7 +332,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Game Number</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('ranking.gameNumber')}</label>
                   <select
                     required
                     value={matchPerformanceForm.gameId}
@@ -342,7 +341,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                         setMatchPerformanceForm((prev) => ({
                           ...prev,
                           gameId: CORRECTION_GAME_ID,
-                          gameCode: CORRECTION_GAME_CODE,
+                          gameCode: correctionGameCode,
                           evaluationDate: '',
                         }));
                         return;
@@ -358,8 +357,8 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                     }}
                     className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
                   >
-                    <option value="">Select existing game</option>
-                    <option value={CORRECTION_GAME_ID}>{CORRECTION_GAME_CODE}</option>
+                    <option value="">{t('ranking.selectExistingGame')}</option>
+                    <option value={CORRECTION_GAME_ID}>{correctionGameCode}</option>
                     {rankingGames.map((game) => (
                       <option key={game.id} value={game.id}>
                         {`${game.gameCode} • ${game.teams} • ${game.matchDate}`}
@@ -368,7 +367,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('common.date')}</label>
                   <input
                     type="date"
                     required
@@ -389,7 +388,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                 </div>
               )}
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Total</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('ranking.total')}</label>
                 <input
                   readOnly
                   value={formatAverage(matchPerformanceTotal)}
@@ -417,7 +416,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                 ))}
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Note</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('ranking.note')}</label>
                 <textarea
                   rows={3}
                   value={matchPerformanceForm.note}
@@ -426,7 +425,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                 />
               </div>
               <div className="inline-flex rounded-full bg-[#f39200]/10 px-3 py-1 text-sm font-bold text-[#f39200]">
-                Current match average: {formatAverage(getMatchAverage(matchPerformanceForm, performanceFields))}
+                {t('ranking.currentMatchAverage', { value: formatAverage(getMatchAverage(matchPerformanceForm, performanceFields)) })}
               </div>
               <div>
                 <button
@@ -435,13 +434,13 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                   className="inline-flex items-center gap-2 rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
                 >
                   <Save size={16} />
-                  {isSavingMatchPerformance ? 'Saving...' : 'Save Match Performance'}
+                  {isSavingMatchPerformance ? t('common.saving') : t('ranking.saveMatchPerformance')}
                 </button>
               </div>
             </form>
 
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
-              <h3 className="text-base font-bold text-slate-900">Total Performance Sheet</h3>
+              <h3 className="text-base font-bold text-slate-900">{t('ranking.totalPerformanceSheet')}</h3>
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{entityLabel}</label>
                 <select
@@ -450,7 +449,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                   onChange={(event) => setSelectedRefereeId(event.target.value)}
                   className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
                 >
-                  <option value="">{`Select ${entityLabel}`}</option>
+                  <option value="">{t('ranking.selectEntity', { entity: entityLabel })}</option>
                   {adminData.referees.map((referee) => (
                     <option key={referee.id} value={referee.id}>
                       {referee.fullName}
@@ -459,7 +458,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Total</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('ranking.total')}</label>
                 <input
                   readOnly
                   value={formatAverage(selectedLeaderboardItem?.performanceAverage)}
@@ -488,14 +487,14 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             <div className="flex justify-between items-start gap-4 mb-6">
               <div>
-                <p className="text-sm text-slate-500">Current Position</p>
+                <p className="text-sm text-slate-500">{t('ranking.currentPosition')}</p>
                 <h3 className="text-4xl font-black text-[#581c1c]">{`#${dashboard.currentUserItem.rank}`}</h3>
-                <p className="text-sm text-slate-500 mt-2">{`AVG performance: ${formatAverage(
-                  dashboard.currentUserItem.performanceAverage,
-                )}`}</p>
+                <p className="text-sm text-slate-500 mt-2">
+                  {t('ranking.avgPerformance', { value: formatAverage(dashboard.currentUserItem.performanceAverage) })}
+                </p>
               </div>
               <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full flex items-center gap-1 text-sm font-bold">
-                <TrendingUp size={16} /> Total {formatAverage(dashboard.currentUserItem.overallScore)}
+                <TrendingUp size={16} /> {t('ranking.totalWithValue', { value: formatAverage(dashboard.currentUserItem.overallScore) })}
               </div>
             </div>
 
@@ -508,7 +507,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                   <Tooltip
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                     labelStyle={{ fontWeight: 'bold' }}
-                    formatter={(value: number) => [`#${value}`, 'Rank']}
+                    formatter={(value: number) => [`#${value}`, t('ranking.rank')]}
                     labelFormatter={(label: string, payload) => {
                       const point = payload?.[0]?.payload as { date?: string; gameCode?: string } | undefined;
                       return point ? `${point.gameCode || label} • ${point.date || ''}` : label;
@@ -528,9 +527,9 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <h3 className="text-base font-bold text-slate-900 mb-4">Total Performance Sheet</h3>
+            <h3 className="text-base font-bold text-slate-900 mb-4">{t('ranking.totalPerformanceSheet')}</h3>
             <div className="mb-4">
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Total</label>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('ranking.total')}</label>
               <input
                 readOnly
                 value={formatAverage(dashboard.currentUserItem.performanceAverage)}
@@ -556,7 +555,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
       {canViewFullLeaderboard && (
         <div className="space-y-6 mb-6">
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <h3 className="text-base font-bold text-slate-900 mb-4">Full Ranking</h3>
+            <h3 className="text-base font-bold text-slate-900 mb-4">{t('ranking.fullRanking')}</h3>
             <div className="space-y-3">
               {rankingItems.map((item) => (
                 <button
@@ -576,7 +575,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                       />
                       <div className="min-w-0">
                         <div className="truncate font-semibold text-slate-900">{`#${item.rank} ${item.refereeName}`}</div>
-                        <div className="text-sm text-slate-500">{`AVG: ${formatAverage(item.performanceAverage)}`}</div>
+                        <div className="text-sm text-slate-500">{t('ranking.avgShort', { value: formatAverage(item.performanceAverage) })}</div>
                       </div>
                     </div>
                     <div className="text-lg font-black text-[#581c1c]">{formatAverage(item.overallScore)}</div>
@@ -590,12 +589,12 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
               <div className="flex justify-between items-start gap-4 mb-6">
                 <div>
-                  <p className="text-sm text-slate-500">{`Selected ${entityLabel} Position Trend`}</p>
+                  <p className="text-sm text-slate-500">{t('ranking.selectedPositionTrend', { entity: entityLabel })}</p>
                   <h3 className="text-3xl font-black text-[#581c1c]">{selectedLeaderboardItem.refereeName}</h3>
-                  <p className="text-sm text-slate-500 mt-2">{`Current rank: #${selectedLeaderboardItem.rank}`}</p>
+                  <p className="text-sm text-slate-500 mt-2">{t('ranking.currentRank', { rank: selectedLeaderboardItem.rank })}</p>
                 </div>
                 <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full flex items-center gap-1 text-sm font-bold">
-                  <TrendingUp size={16} /> AVG {formatAverage(selectedLeaderboardItem.performanceAverage)}
+                  <TrendingUp size={16} /> {t('ranking.avgWithValue', { value: formatAverage(selectedLeaderboardItem.performanceAverage) })}
                 </div>
               </div>
 
@@ -608,7 +607,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                     <Tooltip
                       contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                       labelStyle={{ fontWeight: 'bold' }}
-                      formatter={(value: number) => [`#${value}`, 'Rank']}
+                      formatter={(value: number) => [`#${value}`, t('ranking.rank')]}
                       labelFormatter={(label: string, payload) => {
                         const point = payload?.[0]?.payload as { date?: string; gameCode?: string } | undefined;
                         return point ? `${point.gameCode || label} • ${point.date || ''}` : label;
@@ -633,7 +632,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
       {selectedEntries.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
           <h3 className="text-base font-bold text-slate-900 mb-4">
-            {canViewFullLeaderboard ? 'Match Performance History' : 'My Match Performance History'}
+            {canViewFullLeaderboard ? t('ranking.matchPerformanceHistory') : t('ranking.myMatchPerformanceHistory')}
           </h3>
           <div className="space-y-4">
             {selectedEntries.map((entry) => (
@@ -644,7 +643,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                     <div className="text-sm text-slate-500">{entry.evaluationDate}</div>
                   </div>
                   <div className="inline-flex rounded-full bg-[#f39200]/10 px-3 py-1 text-sm font-bold text-[#f39200]">
-                    Match AVG: {formatAverage(entry.matchAverage)}
+                    {t('ranking.matchAvg', { value: formatAverage(entry.matchAverage) })}
                   </div>
                 </div>
                 {entry.note && <div className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">{entry.note}</div>}
@@ -668,10 +667,8 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
             <Award size={32} />
           </div>
           <div>
-            <h4 className="font-bold">Ranking Summary</h4>
-            <p className="text-xs text-white/70">
-              Only your own ranking is visible here. Position changes after each saved match performance sheet.
-            </p>
+            <h4 className="font-bold">{t('ranking.summaryTitle')}</h4>
+            <p className="text-xs text-white/70">{t('ranking.summaryText')}</p>
           </div>
         </div>
       )}
