@@ -584,7 +584,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const renderFinalScore = (finalScore: string | null) =>
     finalScore ? (
       <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
-        Final score: {finalScore}
+        {t('common.finalScore', { score: finalScore })}
       </div>
     ) : null;
 
@@ -606,7 +606,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             className={`${baseButtonClass} border-red-200 bg-red-50 text-red-700 hover:bg-red-100`}
           >
             <Youtube size={16} />
-            YouTube
+            {t('common.youtube')}
           </a>
         ) : null}
         {matchProtocolUrl ? (
@@ -617,7 +617,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             className={`${baseButtonClass} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
           >
             <FileText size={16} />
-            Game Scoresheet
+            {t('common.gameScoresheet')}
           </a>
         ) : null}
       </div>
@@ -634,7 +634,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
     return (
       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Match Details</div>
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.matchDetails')}</div>
         <div className="mt-3 grid gap-3">
           <input
             value={scoreInputs[nomination.id] ?? nomination.finalScore ?? ''}
@@ -674,7 +674,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             disabled={scoreActionId === nomination.id}
             className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
           >
-            {scoreActionId === nomination.id ? 'Saving...' : 'Save match details'}
+            {scoreActionId === nomination.id ? t('common.saving') : t('common.saveMatchDetails')}
           </button>
         </div>
       </div>
@@ -687,7 +687,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         <div>
           <div className="text-xs font-bold uppercase text-[#581c1c]">{nomination.gameCode}</div>
           <h4 className="text-lg font-bold text-slate-900">{nomination.teams}</h4>
-          <div className="mt-1 text-xs text-slate-500">Created by: {nomination.createdByName}</div>
+          <div className="mt-1 text-xs text-slate-500">{t('dashboard.createdByLabel', { name: nomination.createdByName })}</div>
           <div className="grid gap-2 mt-2 text-sm text-slate-600 md:grid-cols-2">
             <div className="flex items-center gap-2">
               <Calendar size={14} className="text-[#f97316]" />
@@ -712,14 +712,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
               className="inline-flex items-center gap-2 self-start rounded-xl bg-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
             >
               <Pencil size={14} />
-              {editingNominationId === nomination.id ? 'Cancel Edit' : 'Edit'}
+              {editingNominationId === nomination.id ? t('dashboard.cancelEdit') : t('common.edit')}
             </button>
             <button
               onClick={() => handleDeleteNomination(nomination.id)}
               className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
             >
               <Trash2 size={14} />
-              Delete Game
+              {t('dashboard.deleteGame')}
             </button>
           </div>
         ) : null}
@@ -735,7 +735,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
           return (
             <div key={replaceKey} className="rounded-xl bg-slate-50 p-3">
-              <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber)}</div>
+              <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber, language)}</div>
               {editingNominationId === nomination.id ? (
                 <select
                   value={editSelections[`referee${referee.slotNumber}`] || ''}
@@ -744,7 +744,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                   }
                   className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
                 >
-                  <option value="">Select official</option>
+                  <option value="">{t('common.selectOfficial')}</option>
                   {getReplacementOptions(nomination, referee.slotNumber)
                     .concat(
                       referees.filter((option) => option.id === referee.refereeId),
@@ -752,7 +752,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                     .filter((option, index, array) => array.findIndex((item) => item.id === option.id) === index)
                     .map((option) => (
                       <option key={option.id} value={option.id}>
-                        {`${option.fullName} (${option.role})`}
+                        {`${option.fullName} (${getRoleLabel(option.role, language)})`}
                       </option>
                     ))}
                 </select>
@@ -766,7 +766,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                         ? 'bg-red-100 text-red-700'
                         : 'bg-amber-100 text-amber-700'
                   }`}>
-                    {referee.status}
+                    {getAssignmentStatusLabel(referee.status, language)}
                   </div>
                 </>
               )}
@@ -777,7 +777,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                     onChange={(e) => setReplaceSelections((prev) => ({ ...prev, [replaceKey]: e.target.value }))}
                     className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
                   >
-                    <option value="">Select replacement official</option>
+                    <option value="">{t('dashboard.selectReplacementOfficial')}</option>
                     {options.map((option) => (
                       <option key={option.id} value={option.id}>
                         {`${option.fullName} (${option.role})`}
@@ -789,7 +789,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                     disabled={replaceActionKey === replaceKey || options.length === 0}
                     className="w-full rounded-xl bg-[#581c1c] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
                   >
-                    {replaceActionKey === replaceKey ? 'Replacing...' : `Replace ${getNominationSlotLabel(referee.slotNumber)}`}
+                    {replaceActionKey === replaceKey ? t('dashboard.replacing') : t('dashboard.replaceSlot', { slot: getNominationSlotLabel(referee.slotNumber, language) })}
                   </button>
                 </div>
               ) : null}
@@ -798,7 +798,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         })}
       </div>
       <div className="mt-4 rounded-xl bg-slate-50 p-3">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
+        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.toCrew')}</div>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
           {[1, 2, 3, 4].map((slotNumber) => {
             const existingAssignment = nomination.toCrew.find((item) => item.slotNumber === slotNumber);
@@ -806,7 +806,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             const canAssignTOCrew = isTOSupervisor && !isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
             return (
               <div key={`${nomination.id}-to-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="text-xs font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber)}</div>
+                <div className="text-xs font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber, language)}</div>
                 {canAssignTOCrew ? (
                   <select
                     value={currentSelection}
@@ -819,7 +819,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                     }
                     className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
                   >
-                    <option value="">Select TO</option>
+                    <option value="">{t('dashboard.selectTO')}</option>
                     {toOfficials.map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.fullName}
@@ -828,7 +828,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                   </select>
                 ) : (
                   <>
-                    <div className="mt-1 font-semibold text-slate-900">{existingAssignment?.toName || 'Not assigned'}</div>
+                    <div className="mt-1 font-semibold text-slate-900">{existingAssignment?.toName || t('common.notAssigned')}</div>
                     {existingAssignment ? (
                       <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
                         {existingAssignment.status}
@@ -847,7 +847,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
         {isTOSupervisor && isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) ? (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            TO crew can no longer be assigned after the match starts.
+            {t('dashboard.toCrewLocked')}
           </div>
         ) : null}
         {isTOSupervisor && !isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) && (
@@ -857,7 +857,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
               disabled={toActionNominationId === nomination.id}
               className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
             >
-              {toActionNominationId === nomination.id ? 'Saving TO Crew...' : 'Save TO Crew'}
+              {toActionNominationId === nomination.id ? t('dashboard.savingTOCrew') : t('dashboard.saveTOCrew')}
             </button>
           </div>
         )}
@@ -941,7 +941,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       </div>
       {user.role === 'Referee' && assignment.toCrew.length === 0 ? (
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-          TO crew will appear after the TO Supervisor assigns officials and they accept the game.
+          {t('dashboard.toCrewWillAppear')}
         </div>
       ) : (
         <div className="mt-4 rounded-xl bg-slate-50 p-3">
@@ -1119,17 +1119,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                 </div>
                 {[1, 2, 3].map((slot) => (
                   <div key={slot}>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{getNominationSlotLabel(slot)}</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{getNominationSlotLabel(slot, language)}</label>
                     <select
                       required
                       value={form[`referee${slot}` as keyof typeof form]}
                       onChange={(e) => updateFormField(`referee${slot}` as keyof typeof form, e.target.value)}
                       className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c] bg-white"
                     >
-                      <option value="">Select official</option>
+                      <option value="">{t('common.selectOfficial')}</option>
                       {referees.map((referee) => (
                         <option key={referee.id} value={referee.id}>
-                          {`${referee.fullName} (${referee.role})`}
+                          {`${referee.fullName} (${getRoleLabel(referee.role, language)})`}
                         </option>
                       ))}
                     </select>
@@ -1154,7 +1154,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
               <h3 className="text-base font-bold text-slate-900">Instructor Notifications</h3>
             </div>
             {declinedAssignments.length === 0 ? (
-              <p className="text-sm text-slate-500">No referee has declined a game yet.</p>
+              <p className="text-sm text-slate-500">{t('dashboard.noDeclinedYet')}</p>
             ) : (
               <div className="space-y-4">
                 {declinedAssignments.map(({ nomination, referee }) => {
@@ -1166,7 +1166,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                         <AlertTriangle size={18} className="text-amber-600 mt-0.5" />
                         <div className="flex-1 space-y-3">
                           <p className="text-sm font-semibold text-amber-900">
-                            {referee.refereeName} Declined Game
+                            {t('dashboard.declinedGame', { name: referee.refereeName })}
                           </p>
                           <div className="grid gap-2 text-sm text-amber-900 md:grid-cols-2">
                             <div>{nomination.gameCode}</div>
@@ -1180,7 +1180,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                               onChange={(e) => setReplaceSelections((prev) => ({ ...prev, [replaceKey]: e.target.value }))}
                               className="min-w-64 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500"
                             >
-                              <option value="">Select replacement official</option>
+                              <option value="">{t('dashboard.selectReplacementOfficial')}</option>
                               {options.map((option) => (
                                 <option key={option.id} value={option.id}>
                                   {`${option.fullName} (${option.role})`}
@@ -1192,11 +1192,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                               disabled={replaceActionKey === replaceKey || options.length === 0}
                               className="rounded-xl bg-amber-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
                             >
-                              {replaceActionKey === replaceKey ? 'Replacing...' : `Replace ${getNominationSlotLabel(referee.slotNumber)}`}
+                              {replaceActionKey === replaceKey ? t('dashboard.replacing') : t('dashboard.replaceSlot', { slot: getNominationSlotLabel(referee.slotNumber, language) })}
                             </button>
                           </div>
                           {options.length === 0 && (
-                            <p className="text-xs text-amber-700">No free referee is available for this slot.</p>
+                            <p className="text-xs text-amber-700">{t('dashboard.noFreeReferee')}</p>
                           )}
                         </div>
                       </div>
@@ -1208,23 +1208,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <h3 className="text-base font-bold text-slate-900 mb-4">Created Nominations</h3>
+            <h3 className="text-base font-bold text-slate-900 mb-4">{t('dashboard.createdNominations')}</h3>
             {isLoadingAssignments ? (
               <p className="text-sm text-slate-500">Loading nominations...</p>
             ) : (
               <div className="space-y-6">
                 <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Upcoming Games</div>
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingGames')}</div>
                   {createdNominationSections.upcoming.length === 0 ? (
-                    <p className="text-sm text-slate-500">No upcoming nominations.</p>
+                    <p className="text-sm text-slate-500">{t('dashboard.noUpcomingNominations')}</p>
                   ) : (
                     createdNominationSections.upcoming.map(renderCreatedNominationCard)
                   )}
                 </div>
                 <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Past Games</div>
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.pastGames')}</div>
                   {createdNominationSections.past.length === 0 ? (
-                    <p className="text-sm text-slate-500">No past games yet.</p>
+                    <p className="text-sm text-slate-500">{t('dashboard.noPastGamesYet')}</p>
                   ) : (
                     createdNominationSections.past.map(renderCreatedNominationCard)
                   )}
@@ -1246,23 +1246,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <h3 className="text-base font-bold text-slate-900 mb-4">Games Awaiting TO Crew</h3>
+            <h3 className="text-base font-bold text-slate-900 mb-4">{t('dashboard.gamesAwaitingTOCrew')}</h3>
             {isLoadingAssignments ? (
               <p className="text-sm text-slate-500">Loading games...</p>
             ) : (
               <div className="space-y-6">
                 <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Upcoming Games</div>
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingGames')}</div>
                   {createdNominationSections.upcoming.length === 0 ? (
-                    <p className="text-sm text-slate-500">No upcoming games.</p>
+                    <p className="text-sm text-slate-500">{t('dashboard.noUpcomingGames')}</p>
                   ) : (
                     createdNominationSections.upcoming.map(renderCreatedNominationCard)
                   )}
                 </div>
                 <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Past Games</div>
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.pastGames')}</div>
                   {createdNominationSections.past.length === 0 ? (
-                    <p className="text-sm text-slate-500">No past games yet.</p>
+                    <p className="text-sm text-slate-500">{t('dashboard.noPastGamesYet')}</p>
                   ) : (
                     createdNominationSections.past.map(renderCreatedNominationCard)
                   )}
@@ -1279,19 +1279,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-4">
                 <AlertTriangle size={18} className="text-red-600" />
-                <h3 className="text-base font-bold text-slate-900">Replacement Notices</h3>
+                <h3 className="text-base font-bold text-slate-900">{t('dashboard.replacementNotices')}</h3>
               </div>
               <div className="space-y-3">
                 {replacementNotices.map((notice) => (
                   <div key={notice.id} className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
                     <div className="text-sm font-bold text-red-800">
-                      You were replaced for {notice.gameCode} as {getNominationSlotLabel(notice.slotNumber)}.
+                      {t('dashboard.youWereReplaced', { gameCode: notice.gameCode, slot: getNominationSlotLabel(notice.slotNumber, language) })}
                     </div>
                     <div className="mt-1 text-sm text-red-700">
                       {notice.teams} | {notice.matchDate} at {notice.matchTime}
                     </div>
                     <div className="mt-1 text-xs font-medium text-red-700">
-                      New official: {notice.newRefereeName}
+                      {t('dashboard.newOfficial', { name: notice.newRefereeName })}
                     </div>
                   </div>
                 ))}
@@ -1302,7 +1302,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             <div className="flex items-center gap-2 mb-4">
               <Bell size={18} className="text-[#581c1c]" />
               <h3 className="text-base font-bold text-slate-900">
-                {user.role === 'Instructor' ? 'My Game Assignments' : 'Game Assignments'}
+                {user.role === 'Instructor' ? t('dashboard.myGameAssignments') : t('dashboard.gameAssignments')}
               </h3>
             </div>
             {isLoadingAssignments ? (
@@ -1310,17 +1310,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             ) : (
               <div className="space-y-6">
                 <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Upcoming Assigned Games</div>
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingAssignedGames')}</div>
                   {assignmentSections.upcoming.length === 0 ? (
-                    <p className="text-sm text-slate-500">No upcoming games yet.</p>
+                    <p className="text-sm text-slate-500">{t('dashboard.noUpcomingGamesYet')}</p>
                   ) : (
                     assignmentSections.upcoming.map(renderAssignmentCard)
                   )}
                 </div>
                 <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Past Games</div>
+                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.pastGames')}</div>
                   {assignmentSections.past.length === 0 ? (
-                    <p className="text-sm text-slate-500">No past games yet.</p>
+                    <p className="text-sm text-slate-500">{t('dashboard.noPastGamesYet')}</p>
                   ) : (
                     assignmentSections.past.map(renderAssignmentCard)
                   )}
