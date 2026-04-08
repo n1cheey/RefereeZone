@@ -36,6 +36,7 @@ import {
   respondToNomination,
   updateNominationScore,
 } from '../services/nominationService';
+import { readViewCache, writeViewCache } from '../services/viewCache';
 import { getAssignmentStatusLabel, getRoleLabel, useI18n } from '../i18n';
 
 interface DashboardProps {
@@ -48,6 +49,7 @@ interface DashboardProps {
 }
 
 const POLL_INTERVAL_MS = 45000;
+const getDashboardCacheKey = (userId: string, role: User['role']) => `dashboard:${userId}:${role}`;
 const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Baku',
   year: 'numeric',
@@ -130,6 +132,29 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   useEffect(() => {
     let isMounted = true;
     let intervalId: number | null = null;
+    const cacheKey = getDashboardCacheKey(user.id, user.role);
+
+    const applyCachedData = () => {
+      const cached = readViewCache<{
+        referees: RefereeDirectoryItem[];
+        toOfficials: RefereeDirectoryItem[];
+        nominations: InstructorNomination[];
+        assignments: RefereeNomination[];
+        replacementNotices: ReplacementNotice[];
+      }>(cacheKey);
+
+      if (!cached) {
+        return false;
+      }
+
+      setReferees(cached.referees || []);
+      setTOOfficials(cached.toOfficials || []);
+      setInstructorNominations(cached.nominations || []);
+      setRefereeAssignments(cached.assignments || []);
+      setReplacementNotices(cached.replacementNotices || []);
+      setIsLoadingAssignments(false);
+      return true;
+    };
 
     const loadInstructorData = async () => {
       const response = await getInstructorDashboard(user.id);
@@ -143,6 +168,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       setInstructorNominations(response.nominations);
       setRefereeAssignments(response.assignments);
       setReplacementNotices(response.replacementNotices);
+      writeViewCache(cacheKey, {
+        referees: response.referees,
+        toOfficials: response.toOfficials,
+        nominations: response.nominations,
+        assignments: response.assignments,
+        replacementNotices: response.replacementNotices,
+      });
     };
 
     const loadRefereeData = async () => {
@@ -154,6 +186,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
       setRefereeAssignments(response.nominations);
       setReplacementNotices(response.replacementNotices);
+      writeViewCache(cacheKey, {
+        referees: [],
+        toOfficials: [],
+        nominations: [],
+        assignments: response.nominations,
+        replacementNotices: response.replacementNotices,
+      });
     };
 
     const loadData = async (showLoader: boolean) => {
@@ -223,7 +262,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       }
     };
 
-    void loadData(true);
+    const hasCachedData = applyCachedData();
+    void loadData(!hasCachedData);
     startPolling();
     document.addEventListener('visibilitychange', handleVisibilityChange);
 

@@ -5,6 +5,7 @@ import { ReportDetail, ReportListItem, ReportMode, ReportStatus, User } from '..
 import { getNominationSlotLabel } from '../slotLabels';
 import { deleteReport, extendReportDeadline, getReportDetail, getReports, saveReport } from '../services/reportsService';
 import { getReferees } from '../services/nominationService';
+import { readViewCache, writeViewCache } from '../services/viewCache';
 import { getReportStatusLabel, useI18n } from '../i18n';
 
 interface ReportsProps {
@@ -12,6 +13,8 @@ interface ReportsProps {
   onBack: () => void;
   reportMode?: ReportMode;
 }
+
+const getReportsCacheKey = (userId: string, reportMode: ReportMode) => `reports:${userId}:${reportMode}`;
 
 const getDisplayStatus = (item: ReportListItem, role: User['role']) => {
   if (item.reportMode === 'test_to') {
@@ -134,14 +137,24 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
   useEffect(() => {
     let isMounted = true;
+    const cacheKey = getReportsCacheKey(user.id, reportMode);
+
+    const cachedReports = readViewCache<ReportListItem[]>(cacheKey);
+    if (cachedReports) {
+      setReports(cachedReports);
+      setIsLoading(false);
+    }
 
     const load = async () => {
-      setIsLoading(true);
+      if (!cachedReports) {
+        setIsLoading(true);
+      }
       try {
         const response = await getReports(user.id, reportMode);
         if (isMounted) {
           setReports(response.reports);
           setErrorMessage('');
+          writeViewCache(cacheKey, response.reports);
         }
       } catch (error) {
         if (isMounted) {

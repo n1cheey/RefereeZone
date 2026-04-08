@@ -15,6 +15,7 @@ import {
   respondToNomination,
   updateNominationScore,
 } from '../services/nominationService';
+import { readViewCache, writeViewCache } from '../services/viewCache';
 import { getAssignmentStatusLabel, useI18n } from '../i18n';
 
 interface NominationsProps {
@@ -23,6 +24,7 @@ interface NominationsProps {
 }
 
 const POLL_INTERVAL_MS = 45000;
+const getNominationsCacheKey = (userId: string, role: User['role']) => `nominations:${userId}:${role}`;
 
 const splitMatchesByTime = <T extends { matchDate: string; matchTime: string }>(items: T[], now: number) => ({
   upcoming: items.filter((item) => !isPastMatch(item.matchDate, item.matchTime, now)),
@@ -72,6 +74,27 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   useEffect(() => {
     let isMounted = true;
     let intervalId: number | null = null;
+    const cacheKey = getNominationsCacheKey(user.id, user.role);
+
+    const applyCachedData = () => {
+      const cached = readViewCache<{
+        referees: RefereeDirectoryItem[];
+        toOfficials: RefereeDirectoryItem[];
+        nominations: InstructorNomination[];
+        assignments: RefereeNomination[];
+      }>(cacheKey);
+
+      if (!cached) {
+        return false;
+      }
+
+      setReferees(cached.referees || []);
+      setTOOfficials(cached.toOfficials || []);
+      setInstructorNominations(cached.nominations || []);
+      setRefereeAssignments(cached.assignments || []);
+      setIsLoading(false);
+      return true;
+    };
 
     const load = async (showLoader: boolean) => {
       if (showLoader) {
@@ -87,6 +110,12 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             setInstructorNominations(dashboardResponse.nominations);
             setRefereeAssignments(dashboardResponse.assignments);
             setErrorMessage('');
+            writeViewCache(cacheKey, {
+              referees: dashboardResponse.referees,
+              toOfficials: dashboardResponse.toOfficials,
+              nominations: dashboardResponse.nominations,
+              assignments: dashboardResponse.assignments,
+            });
           }
         } else if (user.role === 'Staff') {
           const response = await getInstructorNominations(user.id);
@@ -94,12 +123,24 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             setInstructorNominations(response.nominations);
             setRefereeAssignments([]);
             setErrorMessage('');
+            writeViewCache(cacheKey, {
+              referees: [],
+              toOfficials: [],
+              nominations: response.nominations,
+              assignments: [],
+            });
           }
         } else if (user.role === 'Referee' || user.role === 'TO') {
           const response = await getRefereeNominations(user.id);
           if (isMounted) {
             setRefereeAssignments(response.nominations);
             setErrorMessage('');
+            writeViewCache(cacheKey, {
+              referees: [],
+              toOfficials: [],
+              nominations: [],
+              assignments: response.nominations,
+            });
           }
         }
       } catch (error) {
@@ -138,7 +179,8 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       }
     };
 
-    void load(true);
+    const hasCachedData = applyCachedData();
+    void load(!hasCachedData);
     startPolling();
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
