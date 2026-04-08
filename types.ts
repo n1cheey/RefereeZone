@@ -2,7 +2,7 @@
 export type UserRole = 'Instructor' | 'TO' | 'TO Supervisor' | 'Referee' | 'Staff';
 export type AssignmentStatus = 'Pending' | 'Accepted' | 'Declined' | 'Assigned';
 export type ReportStatus = 'Draft' | 'Submitted' | 'Reviewed';
-export type ReportMode = 'standard' | 'test_to';
+export type ReportMode = 'standard' | 'to' | 'test_to';
 
 export interface User {
   id: string;

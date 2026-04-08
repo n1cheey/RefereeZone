@@ -4,11 +4,14 @@ import { NewsItem, User } from '../types';
 import { createNewsPost, deleteNewsPost, getNewsPosts } from '../services/newsService';
 import { ExternalLink, Plus, Trash2, Youtube } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { readViewCache, writeViewCache } from '../services/viewCache';
 
 interface NewsProps {
   user: User;
   onBack: () => void;
 }
+
+const getNewsCacheKey = () => 'news:all';
 
 const getYoutubeEmbedUrl = (url: string) => {
   try {
@@ -57,14 +60,24 @@ const News: React.FC<NewsProps> = ({ user, onBack }) => {
 
   useEffect(() => {
     let isMounted = true;
+    const cacheKey = getNewsCacheKey();
+
+    const cachedPosts = readViewCache<NewsItem[]>(cacheKey);
+    if (cachedPosts) {
+      setPosts(cachedPosts);
+      setIsLoading(false);
+    }
 
     const load = async () => {
-      setIsLoading(true);
+      if (!cachedPosts) {
+        setIsLoading(true);
+      }
       try {
         const response = await getNewsPosts();
         if (isMounted) {
           setPosts(response.posts);
           setErrorMessage('');
+          writeViewCache(cacheKey, response.posts);
         }
       } catch (error) {
         if (isMounted) {
@@ -93,6 +106,7 @@ const News: React.FC<NewsProps> = ({ user, onBack }) => {
     try {
       const response = await createNewsPost({ youtubeUrl, commentary });
       setPosts(response.posts);
+      writeViewCache(getNewsCacheKey(), response.posts);
       setYoutubeUrl('');
       setCommentary('');
       setSuccessMessage('News post added.');
@@ -110,7 +124,11 @@ const News: React.FC<NewsProps> = ({ user, onBack }) => {
 
     try {
       await deleteNewsPost(postId);
-      setPosts((prev) => prev.filter((post) => post.id !== postId));
+      setPosts((prev) => {
+        const nextPosts = prev.filter((post) => post.id !== postId);
+        writeViewCache(getNewsCacheKey(), nextPosts);
+        return nextPosts;
+      });
       setSuccessMessage('News post deleted.');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to delete news post.');

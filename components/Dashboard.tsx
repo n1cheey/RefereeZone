@@ -42,7 +42,17 @@ import { getAssignmentStatusLabel, getRoleLabel, useI18n } from '../i18n';
 interface DashboardProps {
   user: User;
   onNavigate: (
-    view: 'nominations' | 'teyinat' | 'ranking' | 'toRanking' | 'reports' | 'news' | 'members' | 'access' | 'activity',
+    view:
+      | 'nominations'
+      | 'teyinat'
+      | 'ranking'
+      | 'toRanking'
+      | 'reports'
+      | 'toReports'
+      | 'news'
+      | 'members'
+      | 'access'
+      | 'activity',
   ) => void;
   onLogout: () => void;
   onUpdateUser: (user: User) => void;
@@ -532,10 +542,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       ? [
           {
             id: 'ranking' as const,
-            label: t('dashboard.navRanking'),
+            label: t('ranking.refereeTitle'),
             icon: TrendingUp,
             iconColor: 'text-green-500',
             color: 'bg-green-50',
+          },
+          {
+            id: 'reports' as const,
+            label: t('reports.refereeTitle'),
+            icon: FileText,
+            iconColor: 'text-purple-500',
+            color: 'bg-purple-50',
           },
           {
             id: 'toRanking' as const,
@@ -543,6 +560,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             icon: TrendingUp,
             iconColor: 'text-teal-600',
             color: 'bg-teal-50',
+          },
+          {
+            id: 'toReports' as const,
+            label: t('reports.toTitle'),
+            icon: FileText,
+            iconColor: 'text-fuchsia-600',
+            color: 'bg-fuchsia-50',
           },
         ]
       : isTO || isTOSupervisor
@@ -554,6 +578,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             iconColor: 'text-teal-600',
             color: 'bg-teal-50',
           },
+          {
+            id: 'toReports' as const,
+            label: isTO ? t('reports.myTitle') : t('reports.toTitle'),
+            icon: FileText,
+            iconColor: 'text-fuchsia-600',
+            color: 'bg-fuchsia-50',
+          },
         ]
       : [
           {
@@ -563,8 +594,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             iconColor: 'text-green-500',
             color: 'bg-green-50',
           },
+          {
+            id: 'reports' as const,
+            label: t('reports.myTitle'),
+            icon: FileText,
+            iconColor: 'text-purple-500',
+            color: 'bg-purple-50',
+          },
         ]),
-    ...(!isTO && !isTOSupervisor ? [{ id: 'reports' as const, label: isStaff ? t('reports.title') : t('reports.myTitle'), icon: FileText, iconColor: 'text-purple-500', color: 'bg-purple-50' }] : []),
     { id: 'news' as const, label: t('news.title'), icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
   ];
 

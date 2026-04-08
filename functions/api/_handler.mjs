@@ -19,6 +19,7 @@ const REPORT_STATUS = {
 };
 const REPORT_MODE = {
   STANDARD: 'standard',
+  TO: 'to',
   TEST_TO: 'test_to',
 };
 const TEST_REPORT_TO_TABLE = 'test_report_tos';
@@ -79,7 +80,17 @@ const normalizeProfileRow = (profile) => ({
   ...profile,
   role: normalizeRole(profile.role),
 });
-const normalizeReportMode = (mode) => (mode === REPORT_MODE.TEST_TO ? REPORT_MODE.TEST_TO : REPORT_MODE.STANDARD);
+const normalizeReportMode = (mode) => {
+  if (mode === REPORT_MODE.TEST_TO) {
+    return REPORT_MODE.TEST_TO;
+  }
+
+  if (mode === REPORT_MODE.TO) {
+    return REPORT_MODE.TO;
+  }
+
+  return REPORT_MODE.STANDARD;
+};
 const normalizeVisibleToRefereeIds = (value) => {
   if (!Array.isArray(value)) {
     return [];
@@ -364,6 +375,7 @@ const buildReportListItem = ({
   googleDriveUrl = null,
   visibleToRefereeIds = [],
 }) => {
+  const reportSubjectId = assignment.referee_id || assignment.to_id;
   const deadlineContext = {
     matchDate: nomination.match_date,
     matchTime: nomination.match_time,
@@ -373,7 +385,7 @@ const buildReportListItem = ({
 
   return {
     nominationId: nomination.id,
-    refereeId: assignment.referee_id,
+    refereeId: reportSubjectId,
     gameCode: nomination.game_code || 'ABL-NEW',
     teams: nomination.teams,
     matchDate: nomination.match_date,
@@ -829,6 +841,47 @@ const requireAssignment = async (admin, nominationId, refereeId) => {
     matchTime: nomination.match_time,
     venue: nomination.venue,
     refereeName: referee.full_name,
+  };
+};
+
+const requireTOAssignment = async (admin, nominationId, toId) => {
+  const assignmentRow = await requireSingle(
+    admin
+      .from('nomination_tos')
+      .select('*')
+      .eq('nomination_id', nominationId)
+      .eq('to_id', toId),
+    'TO assignment not found.',
+    'Failed to load TO assignment.',
+  );
+
+  const [nomination, toOfficial] = await Promise.all([
+    requireSingle(
+      admin.from('nominations').select('*').eq('id', nominationId),
+      'Nomination not found.',
+      'Failed to load nomination.',
+    ),
+    requireSingle(
+      admin.from('profiles').select('*').eq('id', toId),
+      'User not found.',
+      'Failed to load user profile.',
+    ),
+  ]);
+
+  return {
+    assignmentId: assignmentRow.id,
+    slotNumber: Number(assignmentRow.slot_number),
+    assignmentStatus: assignmentRow.status,
+    reportDeadlineAt: null,
+    nominationId: nomination.id,
+    createdBy: nomination.created_by,
+    assignedBy: assignmentRow.assigned_by,
+    gameCode: nomination.game_code || 'ABL-NEW',
+    teams: nomination.teams,
+    matchDate: nomination.match_date,
+    matchTime: nomination.match_time,
+    venue: nomination.venue,
+    refereeName: toOfficial.full_name,
   };
 };
 
@@ -2687,9 +2740,87 @@ const listTestReportTOItems = async (admin, currentUser) => {
   return [];
 };
 
+const listTOReportItems = async (admin, currentUser) => {
+  let assignmentsQuery = admin.from('nomination_tos').select('*').order('created_at', { ascending: false });
+
+  if (currentUser.role === 'TO') {
+    assignmentsQuery = assignmentsQuery.eq('to_id', currentUser.id);
+  } else if (currentUser.role === 'TO Supervisor') {
+    assignmentsQuery = assignmentsQuery.eq('assigned_by', currentUser.id);
+  } else if (!['Instructor', 'Staff'].includes(currentUser.role)) {
+    return [];
+  }
+
+  const { data, error } = await assignmentsQuery;
+  const assignments = ensureData(data || [], error, 'Failed to load TO reports.').filter(
+    (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
+  );
+
+  if (!assignments.length) {
+    return [];
+  }
+
+  const nominationIds = [...new Set(assignments.map((assignment) => assignment.nomination_id))];
+  const toIds = [...new Set(assignments.map((assignment) => assignment.to_id))];
+  const [nominations, toOfficials, reports] = await Promise.all([
+    listNominationsByIds(admin, nominationIds),
+    listProfilesByIds(admin, toIds),
+    loadReportsForPairs(
+      admin,
+      assignments.map((assignment) => ({
+        nominationId: assignment.nomination_id,
+        refereeId: assignment.to_id,
+      })),
+    ),
+  ]);
+  const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+  const toMap = new Map(toOfficials.map((official) => [official.id, official]));
+  const reportsByPairKey = groupReportsByPairKey(reports);
+
+  return assignments
+    .map((assignment) => {
+      const nomination = nominationMap.get(assignment.nomination_id);
+      if (!nomination) {
+        return null;
+      }
+
+      const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.to_id}`) || [];
+      const toReport = pairReports.find((report) => report.author_role === 'Referee');
+      const supervisorReport = pairReports.find(
+        (report) => report.author_role === 'Instructor' && report.author_id === assignment.assigned_by,
+      );
+
+      return buildReportListItem({
+        nomination,
+        assignment,
+        refereeName: toMap.get(assignment.to_id)?.full_name || 'Unknown TO',
+        refereeReportStatus: toReport?.status || null,
+        instructorReportStatus: supervisorReport?.status || null,
+        reviewScore: supervisorReport?.score ?? null,
+        currentUserRole: currentUser.role,
+        reportMode: REPORT_MODE.TO,
+      });
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const matchOrder = sortByMatchDesc(left, right);
+      if (matchOrder !== 0) {
+        return matchOrder;
+      }
+
+      return left.slotNumber - right.slotNumber;
+    });
+};
+
 const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STANDARD) => {
-  if (normalizeReportMode(reportMode) === REPORT_MODE.TEST_TO) {
+  const normalizedReportMode = normalizeReportMode(reportMode);
+
+  if (normalizedReportMode === REPORT_MODE.TEST_TO) {
     return listTestReportTOItems(admin, currentUser);
+  }
+
+  if (normalizedReportMode === REPORT_MODE.TO) {
+    return listTOReportItems(admin, currentUser);
   }
 
   if (currentUser.role === 'Referee') {
@@ -2967,9 +3098,153 @@ const getTestReportTODetail = async (admin, currentUser, reportId) => {
   throw new HttpError(403, 'This role cannot access Report Test TO.');
 };
 
+const getTOReportDetail = async (admin, currentUser, nominationId, toId) => {
+  const assignment = await requireTOAssignment(admin, nominationId, toId);
+  const deadlineExceeded = isDeadlineExceeded(assignment);
+  const deadlineMessage = deadlineExceeded ? getDeadlineMessage(assignment) : null;
+  const reportDeadlineAt = getReportDeadlineDate(assignment)?.toISOString() || null;
+
+  if (currentUser.role === 'TO') {
+    if (currentUser.id !== toId) {
+      throw new HttpError(403, 'TO users can only view their own reports.');
+    }
+
+    if (assignment.assignmentStatus === ASSIGNMENT_STATUS.DECLINED) {
+      throw new HttpError(403, 'Declined assignments do not have reports.');
+    }
+
+    const [ownReport, supervisorReport] = await Promise.all([
+      loadReportByAuthor(admin, nominationId, toId, currentUser.id),
+      loadVisibleInstructorReport(admin, nominationId, toId),
+    ]);
+
+    return {
+      item: {
+        nominationId: assignment.nominationId,
+        refereeId: toId,
+        gameCode: assignment.gameCode,
+        teams: assignment.teams,
+        matchDate: assignment.matchDate,
+        matchTime: assignment.matchTime,
+        venue: assignment.venue,
+        refereeName: assignment.refereeName,
+        slotNumber: assignment.slotNumber,
+        refereeReportStatus: ownReport?.status || null,
+        instructorReportStatus: supervisorReport?.status || null,
+        reviewScore: supervisorReport?.score ?? null,
+        deadlineExceeded,
+        deadlineMessage,
+        reportDeadlineAt,
+        canAddTime: false,
+        reportMode: REPORT_MODE.TO,
+        googleDriveUrl: null,
+        visibleToRefereeIds: [],
+      },
+      refereeReport: mapReportEntry(ownReport),
+      instructorReport: mapReportEntry(supervisorReport),
+      canEditCurrentUserReport: !deadlineExceeded && (!ownReport || ownReport.status === REPORT_STATUS.DRAFT),
+      deadlineExceeded,
+      deadlineMessage,
+      reportDeadlineAt,
+      canAddTime: false,
+      visibilityOptions: [],
+    };
+  }
+
+  if (currentUser.role === 'TO Supervisor') {
+    if (assignment.assignedBy !== currentUser.id) {
+      throw new HttpError(403, 'This TO report belongs to another TO Supervisor.');
+    }
+
+    const [toReport, ownReport] = await Promise.all([
+      loadSubmittedRefereeReport(admin, nominationId, toId),
+      loadReportByAuthor(admin, nominationId, toId, currentUser.id),
+    ]);
+
+    return {
+      item: {
+        nominationId: assignment.nominationId,
+        refereeId: toId,
+        gameCode: assignment.gameCode,
+        teams: assignment.teams,
+        matchDate: assignment.matchDate,
+        matchTime: assignment.matchTime,
+        venue: assignment.venue,
+        refereeName: assignment.refereeName,
+        slotNumber: assignment.slotNumber,
+        refereeReportStatus: toReport?.status || null,
+        instructorReportStatus: ownReport?.status || null,
+        reviewScore: ownReport?.score ?? null,
+        deadlineExceeded,
+        deadlineMessage,
+        reportDeadlineAt,
+        canAddTime: false,
+        reportMode: REPORT_MODE.TO,
+        googleDriveUrl: null,
+        visibleToRefereeIds: [],
+      },
+      refereeReport: mapReportEntry(toReport),
+      instructorReport: mapReportEntry(ownReport),
+      canEditCurrentUserReport: Boolean(toReport) && (!ownReport || ownReport.status === REPORT_STATUS.DRAFT),
+      deadlineExceeded: false,
+      deadlineMessage: null,
+      reportDeadlineAt,
+      canAddTime: false,
+      visibilityOptions: [],
+    };
+  }
+
+  if (['Instructor', 'Staff'].includes(currentUser.role)) {
+    const [toReport, supervisorReport] = await Promise.all([
+      loadSubmittedRefereeReport(admin, nominationId, toId),
+      loadReportByAuthor(admin, nominationId, toId, assignment.assignedBy),
+    ]);
+
+    return {
+      item: {
+        nominationId: assignment.nominationId,
+        refereeId: toId,
+        gameCode: assignment.gameCode,
+        teams: assignment.teams,
+        matchDate: assignment.matchDate,
+        matchTime: assignment.matchTime,
+        venue: assignment.venue,
+        refereeName: assignment.refereeName,
+        slotNumber: assignment.slotNumber,
+        refereeReportStatus: toReport?.status || null,
+        instructorReportStatus: supervisorReport?.status || null,
+        reviewScore: supervisorReport?.score ?? null,
+        deadlineExceeded,
+        deadlineMessage,
+        reportDeadlineAt,
+        canAddTime: false,
+        reportMode: REPORT_MODE.TO,
+        googleDriveUrl: null,
+        visibleToRefereeIds: [],
+      },
+      refereeReport: mapReportEntry(toReport),
+      instructorReport: mapReportEntry(supervisorReport),
+      canEditCurrentUserReport: false,
+      deadlineExceeded: false,
+      deadlineMessage: null,
+      reportDeadlineAt,
+      canAddTime: false,
+      visibilityOptions: [],
+    };
+  }
+
+  throw new HttpError(403, 'This role cannot access TO reports.');
+};
+
 const getReportDetail = async (admin, currentUser, nominationId, refereeId, reportMode = REPORT_MODE.STANDARD) => {
-  if (normalizeReportMode(reportMode) === REPORT_MODE.TEST_TO) {
+  const normalizedReportMode = normalizeReportMode(reportMode);
+
+  if (normalizedReportMode === REPORT_MODE.TEST_TO) {
     return getTestReportTODetail(admin, currentUser, nominationId, refereeId);
+  }
+
+  if (normalizedReportMode === REPORT_MODE.TO) {
+    return getTOReportDetail(admin, currentUser, nominationId, refereeId);
   }
 
   const assignment = await requireAssignment(admin, nominationId, refereeId);
@@ -3193,9 +3468,90 @@ const saveTestReportTO = async (admin, currentUser, reportId, refereeId, body) =
   return getTestReportTODetail(admin, currentUser, reportId);
 };
 
+const saveTOReport = async (admin, currentUser, nominationId, toId, body) => {
+  if (!['TO', 'TO Supervisor'].includes(currentUser.role)) {
+    throw new HttpError(403, 'This role cannot save TO reports.');
+  }
+
+  const assignment = await requireTOAssignment(admin, nominationId, toId);
+  const action = body.action;
+
+  if (![REPORT_STATUS.DRAFT, REPORT_STATUS.SUBMITTED].includes(action)) {
+    throw new HttpError(400, 'Action must be Draft or Submitted.');
+  }
+
+  const normalizedPayload = {
+    feedbackScore: 0,
+    threePO_IOT: '',
+    criteria: '',
+    teamwork: '',
+    generally: String(body.generally || '').trim(),
+  };
+
+  if (currentUser.role === 'TO') {
+    if (currentUser.id !== toId) {
+      throw new HttpError(403, 'TO users can only edit their own report.');
+    }
+
+    if (assignment.assignmentStatus === ASSIGNMENT_STATUS.DECLINED) {
+      throw new HttpError(403, 'Declined assignments do not have reports.');
+    }
+
+    if (isDeadlineExceeded(assignment)) {
+      throw new HttpError(409, getDeadlineMessage(assignment));
+    }
+
+    const existing = await loadReportByAuthor(admin, nominationId, toId, currentUser.id);
+    if (existing?.status === REPORT_STATUS.SUBMITTED) {
+      throw new HttpError(409, 'Submitted report cannot be edited.');
+    }
+
+    await upsertReport({
+      admin,
+      nominationId,
+      refereeId: toId,
+      authorId: currentUser.id,
+      authorRole: 'Referee',
+      status: action,
+      score: 0,
+      ...normalizedPayload,
+    });
+
+    return getTOReportDetail(admin, currentUser, nominationId, toId);
+  }
+
+  if (assignment.assignedBy !== currentUser.id) {
+    throw new HttpError(403, 'This TO report belongs to another TO Supervisor.');
+  }
+
+  const toReport = await loadSubmittedRefereeReport(admin, nominationId, toId);
+  if (!toReport) {
+    throw new HttpError(409, 'TO Supervisor can answer only after the TO submits the report.');
+  }
+
+  await upsertReport({
+    admin,
+    nominationId,
+    refereeId: toId,
+    authorId: currentUser.id,
+    authorRole: 'Instructor',
+    status: action === REPORT_STATUS.SUBMITTED ? REPORT_STATUS.REVIEWED : REPORT_STATUS.DRAFT,
+    score: 0,
+    ...normalizedPayload,
+  });
+
+  return getTOReportDetail(admin, currentUser, nominationId, toId);
+};
+
 const saveReport = async (admin, currentUser, nominationId, refereeId, body, reportMode = REPORT_MODE.STANDARD) => {
-  if (normalizeReportMode(reportMode) === REPORT_MODE.TEST_TO) {
+  const normalizedReportMode = normalizeReportMode(reportMode);
+
+  if (normalizedReportMode === REPORT_MODE.TEST_TO) {
     return saveTestReportTO(admin, currentUser, nominationId, refereeId, body);
+  }
+
+  if (normalizedReportMode === REPORT_MODE.TO) {
+    return saveTOReport(admin, currentUser, nominationId, refereeId, body);
   }
 
   if (currentUser.role === 'Staff') {
@@ -3294,9 +3650,45 @@ const deleteTestReportTO = async (admin, currentUser, reportId) => {
   }
 };
 
+const deleteTOReport = async (admin, currentUser, nominationId, toId) => {
+  if (!['TO', 'TO Supervisor'].includes(currentUser.role)) {
+    throw new HttpError(403, 'This role cannot delete TO reports.');
+  }
+
+  const assignment = await requireTOAssignment(admin, nominationId, toId);
+
+  if (currentUser.role === 'TO') {
+    if (currentUser.id !== toId) {
+      throw new HttpError(403, 'TO users can delete only their own draft reports.');
+    }
+  } else if (assignment.assignedBy !== currentUser.id) {
+    throw new HttpError(403, 'This TO report belongs to another TO Supervisor.');
+  }
+
+  const report = await loadReportByAuthor(admin, nominationId, toId, currentUser.id);
+  if (!report) {
+    throw new HttpError(404, 'Report not found.');
+  }
+
+  if (report.status !== REPORT_STATUS.DRAFT) {
+    throw new HttpError(409, 'Only draft reports can be deleted.');
+  }
+
+  const { error } = await admin.from('reports').delete().eq('id', report.id);
+  if (error) {
+    throw new HttpError(500, 'Failed to delete report.');
+  }
+};
+
 const deleteReport = async (admin, currentUser, nominationId, refereeId, reportMode = REPORT_MODE.STANDARD) => {
-  if (normalizeReportMode(reportMode) === REPORT_MODE.TEST_TO) {
+  const normalizedReportMode = normalizeReportMode(reportMode);
+
+  if (normalizedReportMode === REPORT_MODE.TEST_TO) {
     return deleteTestReportTO(admin, currentUser, nominationId, refereeId);
+  }
+
+  if (normalizedReportMode === REPORT_MODE.TO) {
+    return deleteTOReport(admin, currentUser, nominationId, refereeId);
   }
 
   if (!['Referee', 'Instructor'].includes(currentUser.role)) {
