@@ -600,6 +600,18 @@ const saveCurrentAnnouncement = async (admin, currentUser, body) => {
   }
 
   const generatedTranslations = await generateAnnouncementTranslations(message, sourceLanguage);
+  const hasAllManualTranslations = Boolean(
+    manualTranslations.az &&
+      manualTranslations.en &&
+      manualTranslations.ru,
+  );
+  if (generatedTranslations.usedFallback && !hasAllManualTranslations) {
+    throw new HttpError(
+      400,
+      'Automatic announcement translation is unavailable right now. Fill in AZ, EN, and RU texts manually, or configure GEMINI_API_KEY on the server.',
+    );
+  }
+
   const translations = {
     az: manualTranslations.az || generatedTranslations.az,
     en: manualTranslations.en || generatedTranslations.en,
@@ -1383,6 +1395,7 @@ const generateAnnouncementTranslations = async (message, sourceLanguage = 'en') 
     az: normalizedMessage,
     en: normalizedMessage,
     ru: normalizedMessage,
+    usedFallback: true,
   };
 
   if (!normalizedMessage) {
@@ -1413,6 +1426,7 @@ const generateAnnouncementTranslations = async (message, sourceLanguage = 'en') 
       az: String(parsed.az || fallback.az).trim() || fallback.az,
       en: String(parsed.en || fallback.en).trim() || fallback.en,
       ru: String(parsed.ru || fallback.ru).trim() || fallback.ru,
+      usedFallback: false,
     };
   } catch {
     return fallback;

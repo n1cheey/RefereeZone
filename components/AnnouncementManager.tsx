@@ -152,6 +152,7 @@ const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack 
           <div>
             <h2 className="text-lg font-bold text-slate-900">{t('announcement.title')}</h2>
             <p className="text-sm text-slate-500">{t('announcement.help')}</p>
+            <p className="mt-1 text-xs text-slate-400">{t('announcement.translationHelp')}</p>
           </div>
         </div>
       </div>
