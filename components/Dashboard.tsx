@@ -488,11 +488,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           { id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
         ]
       : []),
-    ...(isTO || isTOSupervisor
+    ...(isInstructor
+      ? [
+          {
+            id: 'ranking' as const,
+            label: t('dashboard.navRanking'),
+            icon: TrendingUp,
+            iconColor: 'text-green-500',
+            color: 'bg-green-50',
+          },
+          {
+            id: 'toRanking' as const,
+            label: t('dashboard.navTORanking'),
+            icon: TrendingUp,
+            iconColor: 'text-teal-600',
+            color: 'bg-teal-50',
+          },
+        ]
+      : isTO || isTOSupervisor
       ? [
           {
             id: 'toRanking' as const,
-            label: isTOSupervisor ? t('dashboard.navTORanking') : `My ${t('dashboard.navTORanking')}`,
+            label: isTOSupervisor ? t('dashboard.navTORanking') : t('ranking.myTORankingTitle'),
             icon: TrendingUp,
             iconColor: 'text-teal-600',
             color: 'bg-teal-50',

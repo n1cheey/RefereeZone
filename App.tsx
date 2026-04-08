@@ -399,7 +399,7 @@ const AppContent: React.FC = () => {
           <Ranking
             user={currentUser!}
             onBack={() => setCurrentView('dashboard')}
-            rankingMode={currentUser!.role === 'TO' || currentUser!.role === 'TO Supervisor' ? 'to' : 'referee'}
+            rankingMode="to"
           />
         );
       case 'reports':

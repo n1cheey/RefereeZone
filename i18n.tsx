@@ -535,6 +535,36 @@ Object.assign(translations.ru, {
 });
 
 Object.assign(translations.en, {
+  'access.title': 'Add Access',
+  'access.grantTitle': 'Grant Access',
+  'access.grantHelp': 'Allow a specific e-mail and role to register in RefZone.',
+  'access.allowedList': 'Allowed Access List',
+  'access.loading': 'Loading access list...',
+  'access.none': 'No access entries yet.',
+  'access.add': 'Add Access',
+});
+
+Object.assign(translations.az, {
+  'access.title': 'Giriş əlavə et',
+  'access.grantTitle': 'Giriş icazəsi ver',
+  'access.grantHelp': 'Müəyyən e-mail və rola RefZone qeydiyyatı üçün icazə verin.',
+  'access.allowedList': 'İcazə verilən giriş siyahısı',
+  'access.loading': 'Giriş siyahısı yüklənir...',
+  'access.none': 'Hələ giriş qeydi yoxdur.',
+  'access.add': 'Giriş əlavə et',
+});
+
+Object.assign(translations.ru, {
+  'access.title': 'Добавить доступ',
+  'access.grantTitle': 'Выдать доступ',
+  'access.grantHelp': 'Разрешите конкретному e-mail и роли зарегистрироваться в RefZone.',
+  'access.allowedList': 'Список разрешённого доступа',
+  'access.loading': 'Загрузка списка доступа...',
+  'access.none': 'Записей доступа пока нет.',
+  'access.add': 'Добавить доступ',
+});
+
+Object.assign(translations.en, {
   'ranking.myTORankingTitle': 'My TO Ranking',
   'ranking.failedToLoad': 'Failed to load rankings.',
   'ranking.saved': 'Match performance saved.',
