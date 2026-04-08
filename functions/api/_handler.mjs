@@ -23,6 +23,7 @@ const REPORT_MODE = {
 };
 const TEST_REPORT_TO_TABLE = 'test_report_tos';
 const REPORT_DEADLINE_EXTENSION_MS = 24 * 60 * 60 * 1000;
+const REPORT_DEADLINE_BASE_MS = 48 * 60 * 60 * 1000;
 const ROLE_PREFIX = {
   Instructor: 'INS',
   'TO Supervisor': 'TOS',
@@ -243,7 +244,7 @@ const createMatchDateTime = (matchDate, matchTime) => {
 
 const createDeadlineDate = (matchDate, matchTime) => {
   const deadline = new Date(`${matchDate}T${normalizeMatchTime(matchTime)}${BAKU_OFFSET}`);
-  return Number.isNaN(deadline.getTime()) ? null : new Date(deadline.getTime() + 24 * 60 * 60 * 1000);
+  return Number.isNaN(deadline.getTime()) ? null : new Date(deadline.getTime() + REPORT_DEADLINE_BASE_MS);
 };
 
 const isYoutubeUrl = (value) => {
@@ -273,14 +274,20 @@ const isGoogleDriveUrl = (value) => {
 };
 
 const getReportDeadlineDate = (assignment) => {
+  const baseDeadline = createDeadlineDate(assignment.matchDate, assignment.matchTime);
+
   if (assignment.reportDeadlineAt) {
     const customDeadline = new Date(assignment.reportDeadlineAt);
     if (!Number.isNaN(customDeadline.getTime())) {
+      if (baseDeadline && customDeadline.getTime() < baseDeadline.getTime()) {
+        return baseDeadline;
+      }
+
       return customDeadline;
     }
   }
 
-  return createDeadlineDate(assignment.matchDate, assignment.matchTime);
+  return baseDeadline;
 };
 
 const getDeadlineMessage = (assignment) => {

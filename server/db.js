@@ -12,6 +12,7 @@ const seedPath = process.env.AUTH_ALLOWED_EMAILS_PATH || path.join(dataDirectory
 const sqlJsDistPath = path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist');
 
 const DEFAULT_PHOTO_URL = 'https://picsum.photos/seed/referee/300/300';
+const REPORT_DEADLINE_BASE_MS = 48 * 60 * 60 * 1000;
 export const ROLE_OPTIONS = ['Instructor', 'Table', 'Referee', 'Stuff'];
 export const ASSIGNMENT_STATUS = {
   PENDING: 'Pending',
@@ -495,7 +496,7 @@ const requireAssignment = (nominationId, refereeId) => {
 
 const getAssignmentDeadline = (assignment) => {
   const matchDateTime = new Date(`${assignment.match_date}T${assignment.match_time}:00`);
-  return new Date(matchDateTime.getTime() + 24 * 60 * 60 * 1000);
+  return new Date(matchDateTime.getTime() + REPORT_DEADLINE_BASE_MS);
 };
 
 const isReportDeadlineExceeded = (assignment) => {
