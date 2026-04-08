@@ -533,26 +533,53 @@ const listTOAssignmentsByUserId = async (admin, toId) => {
   return ensureData(data || [], error, 'Failed to load TO assignments.');
 };
 
-const buildTOCrew = (toAssignments, nominationId, toMap, options = {}) => {
+const groupRowsByNominationId = (rows = []) => {
+  const grouped = new Map();
+
+  rows.forEach((row) => {
+    const nominationId = row.nomination_id;
+    if (!grouped.has(nominationId)) {
+      grouped.set(nominationId, []);
+    }
+
+    grouped.get(nominationId).push(row);
+  });
+
+  return grouped;
+};
+
+const buildRefereeCrewFromAssignments = (assignments = [], officialMap) =>
+  assignments.map((assignment) => ({
+    slotNumber: Number(assignment.slot_number),
+    refereeId: assignment.referee_id,
+    refereeName: officialMap.get(assignment.referee_id)?.full_name || officialMap.get(assignment.referee_id)?.fullName || 'Unknown referee',
+    status: assignment.status,
+    respondedAt: assignment.responded_at || null,
+  }));
+
+const buildTOCrewFromAssignments = (assignments = [], toMap, options = {}) => {
   const { acceptedOnly = false, requireFullAcceptedCrew = false } = options;
 
-  const crew = toAssignments
-    .filter((assignment) => assignment.nomination_id === nominationId)
-    .filter((assignment) => !acceptedOnly || assignment.status === ASSIGNMENT_STATUS.ACCEPTED)
-    .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-    .map((assignment) => ({
-      slotNumber: Number(assignment.slot_number),
-      toId: assignment.to_id,
-      toName: toMap.get(assignment.to_id)?.full_name || toMap.get(assignment.to_id)?.fullName || 'Unknown TO',
-      status: assignment.status || ASSIGNMENT_STATUS.PENDING,
-      respondedAt: assignment.responded_at || null,
-    }));
+  const filteredAssignments = acceptedOnly
+    ? assignments.filter((assignment) => assignment.status === ASSIGNMENT_STATUS.ACCEPTED)
+    : assignments;
 
-  if (requireFullAcceptedCrew && crew.length !== 4) {
+  if (requireFullAcceptedCrew && filteredAssignments.length !== 4) {
     return [];
   }
 
-  return crew;
+  return filteredAssignments.map((assignment) => ({
+    slotNumber: Number(assignment.slot_number),
+    toId: assignment.to_id,
+    toName: toMap.get(assignment.to_id)?.full_name || toMap.get(assignment.to_id)?.fullName || 'Unknown TO',
+    status: assignment.status || ASSIGNMENT_STATUS.PENDING,
+    respondedAt: assignment.responded_at || null,
+  }));
+};
+
+const buildTOCrew = (toAssignments, nominationId, toMap, options = {}) => {
+  const nominationAssignments = toAssignments.filter((assignment) => assignment.nomination_id === nominationId);
+  return buildTOCrewFromAssignments(nominationAssignments, toMap, options);
 };
 
 const expirePendingAssignments = async (admin, nominationIds = []) => {
@@ -681,6 +708,21 @@ const loadTestReportsForPairs = async (admin, pairs) => {
   const rows = ensureData(data || [], error, 'Failed to load test reports.');
   const pairSet = new Set(pairs.map((pair) => `${pair.nominationId}:${pair.refereeId}`));
   return rows.filter((row) => pairSet.has(`${row.nomination_id}:${row.referee_id}`));
+};
+
+const groupReportsByPairKey = (reports = []) => {
+  const grouped = new Map();
+
+  reports.forEach((report) => {
+    const key = `${report.nomination_id}:${report.referee_id}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+
+    grouped.get(key).push(report);
+  });
+
+  return grouped;
 };
 
 const loadTestReportByAuthor = async (admin, nominationId, refereeId, authorId) =>
@@ -1187,6 +1229,8 @@ const getInstructorNominationsData = async (admin, instructorId) => {
   const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
   const toMap = new Map(toUsers.map((item) => [item.id, item]));
   const creatorMap = new Map(creators.map((creator) => [creator.id, creator]));
+  const assignmentsByNominationId = groupRowsByNominationId(assignments);
+  const toAssignmentsByNominationId = groupRowsByNominationId(toAssignments);
 
   return nominations.map((nomination) => ({
     id: nomination.id,
@@ -1201,26 +1245,8 @@ const getInstructorNominationsData = async (admin, instructorId) => {
     createdAt: nomination.created_at,
     createdById: nomination.created_by,
     createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
-    referees: assignments
-      .filter((assignment) => assignment.nomination_id === nomination.id)
-      .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-      .map((assignment) => ({
-        slotNumber: Number(assignment.slot_number),
-        refereeId: assignment.referee_id,
-        refereeName: refereeMap.get(assignment.referee_id)?.full_name || 'Unknown referee',
-        status: assignment.status,
-        respondedAt: assignment.responded_at || null,
-      })),
-    toCrew: toAssignments
-      .filter((assignment) => assignment.nomination_id === nomination.id)
-      .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-      .map((assignment) => ({
-        slotNumber: Number(assignment.slot_number),
-        toId: assignment.to_id,
-        toName: toMap.get(assignment.to_id)?.full_name || 'Unknown TO',
-        status: assignment.status || ASSIGNMENT_STATUS.PENDING,
-        respondedAt: assignment.responded_at || null,
-      })),
+    referees: buildRefereeCrewFromAssignments(assignmentsByNominationId.get(nomination.id) || [], refereeMap),
+    toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap),
   }));
 };
 
@@ -1271,6 +1297,8 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
     const instructorMap = new Map(instructors.map((instructor) => [instructor.id, instructor]));
     const refereeCrewMap = new Map(refereeCrewProfiles.map((item) => [item.id, item]));
     const toCrewMap = new Map(toCrewProfiles.map((item) => [item.id, item]));
+    const nominationAssignmentsByNominationId = groupRowsByNominationId(nominationAssignments);
+    const toAssignmentsByNominationId = groupRowsByNominationId(toAssignments);
 
     return {
       nominations: visibleAssignments
@@ -1298,17 +1326,8 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
             instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
             assignmentGroup: 'TO',
             assignmentLabel: getTOAssignmentLabel(Number(assignment.slot_number)),
-            crew: nominationAssignments
-              .filter((nominationAssignment) => nominationAssignment.nomination_id === nomination.id)
-              .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-              .map((nominationAssignment) => ({
-                slotNumber: Number(nominationAssignment.slot_number),
-                refereeId: nominationAssignment.referee_id,
-                refereeName: refereeCrewMap.get(nominationAssignment.referee_id)?.full_name || 'Unknown referee',
-                status: nominationAssignment.status,
-                respondedAt: nominationAssignment.responded_at || null,
-              })),
-            toCrew: buildTOCrew(toAssignments, nomination.id, toCrewMap),
+            crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], refereeCrewMap),
+            toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toCrewMap),
           };
         })
         .filter(Boolean)
@@ -1363,6 +1382,8 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
   const instructorMap = new Map(instructors.map((instructor) => [instructor.id, instructor]));
   const officialMap = new Map(assignedOfficials.map((official) => [official.id, official]));
   const toMap = new Map(toProfiles.map((item) => [item.id, item]));
+  const nominationAssignmentsByNominationId = groupRowsByNominationId(nominationAssignments);
+  const toAssignmentsByNominationId = groupRowsByNominationId(toAssignments);
 
   return {
     nominations: visibleAssignments
@@ -1390,17 +1411,8 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
           instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
           assignmentGroup: 'Referee',
           assignmentLabel: getNominationSlotLabel(Number(assignment.slot_number)),
-          crew: nominationAssignments
-            .filter((nominationAssignment) => nominationAssignment.nomination_id === nomination.id)
-            .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-            .map((nominationAssignment) => ({
-              slotNumber: Number(nominationAssignment.slot_number),
-              refereeId: nominationAssignment.referee_id,
-              refereeName: officialMap.get(nominationAssignment.referee_id)?.full_name || 'Unknown referee',
-              status: nominationAssignment.status,
-              respondedAt: nominationAssignment.responded_at || null,
-            })),
-          toCrew: buildTOCrew(toAssignments, nomination.id, toMap, {
+          crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap),
+          toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap, {
             acceptedOnly: user.role === 'Referee',
             requireFullAcceptedCrew: user.role === 'Referee',
           }),
@@ -1460,6 +1472,8 @@ const getInstructorDashboardData = async (admin, instructorId) => {
   );
   const creatorMap = new Map(nominationCreators.map((creator) => [creator.id, creator]));
   const toMap = new Map(toOfficials.map((official) => [official.id, official]));
+  const nominationAssignmentsByNominationId = groupRowsByNominationId(nominationAssignments);
+  const nominationTOAssignmentsByNominationId = groupRowsByNominationId(nominationTOAssignments);
 
   const nominations = nominationsSource.map((nomination) => ({
     id: nomination.id,
@@ -1474,26 +1488,8 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     createdAt: nomination.created_at,
     createdById: nomination.created_by,
     createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
-    referees: nominationAssignments
-      .filter((assignment) => assignment.nomination_id === nomination.id)
-      .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-      .map((assignment) => ({
-        slotNumber: Number(assignment.slot_number),
-        refereeId: assignment.referee_id,
-        refereeName: officialMap.get(assignment.referee_id)?.fullName || 'Unknown referee',
-        status: assignment.status,
-        respondedAt: assignment.responded_at || null,
-      })),
-    toCrew: nominationTOAssignments
-      .filter((assignment) => assignment.nomination_id === nomination.id)
-      .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-      .map((assignment) => ({
-        slotNumber: Number(assignment.slot_number),
-        toId: assignment.to_id,
-        toName: toMap.get(assignment.to_id)?.fullName || 'Unknown TO',
-        status: assignment.status || ASSIGNMENT_STATUS.PENDING,
-        respondedAt: assignment.responded_at || null,
-      })),
+    referees: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap),
+    toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap),
   }));
 
   const assignments = ownVisibleAssignments
@@ -1521,17 +1517,8 @@ const getInstructorDashboardData = async (admin, instructorId) => {
         instructorName: officialMap.get(nomination.created_by)?.fullName || currentUser.full_name,
         assignmentGroup: 'Referee',
         assignmentLabel: getNominationSlotLabel(Number(assignment.slot_number)),
-        crew: nominationAssignments
-          .filter((nominationAssignment) => nominationAssignment.nomination_id === nomination.id)
-          .sort((left, right) => Number(left.slot_number) - Number(right.slot_number))
-          .map((nominationAssignment) => ({
-            slotNumber: Number(nominationAssignment.slot_number),
-            refereeId: nominationAssignment.referee_id,
-            refereeName: officialMap.get(nominationAssignment.referee_id)?.fullName || 'Unknown referee',
-            status: nominationAssignment.status,
-            respondedAt: nominationAssignment.responded_at || null,
-          })),
-        toCrew: buildTOCrew(nominationTOAssignments, nomination.id, toMap),
+        crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap),
+        toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap),
       };
     })
     .filter(Boolean)
@@ -2723,6 +2710,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
         refereeId: assignment.referee_id,
       })),
     );
+    const reportsByPairKey = groupReportsByPairKey(reports);
 
     return assignments
       .map((assignment) => {
@@ -2731,16 +2719,13 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
           return null;
         }
 
-        const ownReport = reports.find(
+        const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.referee_id}`) || [];
+        const ownReport = pairReports.find(
           (report) =>
-            report.nomination_id === assignment.nomination_id &&
-            report.referee_id === assignment.referee_id &&
             report.author_id === currentUser.id,
         );
-        const instructorReport = reports.find(
+        const instructorReport = pairReports.find(
           (report) =>
-            report.nomination_id === assignment.nomination_id &&
-            report.referee_id === assignment.referee_id &&
             report.author_role === 'Instructor' &&
             report.status === REPORT_STATUS.REVIEWED,
         );
@@ -2804,6 +2789,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
         refereeId: assignment.referee_id,
       })),
     );
+    const reportsByPairKey = groupReportsByPairKey(reports);
 
     return assignments
       .map((assignment) => {
@@ -2812,17 +2798,14 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
           return null;
         }
 
-        const refereeReport = reports.find(
+        const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.referee_id}`) || [];
+        const refereeReport = pairReports.find(
           (report) =>
-            report.nomination_id === assignment.nomination_id &&
-            report.referee_id === assignment.referee_id &&
             report.author_role === 'Referee' &&
             report.status === REPORT_STATUS.SUBMITTED,
         );
-        const ownReport = reports.find(
+        const ownReport = pairReports.find(
           (report) =>
-            report.nomination_id === assignment.nomination_id &&
-            report.referee_id === assignment.referee_id &&
             report.author_id === currentUser.id,
         );
 
@@ -2875,6 +2858,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
         refereeId: assignment.referee_id,
       })),
     );
+    const reportsByPairKey = groupReportsByPairKey(reports);
 
     return assignments
       .map((assignment) => {
@@ -2883,16 +2867,13 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
           return null;
         }
 
-        const refereeReport = reports.find(
+        const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.referee_id}`) || [];
+        const refereeReport = pairReports.find(
           (report) =>
-            report.nomination_id === assignment.nomination_id &&
-            report.referee_id === assignment.referee_id &&
             report.author_role === 'Referee',
         );
-        const instructorReport = reports.find(
+        const instructorReport = pairReports.find(
           (report) =>
-            report.nomination_id === assignment.nomination_id &&
-            report.referee_id === assignment.referee_id &&
             report.author_role === 'Instructor',
         );
 

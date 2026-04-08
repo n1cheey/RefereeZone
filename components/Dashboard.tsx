@@ -1239,23 +1239,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             {isLoadingAssignments ? (
               <p className="text-sm text-slate-500">Loading nominations...</p>
             ) : (
-              <div className="space-y-6">
-                <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingGames')}</div>
-                  {createdNominationSections.upcoming.length === 0 ? (
-                    <p className="text-sm text-slate-500">{t('dashboard.noUpcomingNominations')}</p>
-                  ) : (
-                    createdNominationSections.upcoming.map(renderCreatedNominationCard)
-                  )}
-                </div>
-                <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.pastGames')}</div>
-                  {createdNominationSections.past.length === 0 ? (
-                    <p className="text-sm text-slate-500">{t('dashboard.noPastGamesYet')}</p>
-                  ) : (
-                    createdNominationSections.past.map(renderCreatedNominationCard)
-                  )}
-                </div>
+              <div className="space-y-4">
+                <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingGames')}</div>
+                {createdNominationSections.upcoming.length === 0 ? (
+                  <p className="text-sm text-slate-500">{t('dashboard.noUpcomingNominations')}</p>
+                ) : (
+                  createdNominationSections.upcoming.map(renderCreatedNominationCard)
+                )}
               </div>
             )}
           </div>
@@ -1277,23 +1267,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             {isLoadingAssignments ? (
               <p className="text-sm text-slate-500">Loading games...</p>
             ) : (
-              <div className="space-y-6">
-                <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingGames')}</div>
-                  {createdNominationSections.upcoming.length === 0 ? (
-                    <p className="text-sm text-slate-500">{t('dashboard.noUpcomingGames')}</p>
-                  ) : (
-                    createdNominationSections.upcoming.map(renderCreatedNominationCard)
-                  )}
-                </div>
-                <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.pastGames')}</div>
-                  {createdNominationSections.past.length === 0 ? (
-                    <p className="text-sm text-slate-500">{t('dashboard.noPastGamesYet')}</p>
-                  ) : (
-                    createdNominationSections.past.map(renderCreatedNominationCard)
-                  )}
-                </div>
+              <div className="space-y-4">
+                <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingGames')}</div>
+                {createdNominationSections.upcoming.length === 0 ? (
+                  <p className="text-sm text-slate-500">{t('dashboard.noUpcomingGames')}</p>
+                ) : (
+                  createdNominationSections.upcoming.map(renderCreatedNominationCard)
+                )}
               </div>
             )}
           </div>
@@ -1335,23 +1315,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             {isLoadingAssignments ? (
               <p className="text-sm text-slate-500">Loading assignments...</p>
             ) : (
-              <div className="space-y-6">
-                <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingAssignedGames')}</div>
-                  {assignmentSections.upcoming.length === 0 ? (
-                    <p className="text-sm text-slate-500">{t('dashboard.noUpcomingGamesYet')}</p>
-                  ) : (
-                    assignmentSections.upcoming.map(renderAssignmentCard)
-                  )}
-                </div>
-                <div className="space-y-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.pastGames')}</div>
-                  {assignmentSections.past.length === 0 ? (
-                    <p className="text-sm text-slate-500">{t('dashboard.noPastGamesYet')}</p>
-                  ) : (
-                    assignmentSections.past.map(renderAssignmentCard)
-                  )}
-                </div>
+              <div className="space-y-4">
+                <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingAssignedGames')}</div>
+                {assignmentSections.upcoming.length === 0 ? (
+                  <p className="text-sm text-slate-500">{t('dashboard.noUpcomingGamesYet')}</p>
+                ) : (
+                  assignmentSections.upcoming.map(renderAssignmentCard)
+                )}
               </div>
             )}
           </div>

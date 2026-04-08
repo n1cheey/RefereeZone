@@ -791,21 +791,6 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             instructorSections.past,
             'No past games yet.',
           )}
-
-          {isInstructor && (
-            <>
-              {renderAssignmentSection(
-                'Upcoming Assigned Games',
-                assignmentSections.upcoming,
-                'No upcoming assigned games.',
-              )}
-              {renderAssignmentSection(
-                'Past Assigned Games',
-                assignmentSections.past,
-                'No past assigned games.',
-              )}
-            </>
-          )}
         </div>
       ) : user.role === 'Referee' || isTO ? (
         <div className="space-y-8">
