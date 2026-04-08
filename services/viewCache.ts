@@ -5,7 +5,7 @@ interface ViewCacheEntry<T> {
   value: T;
 }
 
-export function readViewCache<T>(key: string): T | null {
+export function readViewCacheEntry<T>(key: string): ViewCacheEntry<T> | null {
   if (typeof window === 'undefined') {
     return null;
   }
@@ -27,10 +27,19 @@ export function readViewCache<T>(key: string): T | null {
       return null;
     }
 
-    return parsed.value;
+    return parsed;
   } catch {
     return null;
   }
+}
+
+export function readViewCache<T>(key: string): T | null {
+  return readViewCacheEntry<T>(key)?.value ?? null;
+}
+
+export function isViewCacheFresh(key: string, maxAgeMs: number) {
+  const entry = readViewCacheEntry(key);
+  return Boolean(entry && Date.now() - entry.cachedAt <= maxAgeMs);
 }
 
 export function writeViewCache<T>(key: string, value: T) {
@@ -49,4 +58,3 @@ export function writeViewCache<T>(key: string, value: T) {
     // Ignore storage quota and serialization issues for non-critical UI cache.
   }
 }
-

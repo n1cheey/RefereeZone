@@ -25,6 +25,7 @@ interface NominationsProps {
 
 const POLL_INTERVAL_MS = 45000;
 const getNominationsCacheKey = (userId: string, role: User['role']) => `nominations:${userId}:${role}`;
+const getDashboardCacheKey = (userId: string, role: User['role']) => `dashboard:${userId}:${role}`;
 
 const sortMatchesDesc = <T extends { matchDate: string; matchTime: string }>(items: T[]) =>
   [...items].sort((left, right) => {
@@ -82,6 +83,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     let isMounted = true;
     let intervalId: number | null = null;
     const cacheKey = getNominationsCacheKey(user.id, user.role);
+    const dashboardCacheKey = getDashboardCacheKey(user.id, user.role);
 
     const applyCachedData = () => {
       const cached = readViewCache<{
@@ -123,6 +125,14 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
               nominations: dashboardResponse.nominations,
               assignments: dashboardResponse.assignments,
             });
+            writeViewCache(dashboardCacheKey, {
+              referees: dashboardResponse.referees,
+              toOfficials: dashboardResponse.toOfficials,
+              nominations: dashboardResponse.nominations,
+              assignments: dashboardResponse.assignments,
+              replacementNotices: dashboardResponse.replacementNotices,
+              activeAnnouncement: dashboardResponse.activeAnnouncement || null,
+            });
           }
         } else if (user.role === 'Staff') {
           const response = await getInstructorNominations(user.id);
@@ -147,6 +157,14 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
               toOfficials: [],
               nominations: [],
               assignments: response.nominations,
+            });
+            writeViewCache(dashboardCacheKey, {
+              referees: [],
+              toOfficials: [],
+              nominations: [],
+              assignments: response.nominations,
+              replacementNotices: response.replacementNotices,
+              activeAnnouncement: response.activeAnnouncement || null,
             });
           }
         }

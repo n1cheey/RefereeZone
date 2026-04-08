@@ -4,7 +4,7 @@ import { NewsItem, User } from '../types';
 import { createNewsPost, deleteNewsPost, getNewsPosts } from '../services/newsService';
 import { ExternalLink, Plus, Trash2, Youtube } from 'lucide-react';
 import { useI18n } from '../i18n';
-import { readViewCache, writeViewCache } from '../services/viewCache';
+import { isViewCacheFresh, readViewCache, writeViewCache } from '../services/viewCache';
 
 interface NewsProps {
   user: User;
@@ -12,6 +12,7 @@ interface NewsProps {
 }
 
 const getNewsCacheKey = () => 'news:all';
+const FRESH_NEWS_CACHE_WINDOW_MS = 60000;
 
 const getYoutubeEmbedUrl = (url: string) => {
   try {
@@ -90,7 +91,9 @@ const News: React.FC<NewsProps> = ({ user, onBack }) => {
       }
     };
 
-    void load();
+    if (!isViewCacheFresh(cacheKey, FRESH_NEWS_CACHE_WINDOW_MS)) {
+      void load();
+    }
 
     return () => {
       isMounted = false;

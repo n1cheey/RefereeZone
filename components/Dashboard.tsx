@@ -61,6 +61,7 @@ interface DashboardProps {
 
 const POLL_INTERVAL_MS = 45000;
 const getDashboardCacheKey = (userId: string, role: User['role']) => `dashboard:${userId}:${role}`;
+const getNominationsCacheKey = (userId: string, role: User['role']) => `nominations:${userId}:${role}`;
 const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Baku',
   year: 'numeric',
@@ -147,11 +148,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const isStaff = user.role === 'Staff';
   const isTOSupervisor = user.role === 'TO Supervisor';
   const isTO = user.role === 'TO';
+  const dashboardCacheKey = getDashboardCacheKey(user.id, user.role);
+  const nominationsCacheKey = getNominationsCacheKey(user.id, user.role);
 
   useEffect(() => {
     let isMounted = true;
     let intervalId: number | null = null;
-    const cacheKey = getDashboardCacheKey(user.id, user.role);
 
     const applyCachedData = () => {
       const cached = readViewCache<{
@@ -161,7 +163,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         assignments: RefereeNomination[];
         replacementNotices: ReplacementNotice[];
         activeAnnouncement: AnnouncementItem | null;
-      }>(cacheKey);
+      }>(dashboardCacheKey);
 
       if (!cached) {
         return false;
@@ -190,13 +192,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       setRefereeAssignments(response.assignments);
       setReplacementNotices(response.replacementNotices);
       setActiveAnnouncement(response.activeAnnouncement || null);
-      writeViewCache(cacheKey, {
+      writeViewCache(dashboardCacheKey, {
         referees: response.referees,
         toOfficials: response.toOfficials,
         nominations: response.nominations,
         assignments: response.assignments,
         replacementNotices: response.replacementNotices,
         activeAnnouncement: response.activeAnnouncement || null,
+      });
+      writeViewCache(nominationsCacheKey, {
+        referees: response.referees,
+        toOfficials: response.toOfficials,
+        nominations: response.nominations,
+        assignments: response.assignments,
       });
     };
 
@@ -210,13 +218,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       setRefereeAssignments(response.nominations);
       setReplacementNotices(response.replacementNotices);
       setActiveAnnouncement(response.activeAnnouncement || null);
-      writeViewCache(cacheKey, {
+      writeViewCache(dashboardCacheKey, {
         referees: [],
         toOfficials: [],
         nominations: [],
         assignments: response.nominations,
         replacementNotices: response.replacementNotices,
         activeAnnouncement: response.activeAnnouncement || null,
+      });
+      writeViewCache(nominationsCacheKey, {
+        referees: [],
+        toOfficials: [],
+        nominations: [],
+        assignments: response.nominations,
       });
     };
 
@@ -299,7 +313,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [user.id, user.role]);
+  }, [dashboardCacheKey, nominationsCacheKey, user.id, user.role]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -354,6 +368,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     setRefereeAssignments(response.assignments);
     setReplacementNotices(response.replacementNotices);
     setActiveAnnouncement(response.activeAnnouncement || null);
+    writeViewCache(dashboardCacheKey, {
+      referees: response.referees,
+      toOfficials: response.toOfficials,
+      nominations: response.nominations,
+      assignments: response.assignments,
+      replacementNotices: response.replacementNotices,
+      activeAnnouncement: response.activeAnnouncement || null,
+    });
+    writeViewCache(nominationsCacheKey, {
+      referees: response.referees,
+      toOfficials: response.toOfficials,
+      nominations: response.nominations,
+      assignments: response.assignments,
+    });
   };
 
   const refreshRefereeData = async () => {
@@ -361,6 +389,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     setRefereeAssignments(response.nominations);
     setReplacementNotices(response.replacementNotices);
     setActiveAnnouncement(response.activeAnnouncement || null);
+    writeViewCache(dashboardCacheKey, {
+      referees: [],
+      toOfficials: [],
+      nominations: [],
+      assignments: response.nominations,
+      replacementNotices: response.replacementNotices,
+      activeAnnouncement: response.activeAnnouncement || null,
+    });
+    writeViewCache(nominationsCacheKey, {
+      referees: [],
+      toOfficials: [],
+      nominations: [],
+      assignments: response.nominations,
+    });
   };
 
   const handleCreateNomination = async (e: React.FormEvent) => {
@@ -1427,6 +1469,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
       {(user.role === 'Referee' || isInstructor || isTO) && (
         <div className="space-y-5 mb-8">
+          {activeAnnouncement && (user.role === 'Referee' || isTO) ? renderAnnouncementNotice() : null}
           {replacementNotices.length > 0 && !isTO && (
             <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-4">

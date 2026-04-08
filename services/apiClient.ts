@@ -2,7 +2,7 @@ import { supabase } from './supabaseClient';
 
 const API_TIMEOUT_MS = 45000;
 const API_RETRY_DELAY_MS = 800;
-const GET_CACHE_TTL_MS = 10000;
+const GET_CACHE_TTL_MS = 20000;
 
 const responseCache = new Map<string, { expiresAt: number; data: unknown }>();
 const inflightGetRequests = new Map<string, Promise<unknown>>();

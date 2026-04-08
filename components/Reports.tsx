@@ -5,7 +5,7 @@ import { ReportDetail, ReportListItem, ReportMode, ReportStatus, User } from '..
 import { getNominationSlotLabel, getTOSlotLabel } from '../slotLabels';
 import { deleteReport, extendReportDeadline, getReportDetail, getReports, saveReport } from '../services/reportsService';
 import { getReferees } from '../services/nominationService';
-import { readViewCache, writeViewCache } from '../services/viewCache';
+import { isViewCacheFresh, readViewCache, writeViewCache } from '../services/viewCache';
 import { getReportStatusLabel, useI18n } from '../i18n';
 
 interface ReportsProps {
@@ -13,6 +13,8 @@ interface ReportsProps {
   onBack: () => void;
   reportMode?: ReportMode;
 }
+
+const FRESH_REPORTS_CACHE_WINDOW_MS = 20000;
 
 const getReportsCacheKey = (userId: string, reportMode: ReportMode) => `reports:${userId}:${reportMode}`;
 const getReportDetailCacheKey = (userId: string, reportMode: ReportMode, nominationId: string, refereeId: string) =>
@@ -237,7 +239,9 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       }
     };
 
-    void load();
+    if (!isViewCacheFresh(cacheKey, FRESH_REPORTS_CACHE_WINDOW_MS)) {
+      void load();
+    }
 
     return () => {
       isMounted = false;

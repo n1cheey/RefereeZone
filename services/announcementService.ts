@@ -12,7 +12,14 @@ export function getCurrentAnnouncement(userId: string) {
   );
 }
 
-export function saveAnnouncement(payload: { userId: string; message: string; sourceLanguage: Language }) {
+export function saveAnnouncement(payload: {
+  userId: string;
+  message: string;
+  sourceLanguage: Language;
+  messageAz?: string;
+  messageEn?: string;
+  messageRu?: string;
+}) {
   return apiRequest<{ message: string; announcement: AnnouncementItem }>(
     '/api/announcements/current',
     {

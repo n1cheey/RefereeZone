@@ -13,7 +13,11 @@ interface AnnouncementManagerProps {
 const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack }) => {
   const { language, locale, t } = useI18n();
   const [announcement, setAnnouncement] = useState<AnnouncementItem | null>(null);
-  const [message, setMessage] = useState('');
+  const [draftTranslations, setDraftTranslations] = useState({
+    az: '',
+    en: '',
+    ru: '',
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -47,7 +51,11 @@ const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack 
         }
 
         setAnnouncement(response.announcement);
-        setMessage(getAnnouncementText(response.announcement));
+        setDraftTranslations({
+          az: response.announcement?.messageAz || '',
+          en: response.announcement?.messageEn || '',
+          ru: response.announcement?.messageRu || '',
+        });
         setErrorMessage('');
       } catch (error) {
         if (isMounted) {
@@ -65,7 +73,14 @@ const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack 
     return () => {
       isMounted = false;
     };
-  }, [language, user.id]);
+  }, [user.id]);
+
+  const updateDraftTranslation = (key: 'az' | 'en' | 'ru', value: string) => {
+    setDraftTranslations((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
 
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -74,13 +89,30 @@ const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack 
     setSuccessMessage('');
 
     try {
+      const sourceMessage =
+        (language === 'az'
+          ? draftTranslations.az
+          : language === 'ru'
+            ? draftTranslations.ru
+            : draftTranslations.en) ||
+        draftTranslations.en ||
+        draftTranslations.az ||
+        draftTranslations.ru;
+
       const response = await saveAnnouncement({
         userId: user.id,
-        message,
+        message: sourceMessage,
         sourceLanguage: language,
+        messageAz: draftTranslations.az,
+        messageEn: draftTranslations.en,
+        messageRu: draftTranslations.ru,
       });
       setAnnouncement(response.announcement);
-      setMessage(getAnnouncementText(response.announcement));
+      setDraftTranslations({
+        az: response.announcement.messageAz || '',
+        en: response.announcement.messageEn || '',
+        ru: response.announcement.messageRu || '',
+      });
       setSuccessMessage(t('announcement.saved'));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to save announcement.');
@@ -141,20 +173,48 @@ const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack 
       </div>
 
       <form onSubmit={handleSave} className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-        <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
-          {t('announcement.message')}
-        </label>
-        <textarea
-          rows={6}
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          placeholder={t('announcement.placeholder')}
-          className="w-full resize-none rounded-2xl border border-slate-200 bg-white p-4 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-        />
+        <div className="space-y-4">
+          <div>
+            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+              AZ {t('announcement.message')}
+            </label>
+            <textarea
+              rows={4}
+              value={draftTranslations.az}
+              onChange={(event) => updateDraftTranslation('az', event.target.value)}
+              placeholder={t('announcement.placeholder')}
+              className="w-full resize-none rounded-2xl border border-slate-200 bg-white p-4 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+            />
+          </div>
+          <div>
+            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+              EN {t('announcement.message')}
+            </label>
+            <textarea
+              rows={4}
+              value={draftTranslations.en}
+              onChange={(event) => updateDraftTranslation('en', event.target.value)}
+              placeholder={t('announcement.placeholder')}
+              className="w-full resize-none rounded-2xl border border-slate-200 bg-white p-4 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+            />
+          </div>
+          <div>
+            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-500">
+              RU {t('announcement.message')}
+            </label>
+            <textarea
+              rows={4}
+              value={draftTranslations.ru}
+              onChange={(event) => updateDraftTranslation('ru', event.target.value)}
+              placeholder={t('announcement.placeholder')}
+              className="w-full resize-none rounded-2xl border border-slate-200 bg-white p-4 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+            />
+          </div>
+        </div>
         <p className="mt-3 text-xs text-slate-500">{t('announcement.deadlineHelp')}</p>
         <button
           type="submit"
-          disabled={isSaving || !message.trim()}
+          disabled={isSaving || !draftTranslations.az.trim() && !draftTranslations.en.trim() && !draftTranslations.ru.trim()}
           className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
         >
           <Save size={16} />

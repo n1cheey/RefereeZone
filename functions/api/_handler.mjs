@@ -580,15 +580,31 @@ const saveCurrentAnnouncement = async (admin, currentUser, body) => {
     throw new HttpError(403, 'This role cannot manage announcements.');
   }
 
-  const message = String(body.message || '').trim();
   const sourceLanguage = ['az', 'en', 'ru'].includes(String(body.sourceLanguage || '').trim())
     ? String(body.sourceLanguage || '').trim()
     : 'en';
+  const manualTranslations = {
+    az: String(body.messageAz || '').trim(),
+    en: String(body.messageEn || '').trim(),
+    ru: String(body.messageRu || '').trim(),
+  };
+  const message =
+    String(body.message || '').trim() ||
+    manualTranslations[sourceLanguage] ||
+    manualTranslations.en ||
+    manualTranslations.az ||
+    manualTranslations.ru;
+
   if (!message) {
     throw new HttpError(400, 'Announcement text is required.');
   }
 
-  const translations = await generateAnnouncementTranslations(message, sourceLanguage);
+  const generatedTranslations = await generateAnnouncementTranslations(message, sourceLanguage);
+  const translations = {
+    az: manualTranslations.az || generatedTranslations.az,
+    en: manualTranslations.en || generatedTranslations.en,
+    ru: manualTranslations.ru || generatedTranslations.ru,
+  };
 
   const { error: deleteError } = await admin.from('announcements').delete().eq('audience_role', audienceRole);
   if (deleteError) {
