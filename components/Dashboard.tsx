@@ -67,9 +67,16 @@ const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 });
 
+const sortMatchesDesc = <T extends { matchDate: string; matchTime: string }>(items: T[]) =>
+  [...items].sort((left, right) => {
+    const leftTime = getMatchTimestamp(left.matchDate, left.matchTime) ?? 0;
+    const rightTime = getMatchTimestamp(right.matchDate, right.matchTime) ?? 0;
+    return rightTime - leftTime;
+  });
+
 const splitMatchesByTime = <T extends { matchDate: string; matchTime: string }>(items: T[], now: number) => ({
-  upcoming: items.filter((item) => !isPastMatch(item.matchDate, item.matchTime, now)),
-  past: items.filter((item) => isPastMatch(item.matchDate, item.matchTime, now)),
+  upcoming: sortMatchesDesc(items.filter((item) => !isPastMatch(item.matchDate, item.matchTime, now))),
+  past: sortMatchesDesc(items.filter((item) => isPastMatch(item.matchDate, item.matchTime, now))),
 });
 
 const isUpcomingMatchDay = (matchDate: string, matchTime: string, now: number) => {

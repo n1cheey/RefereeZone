@@ -3,7 +3,7 @@ import Layout from './Layout';
 import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination } from '../types';
 import { getNominationSlotLabel, getTOSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
-import { isPastMatch } from '../matchTiming';
+import { getMatchTimestamp, isPastMatch } from '../matchTiming';
 import { Calendar, CheckCircle2, Clock, FileText, MapPin, Pencil, Trash2, XCircle, Youtube } from 'lucide-react';
 import {
   assignNominationTOs,
@@ -26,9 +26,16 @@ interface NominationsProps {
 const POLL_INTERVAL_MS = 45000;
 const getNominationsCacheKey = (userId: string, role: User['role']) => `nominations:${userId}:${role}`;
 
+const sortMatchesDesc = <T extends { matchDate: string; matchTime: string }>(items: T[]) =>
+  [...items].sort((left, right) => {
+    const leftTime = getMatchTimestamp(left.matchDate, left.matchTime) ?? 0;
+    const rightTime = getMatchTimestamp(right.matchDate, right.matchTime) ?? 0;
+    return rightTime - leftTime;
+  });
+
 const splitMatchesByTime = <T extends { matchDate: string; matchTime: string }>(items: T[], now: number) => ({
-  upcoming: items.filter((item) => !isPastMatch(item.matchDate, item.matchTime, now)),
-  past: items.filter((item) => isPastMatch(item.matchDate, item.matchTime, now)),
+  upcoming: sortMatchesDesc(items.filter((item) => !isPastMatch(item.matchDate, item.matchTime, now))),
+  past: sortMatchesDesc(items.filter((item) => isPastMatch(item.matchDate, item.matchTime, now))),
 });
 
 const getAssignmentStatusClasses = (status: string) => {

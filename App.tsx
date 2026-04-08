@@ -10,15 +10,66 @@ import {
   subscribeToAuthChanges,
 } from './services/authService';
 
-const Dashboard = lazy(() => import('./components/Dashboard'));
-const Nominations = lazy(() => import('./components/Nominations'));
-const Teyinat = lazy(() => import('./components/Teyinat'));
-const Ranking = lazy(() => import('./components/Ranking'));
-const Reports = lazy(() => import('./components/Reports'));
-const News = lazy(() => import('./components/News'));
-const Members = lazy(() => import('./components/Members'));
-const AccessManager = lazy(() => import('./components/AccessManager'));
-const Activity = lazy(() => import('./components/Activity'));
+const LAZY_RELOAD_STORAGE_KEY = 'abl-lazy-reload-once';
+
+const isChunkLoadError = (error: unknown) => {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : '';
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes('failed to fetch dynamically imported module') ||
+    normalized.includes('importing a module script failed') ||
+    normalized.includes('chunkloaderror') ||
+    normalized.includes('loading chunk')
+  );
+};
+
+const buildChunkRecoveryUrl = () => {
+  const url = new URL(window.location.href);
+  url.searchParams.set('v', Date.now().toString());
+  return url.toString();
+};
+
+const lazyWithRetry = <T extends React.ComponentType<any>>(
+  importer: () => Promise<{ default: T }>,
+) =>
+  lazy(async () => {
+    try {
+      const module = await importer();
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.removeItem(LAZY_RELOAD_STORAGE_KEY);
+      }
+      return module;
+    } catch (error) {
+      if (typeof window !== 'undefined' && isChunkLoadError(error)) {
+        const hasRetried = window.sessionStorage.getItem(LAZY_RELOAD_STORAGE_KEY) === '1';
+        if (!hasRetried) {
+          window.sessionStorage.setItem(LAZY_RELOAD_STORAGE_KEY, '1');
+          window.location.replace(buildChunkRecoveryUrl());
+          await new Promise(() => {});
+        }
+
+        window.sessionStorage.removeItem(LAZY_RELOAD_STORAGE_KEY);
+      }
+
+      throw error instanceof Error ? error : new Error('Failed to load application module.');
+    }
+  });
+
+const Dashboard = lazyWithRetry(() => import('./components/Dashboard'));
+const Nominations = lazyWithRetry(() => import('./components/Nominations'));
+const Teyinat = lazyWithRetry(() => import('./components/Teyinat'));
+const Ranking = lazyWithRetry(() => import('./components/Ranking'));
+const Reports = lazyWithRetry(() => import('./components/Reports'));
+const News = lazyWithRetry(() => import('./components/News'));
+const Members = lazyWithRetry(() => import('./components/Members'));
+const AccessManager = lazyWithRetry(() => import('./components/AccessManager'));
+const Activity = lazyWithRetry(() => import('./components/Activity'));
 
 type View =
   | 'login'

@@ -212,15 +212,15 @@ const getTOAssignmentLabel = (slotNumber) => {
 };
 
 const sortByMatchAsc = (left, right) => {
-  const leftKey = `${left.matchDate}T${left.matchTime}`;
-  const rightKey = `${right.matchDate}T${right.matchTime}`;
-  return leftKey.localeCompare(rightKey);
+  const leftTime = createMatchDateTime(left.matchDate, left.matchTime)?.getTime() ?? 0;
+  const rightTime = createMatchDateTime(right.matchDate, right.matchTime)?.getTime() ?? 0;
+  return leftTime - rightTime;
 };
 
 const sortByMatchDesc = (left, right) => {
-  const leftKey = `${left.matchDate}T${left.matchTime}`;
-  const rightKey = `${right.matchDate}T${right.matchTime}`;
-  return rightKey.localeCompare(leftKey);
+  const leftTime = createMatchDateTime(left.matchDate, left.matchTime)?.getTime() ?? 0;
+  const rightTime = createMatchDateTime(right.matchDate, right.matchTime)?.getTime() ?? 0;
+  return rightTime - leftTime;
 };
 
 const formatDeadline = (deadline) =>
@@ -1262,8 +1262,8 @@ const getInstructorNominationsData = async (admin, instructorId) => {
   const { data, error } = await admin
     .from('nominations')
     .select('*')
-    .order('match_date', { ascending: true })
-    .order('match_time', { ascending: true });
+    .order('match_date', { ascending: false })
+    .order('match_time', { ascending: false });
 
   const nominations = ensureData(data || [], error, 'Failed to load instructor nominations.');
   if (!nominations.length) {
@@ -1292,22 +1292,24 @@ const getInstructorNominationsData = async (admin, instructorId) => {
   const assignmentsByNominationId = groupRowsByNominationId(assignments);
   const toAssignmentsByNominationId = groupRowsByNominationId(toAssignments);
 
-  return nominations.map((nomination) => ({
-    id: nomination.id,
-    gameCode: nomination.game_code || 'ABL-NEW',
-    teams: nomination.teams,
-    matchDate: nomination.match_date,
-    matchTime: nomination.match_time,
-    venue: nomination.venue,
-    finalScore: nomination.final_score || null,
-    matchVideoUrl: nomination.match_video_url || null,
-    matchProtocolUrl: nomination.match_protocol_url || null,
-    createdAt: nomination.created_at,
-    createdById: nomination.created_by,
-    createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
-    referees: buildRefereeCrewFromAssignments(assignmentsByNominationId.get(nomination.id) || [], refereeMap),
-    toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap),
-  }));
+  return nominations
+    .map((nomination) => ({
+      id: nomination.id,
+      gameCode: nomination.game_code || 'ABL-NEW',
+      teams: nomination.teams,
+      matchDate: nomination.match_date,
+      matchTime: nomination.match_time,
+      venue: nomination.venue,
+      finalScore: nomination.final_score || null,
+      matchVideoUrl: nomination.match_video_url || null,
+      matchProtocolUrl: nomination.match_protocol_url || null,
+      createdAt: nomination.created_at,
+      createdById: nomination.created_by,
+      createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
+      referees: buildRefereeCrewFromAssignments(assignmentsByNominationId.get(nomination.id) || [], refereeMap),
+      toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap),
+    }))
+    .sort(sortByMatchDesc);
 };
 
 const getRefereeAssignmentsData = async (admin, refereeId) => {
@@ -1391,7 +1393,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
           };
         })
         .filter(Boolean)
-        .sort(sortByMatchAsc),
+        .sort(sortByMatchDesc),
       replacementNotices: [],
     };
   }
@@ -1479,7 +1481,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
         };
       })
       .filter(Boolean)
-      .sort(sortByMatchAsc),
+      .sort(sortByMatchDesc),
     replacementNotices,
   };
 };
@@ -1509,8 +1511,8 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     admin
       .from('nominations')
       .select('*')
-      .order('match_date', { ascending: true })
-      .order('match_time', { ascending: true }),
+      .order('match_date', { ascending: false })
+      .order('match_time', { ascending: false }),
   ]);
 
   const officials = ensureData(officialRows || [], officialsError, 'Failed to load referees.').map(mapOfficialDirectoryItem);
@@ -1582,7 +1584,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
       };
     })
     .filter(Boolean)
-    .sort(sortByMatchAsc);
+    .sort(sortByMatchDesc);
 
   return {
     referees: officials,
