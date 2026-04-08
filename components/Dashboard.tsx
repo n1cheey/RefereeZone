@@ -987,8 +987,18 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     </div>
   );
 
+  const dashboardTitle = isInstructor
+    ? t('dashboard.instructorPanel')
+    : isTOSupervisor
+      ? t('dashboard.toSupervisorPanel')
+      : isStaff
+        ? t('dashboard.staffPanel')
+        : isTO
+          ? t('dashboard.toDashboard')
+          : t('dashboard.refZoneDashboard');
+
   return (
-      <Layout title={isInstructor ? 'Instructor Panel' : isTOSupervisor ? 'TO Supervisor Panel' : isStaff ? 'Staff Panel' : isTO ? 'TO Dashboard' : 'RefZone Dashboard'} showBack={false} onLogout={onLogout}>
+      <Layout title={dashboardTitle} showBack={false} onLogout={onLogout}>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
         <div className="flex items-center gap-4">
           <div className="relative cursor-pointer group" onClick={handlePhotoClick}>
@@ -1035,9 +1045,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             <div>
               <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                 <Shield size={18} className="text-[#581c1c]" />
-                Instructor Controls
+                {t('dashboard.instructorControls')}
               </h3>
-              <p className="text-sm text-slate-500">Create nominations, edit members and manage registration access.</p>
+              <p className="text-sm text-slate-500">{t('dashboard.instructorControlsHelp')}</p>
             </div>
             <div className="flex flex-wrap justify-end gap-3">
               <button
@@ -1045,21 +1055,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                 className="inline-flex items-center gap-2 rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-800"
               >
                 <Users size={16} />
-                All Members
+                {t('dashboard.allMembers')}
               </button>
               <button
                 onClick={() => onNavigate('access')}
                 className="inline-flex items-center gap-2 rounded-xl bg-[#f39200] px-4 py-3 text-sm font-bold text-white"
               >
                 <UserPlus size={16} />
-                Add Access
+                {t('dashboard.addAccess')}
               </button>
               <button
                 onClick={() => setShowCreateForm((prev) => !prev)}
                 className="inline-flex items-center gap-2 rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-[#581c1c]/15"
               >
                 <Plus size={16} />
-                Create Nomination
+                {t('dashboard.createNomination')}
               </button>
             </div>
           </div>
@@ -1142,7 +1152,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                   disabled={isSubmittingCreate}
                   className="rounded-xl bg-[#f39200] px-5 py-3 text-sm font-bold text-white disabled:opacity-70"
                 >
-                  {isSubmittingCreate ? 'Creating...' : 'Save Nomination'}
+                  {isSubmittingCreate ? t('dashboard.creatingNomination') : t('dashboard.saveNomination')}
                 </button>
               </div>
             </form>
@@ -1151,7 +1161,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <div className="flex items-center gap-2 mb-4">
               <Bell size={18} className="text-[#581c1c]" />
-              <h3 className="text-base font-bold text-slate-900">Instructor Notifications</h3>
+              <h3 className="text-base font-bold text-slate-900">{t('dashboard.instructorNotifications')}</h3>
             </div>
             {declinedAssignments.length === 0 ? (
               <p className="text-sm text-slate-500">{t('dashboard.noDeclinedYet')}</p>
