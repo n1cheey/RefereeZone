@@ -270,6 +270,9 @@ export interface AnnouncementItem {
   id: string;
   audienceRole: 'Referee' | 'TO';
   message: string;
+  messageAz: string;
+  messageEn: string;
+  messageRu: string;
   createdAt: string;
   expiresAt: string;
   createdById: string;

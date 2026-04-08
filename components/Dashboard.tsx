@@ -1123,24 +1123,25 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       minute: '2-digit',
     }).format(new Date(value));
 
+  const renderAnnouncementNotice = () =>
+    activeAnnouncement ? (
+      <div className="mb-4 rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,#fff8e7_0%,#fff2d8_55%,#fbe6bf_100%)] px-4 py-4">
+        <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-700">{t('announcement.title')}</div>
+        <div className="mt-2 whitespace-pre-wrap text-sm font-medium text-slate-800">
+          {language === 'az'
+            ? activeAnnouncement.messageAz || activeAnnouncement.message
+            : language === 'ru'
+              ? activeAnnouncement.messageRu || activeAnnouncement.message
+              : activeAnnouncement.messageEn || activeAnnouncement.message}
+        </div>
+        <div className="mt-3 text-xs text-slate-600">
+          {t('announcement.expiresAt', { date: formatAnnouncementDate(activeAnnouncement.expiresAt) })}
+        </div>
+      </div>
+    ) : null;
+
   return (
       <Layout title={dashboardTitle} showBack={false} onLogout={onLogout}>
-      {activeAnnouncement ? (
-        <div className="mb-6 rounded-3xl border border-amber-200 bg-[linear-gradient(135deg,#fff8e7_0%,#fff2d8_55%,#fbe6bf_100%)] p-5 shadow-sm">
-          <div className="flex items-start gap-4">
-            <div className="rounded-2xl bg-white/80 p-3 text-amber-600 shadow-sm">
-              <Bell size={22} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-bold uppercase tracking-[0.22em] text-amber-700">{t('announcement.title')}</div>
-              <div className="mt-2 whitespace-pre-wrap text-sm font-medium text-slate-800">{activeAnnouncement.message}</div>
-              <div className="mt-3 text-xs text-slate-600">
-                {t('announcement.expiresAt', { date: formatAnnouncementDate(activeAnnouncement.expiresAt) })}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
         <div className="flex items-center gap-4">
           <div className="relative cursor-pointer group" onClick={handlePhotoClick}>
@@ -1305,6 +1306,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
               <Bell size={18} className="text-[#581c1c]" />
               <h3 className="text-base font-bold text-slate-900">{t('dashboard.instructorNotifications')}</h3>
             </div>
+            {renderAnnouncementNotice()}
             {declinedAssignments.length === 0 ? (
               <p className="text-sm text-slate-500">{t('dashboard.noDeclinedYet')}</p>
             ) : (
@@ -1385,6 +1387,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
               <h3 className="text-base font-bold text-slate-900">TO Supervisor Controls</h3>
             </div>
             <p className="text-sm text-slate-500">New games appear here automatically. Choose 4 TO officials for each match.</p>
+            <div className="mt-4">{renderAnnouncementNotice()}</div>
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">

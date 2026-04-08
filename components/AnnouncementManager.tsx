@@ -11,13 +11,29 @@ interface AnnouncementManagerProps {
 }
 
 const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack }) => {
-  const { locale, t } = useI18n();
+  const { language, locale, t } = useI18n();
   const [announcement, setAnnouncement] = useState<AnnouncementItem | null>(null);
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  const getAnnouncementText = (item: AnnouncementItem | null) => {
+    if (!item) {
+      return '';
+    }
+
+    if (language === 'az') {
+      return item.messageAz || item.message;
+    }
+
+    if (language === 'ru') {
+      return item.messageRu || item.message;
+    }
+
+    return item.messageEn || item.message;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -31,7 +47,7 @@ const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack 
         }
 
         setAnnouncement(response.announcement);
-        setMessage(response.announcement?.message || '');
+        setMessage(getAnnouncementText(response.announcement));
         setErrorMessage('');
       } catch (error) {
         if (isMounted) {
@@ -49,7 +65,7 @@ const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack 
     return () => {
       isMounted = false;
     };
-  }, [user.id]);
+  }, [language, user.id]);
 
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -61,9 +77,10 @@ const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack 
       const response = await saveAnnouncement({
         userId: user.id,
         message,
+        sourceLanguage: language,
       });
       setAnnouncement(response.announcement);
-      setMessage(response.announcement.message);
+      setMessage(getAnnouncementText(response.announcement));
       setSuccessMessage(t('announcement.saved'));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to save announcement.');
@@ -115,7 +132,7 @@ const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack 
           <p className="mt-3 text-sm text-slate-500">{t('announcement.none')}</p>
         ) : (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
-            <div className="whitespace-pre-wrap text-sm font-medium text-slate-800">{announcement.message}</div>
+            <div className="whitespace-pre-wrap text-sm font-medium text-slate-800">{getAnnouncementText(announcement)}</div>
             <div className="mt-3 text-xs text-slate-600">
               {t('announcement.expiresAt', { date: formatDateTime(announcement.expiresAt) })}
             </div>

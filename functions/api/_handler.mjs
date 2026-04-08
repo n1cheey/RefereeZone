@@ -344,6 +344,9 @@ const mapAnnouncement = (announcement, creatorName = '') =>
         id: announcement.id,
         audienceRole: announcement.audience_role,
         message: announcement.message || '',
+        messageAz: announcement.message_az || announcement.message || '',
+        messageEn: announcement.message_en || announcement.message || '',
+        messageRu: announcement.message_ru || announcement.message || '',
         createdAt: announcement.created_at,
         expiresAt: announcement.expires_at,
         createdById: announcement.created_by,
@@ -578,9 +581,14 @@ const saveCurrentAnnouncement = async (admin, currentUser, body) => {
   }
 
   const message = String(body.message || '').trim();
+  const sourceLanguage = ['az', 'en', 'ru'].includes(String(body.sourceLanguage || '').trim())
+    ? String(body.sourceLanguage || '').trim()
+    : 'en';
   if (!message) {
     throw new HttpError(400, 'Announcement text is required.');
   }
+
+  const translations = await generateAnnouncementTranslations(message, sourceLanguage);
 
   const { error: deleteError } = await admin.from('announcements').delete().eq('audience_role', audienceRole);
   if (deleteError) {
@@ -592,6 +600,9 @@ const saveCurrentAnnouncement = async (admin, currentUser, body) => {
   const { error: insertError } = await admin.from('announcements').insert({
     audience_role: audienceRole,
     message,
+    message_az: translations.az,
+    message_en: translations.en,
+    message_ru: translations.ru,
     created_by: currentUser.id,
     expires_at: expiresAt,
     created_at: nowIso,
@@ -1322,6 +1333,71 @@ const generateAiSummary = async (reportsCount, avgScore) => {
     });
 
     return response.text || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const extractJsonObject = (text) => {
+  const source = String(text || '').trim();
+  if (!source) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(source);
+  } catch {
+    const match = source.match(/\{[\s\S]*\}/);
+    if (!match) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+};
+
+const generateAnnouncementTranslations = async (message, sourceLanguage = 'en') => {
+  const normalizedMessage = String(message || '').trim();
+  const normalizedSourceLanguage = ['az', 'en', 'ru'].includes(String(sourceLanguage)) ? String(sourceLanguage) : 'en';
+  const fallback = {
+    az: normalizedMessage,
+    en: normalizedMessage,
+    ru: normalizedMessage,
+  };
+
+  if (!normalizedMessage) {
+    return fallback;
+  }
+
+  try {
+    const ai = await getGeminiClient();
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents:
+        `Translate the following announcement into Azerbaijani (az), English (en), and Russian (ru). ` +
+        `Preserve meaning, tone, line breaks, and keep it concise. ` +
+        `The source language is ${normalizedSourceLanguage}. ` +
+        `Return only valid JSON like {"az":"...","en":"...","ru":"..."}. ` +
+        `Announcement:\n${normalizedMessage}`,
+      config: {
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
+
+    const parsed = extractJsonObject(response.text);
+    if (!parsed || typeof parsed !== 'object') {
+      return fallback;
+    }
+
+    return {
+      az: String(parsed.az || fallback.az).trim() || fallback.az,
+      en: String(parsed.en || fallback.en).trim() || fallback.en,
+      ru: String(parsed.ru || fallback.ru).trim() || fallback.ru,
+    };
   } catch {
     return fallback;
   }

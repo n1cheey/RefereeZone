@@ -208,11 +208,18 @@ create table if not exists public.announcements (
   id uuid primary key default gen_random_uuid(),
   audience_role text not null check (audience_role in ('Referee', 'TO')),
   message text not null default '',
+  message_az text not null default '',
+  message_en text not null default '',
+  message_ru text not null default '',
   created_by uuid not null references public.profiles(id) on delete cascade,
   expires_at timestamptz not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.announcements add column if not exists message_az text not null default '';
+alter table public.announcements add column if not exists message_en text not null default '';
+alter table public.announcements add column if not exists message_ru text not null default '';
 
 create table if not exists public.user_activity (
   user_id uuid primary key references public.profiles(id) on delete cascade,
