@@ -70,6 +70,7 @@ const News = lazyWithRetry(() => import('./components/News'));
 const Members = lazyWithRetry(() => import('./components/Members'));
 const AccessManager = lazyWithRetry(() => import('./components/AccessManager'));
 const Activity = lazyWithRetry(() => import('./components/Activity'));
+const AnnouncementManager = lazyWithRetry(() => import('./components/AnnouncementManager'));
 
 type View =
   | 'login'
@@ -81,6 +82,7 @@ type View =
   | 'reports'
   | 'toReports'
   | 'news'
+  | 'announcement'
   | 'members'
   | 'access'
   | 'activity';
@@ -142,6 +144,7 @@ const normalizeStoredView = (value: unknown): View => {
     case 'reports':
     case 'toReports':
     case 'news':
+    case 'announcement':
     case 'members':
     case 'access':
     case 'activity':
@@ -461,6 +464,8 @@ const AppContent: React.FC = () => {
         return <Reports user={currentUser!} onBack={() => setCurrentView('dashboard')} reportMode="to" />;
       case 'news':
         return <News user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+      case 'announcement':
+        return <AnnouncementManager user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'members':
         return <Members user={currentUser!} onBack={() => setCurrentView('dashboard')} onCurrentUserUpdated={handleUpdateUser} />;
       case 'access':

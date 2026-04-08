@@ -1,4 +1,4 @@
-import { InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
+import { AnnouncementItem, InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
 import { apiRequest } from './apiClient';
 
 const JSON_HEADERS = {
@@ -11,6 +11,7 @@ export interface InstructorDashboardResponse {
   nominations: InstructorNomination[];
   assignments: RefereeNomination[];
   replacementNotices: ReplacementNotice[];
+  activeAnnouncement?: AnnouncementItem | null;
 }
 
 export function getReferees(instructorId: string) {
@@ -26,7 +27,7 @@ export function getInstructorNominations(instructorId: string) {
 }
 
 export function getRefereeNominations(refereeId: string) {
-  return apiRequest<{ nominations: RefereeNomination[]; replacementNotices: ReplacementNotice[] }>(
+  return apiRequest<{ nominations: RefereeNomination[]; replacementNotices: ReplacementNotice[]; activeAnnouncement?: AnnouncementItem | null }>(
     `/api/nominations/referee/${encodeURIComponent(refereeId)}`,
   );
 }

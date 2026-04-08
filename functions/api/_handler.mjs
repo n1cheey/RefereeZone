@@ -25,6 +25,11 @@ const REPORT_MODE = {
 const TEST_REPORT_TO_TABLE = 'test_report_tos';
 const REPORT_DEADLINE_EXTENSION_MS = 24 * 60 * 60 * 1000;
 const REPORT_DEADLINE_BASE_MS = 48 * 60 * 60 * 1000;
+const ANNOUNCEMENT_TTL_MS = 24 * 60 * 60 * 1000;
+const ANNOUNCEMENT_AUDIENCE = {
+  REFEREE: 'Referee',
+  TO: 'TO',
+};
 const ROLE_PREFIX = {
   Instructor: 'INS',
   'TO Supervisor': 'TOS',
@@ -333,6 +338,19 @@ const mapAllowedAccess = (item) => ({
   role: normalizeRole(item.allowed_role),
 });
 
+const mapAnnouncement = (announcement, creatorName = '') =>
+  announcement
+    ? {
+        id: announcement.id,
+        audienceRole: announcement.audience_role,
+        message: announcement.message || '',
+        createdAt: announcement.created_at,
+        expiresAt: announcement.expires_at,
+        createdById: announcement.created_by,
+        createdByName: creatorName || 'Unknown user',
+      }
+    : null;
+
 const mapReplacementNotice = ({ notice, nomination, newRefereeName }) => ({
   id: notice.id,
   nominationId: nomination.id,
@@ -503,6 +521,93 @@ const listProfilesByIds = async (admin, ids) => {
 
   const { data, error } = await admin.from('profiles').select('*').in('id', ids);
   return ensureData(data || [], error, 'Failed to load user profiles.').map(normalizeProfileRow);
+};
+
+const getAnnouncementAudienceForRole = (role) => {
+  if (role === 'Instructor' || role === 'Referee') {
+    return ANNOUNCEMENT_AUDIENCE.REFEREE;
+  }
+
+  if (role === 'TO Supervisor' || role === 'TO') {
+    return ANNOUNCEMENT_AUDIENCE.TO;
+  }
+
+  return null;
+};
+
+const purgeExpiredAnnouncements = async (admin) => {
+  const { error } = await admin.from('announcements').delete().lte('expires_at', new Date().toISOString());
+  if (error) {
+    throw new HttpError(500, 'Failed to refresh announcements.');
+  }
+};
+
+const loadActiveAnnouncementByAudience = async (admin, audienceRole) => {
+  if (!audienceRole) {
+    return null;
+  }
+
+  await purgeExpiredAnnouncements(admin);
+
+  const announcement = await maybeSingle(
+    admin
+      .from('announcements')
+      .select('*')
+      .eq('audience_role', audienceRole)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1),
+    'Failed to load announcement.',
+  );
+
+  if (!announcement) {
+    return null;
+  }
+
+  const creator = await loadProfileById(admin, announcement.created_by);
+  return mapAnnouncement(announcement, creator?.full_name || '');
+};
+
+const getCurrentAnnouncementForUser = async (admin, currentUser) =>
+  loadActiveAnnouncementByAudience(admin, getAnnouncementAudienceForRole(currentUser.role));
+
+const saveCurrentAnnouncement = async (admin, currentUser, body) => {
+  const audienceRole = getAnnouncementAudienceForRole(currentUser.role);
+  if (!audienceRole || !['Instructor', 'TO Supervisor'].includes(currentUser.role)) {
+    throw new HttpError(403, 'This role cannot manage announcements.');
+  }
+
+  const message = String(body.message || '').trim();
+  if (!message) {
+    throw new HttpError(400, 'Announcement text is required.');
+  }
+
+  const { error: deleteError } = await admin.from('announcements').delete().eq('audience_role', audienceRole);
+  if (deleteError) {
+    throw new HttpError(500, 'Failed to replace the previous announcement.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + ANNOUNCEMENT_TTL_MS).toISOString();
+  const { error: insertError } = await admin.from('announcements').insert({
+    audience_role: audienceRole,
+    message,
+    created_by: currentUser.id,
+    expires_at: expiresAt,
+    created_at: nowIso,
+    updated_at: nowIso,
+  });
+
+  if (insertError) {
+    throw new HttpError(500, 'Failed to save announcement.');
+  }
+
+  const announcement = await loadActiveAnnouncementByAudience(admin, audienceRole);
+  if (!announcement) {
+    throw new HttpError(500, 'Failed to load saved announcement.');
+  }
+
+  return announcement;
 };
 
 const listNominationsByIds = async (admin, ids) => {
@@ -1328,6 +1433,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
       return {
         nominations: [],
         replacementNotices: [],
+        activeAnnouncement: await getCurrentAnnouncementForUser(admin, user),
       };
     }
 
@@ -1395,6 +1501,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
         .filter(Boolean)
         .sort(sortByMatchDesc),
       replacementNotices: [],
+      activeAnnouncement: await getCurrentAnnouncementForUser(admin, user),
     };
   }
 
@@ -1413,6 +1520,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
     return {
       nominations: [],
       replacementNotices,
+      activeAnnouncement: await getCurrentAnnouncementForUser(admin, user),
     };
   }
 
@@ -1483,6 +1591,7 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
       .filter(Boolean)
       .sort(sortByMatchDesc),
     replacementNotices,
+    activeAnnouncement: await getCurrentAnnouncementForUser(admin, user),
   };
 };
 
@@ -1592,6 +1701,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     nominations,
     assignments: currentUser.role === 'Instructor' ? assignments : [],
     replacementNotices: currentUser.role === 'Instructor' ? await listReplacementNotices(admin, instructorId) : [],
+    activeAnnouncement: await getCurrentAnnouncementForUser(admin, currentUser),
   };
 };
 
@@ -4144,6 +4254,17 @@ const routeRequest = async (event) => {
 
   if (method === 'GET' && path === '/news') {
     return json(200, { posts: await listNewsPosts(admin) });
+  }
+
+  if (method === 'GET' && path === '/announcements/current') {
+    return json(200, { announcement: await getCurrentAnnouncementForUser(admin, currentUser) });
+  }
+
+  if (method === 'POST' && path === '/announcements/current') {
+    return json(200, {
+      message: 'Announcement saved.',
+      announcement: await saveCurrentAnnouncement(admin, currentUser, body),
+    });
   }
 
   if (method === 'POST' && path === '/news') {

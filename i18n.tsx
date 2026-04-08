@@ -352,6 +352,7 @@ Object.assign(translations.en, {
   'reports.refereeTitle': 'Referee Reports',
   'reports.toTitle': 'TO Reports',
   'news.title': 'News',
+  'announcement.title': 'Announcement',
   'members.title': 'All Members',
   'activity.title': 'Activity',
   'teyinat.title': 'Teyinat',
@@ -372,6 +373,7 @@ Object.assign(translations.az, {
   'reports.refereeTitle': 'Hakim reportları',
   'reports.toTitle': 'TO reportları',
   'news.title': 'Xəbərlər',
+  'announcement.title': 'Elan',
   'members.title': 'Bütün üzvlər',
   'activity.title': 'Aktivlik',
   'teyinat.title': 'Təyinat',
@@ -392,6 +394,7 @@ Object.assign(translations.ru, {
   'reports.refereeTitle': 'Referee Reports',
   'reports.toTitle': 'TO отчеты',
   'news.title': 'Новости',
+  'announcement.title': 'Объявление',
   'members.title': 'Все участники',
   'activity.title': 'Активность',
   'teyinat.title': 'Teyinat',
@@ -571,6 +574,16 @@ Object.assign(translations.ru, {
 });
 
 Object.assign(translations.en, {
+  'announcement.help': 'Create one active announcement for all referees or all TO users. It stays visible for 24 hours.',
+  'announcement.current': 'Current Announcement',
+  'announcement.loading': 'Loading announcement...',
+  'announcement.none': 'There is no active announcement right now.',
+  'announcement.message': 'Message',
+  'announcement.placeholder': 'Write the announcement text here.',
+  'announcement.deadlineHelp': 'If you save a new announcement before 24 hours pass, the previous active one is replaced immediately.',
+  'announcement.save': 'Save Announcement',
+  'announcement.saved': 'Announcement saved.',
+  'announcement.expiresAt': 'Visible until {date}',
   'reports.loading': 'Loading reports...',
   'reports.none': 'No reports found.',
   'reports.toNone': 'No TO reports found.',
@@ -631,6 +644,16 @@ Object.assign(translations.en, {
 });
 
 Object.assign(translations.az, {
+  'announcement.help': 'Hakimlər və ya bütün TO istifadəçiləri üçün bir aktiv elan yaradın. O, 24 saat görünəcək.',
+  'announcement.current': 'Cari elan',
+  'announcement.loading': 'Elan yüklənir...',
+  'announcement.none': 'Hazırda aktiv elan yoxdur.',
+  'announcement.message': 'Mətn',
+  'announcement.placeholder': 'Elan mətnini burada yazın.',
+  'announcement.deadlineHelp': '24 saat bitməzdən əvvəl yeni elan əlavə etsəniz, əvvəlki aktiv elan dərhal silinib yenisi ilə əvəz olunur.',
+  'announcement.save': 'Elanı saxla',
+  'announcement.saved': 'Elan saxlanıldı.',
+  'announcement.expiresAt': '{date} tarixinədək görünür',
   'reports.loading': 'Reportlar yüklənir...',
   'reports.none': 'Report tapılmadı.',
   'reports.toNone': 'TO reportu tapılmadı.',
@@ -691,6 +714,16 @@ Object.assign(translations.az, {
 });
 
 Object.assign(translations.ru, {
+  'announcement.help': 'Создайте одно активное объявление для всех судей или всех TO. Оно будет видно 24 часа.',
+  'announcement.current': 'Текущее объявление',
+  'announcement.loading': 'Загрузка объявления...',
+  'announcement.none': 'Сейчас активного объявления нет.',
+  'announcement.message': 'Текст',
+  'announcement.placeholder': 'Напишите текст объявления здесь.',
+  'announcement.deadlineHelp': 'Если сохранить новое объявление до истечения 24 часов, предыдущее активное объявление сразу удалится и заменится новым.',
+  'announcement.save': 'Сохранить объявление',
+  'announcement.saved': 'Объявление сохранено.',
+  'announcement.expiresAt': 'Видно до {date}',
   'reports.loading': 'Загрузка отчетов...',
   'reports.none': 'Отчеты не найдены.',
   'reports.toNone': 'TO отчеты не найдены.',

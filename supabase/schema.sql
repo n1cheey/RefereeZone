@@ -204,6 +204,16 @@ create table if not exists public.news_posts (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.announcements (
+  id uuid primary key default gen_random_uuid(),
+  audience_role text not null check (audience_role in ('Referee', 'TO')),
+  message text not null default '',
+  created_by uuid not null references public.profiles(id) on delete cascade,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.user_activity (
   user_id uuid primary key references public.profiles(id) on delete cascade,
   last_seen_at timestamptz not null default now(),
@@ -269,6 +279,7 @@ alter table public.ranking_performance enable row level security;
 alter table public.ranking_match_performance enable row level security;
 alter table public.ranking_to_match_performance enable row level security;
 alter table public.news_posts enable row level security;
+alter table public.announcements enable row level security;
 alter table public.user_activity enable row level security;
 alter table public.replacement_notices enable row level security;
 
@@ -367,6 +378,10 @@ for select using (public.current_user_role() in ('TO Supervisor', 'Staff', 'Stuf
 
 drop policy if exists "news read" on public.news_posts;
 create policy "news read" on public.news_posts
+for select using (public.current_user_role() in ('Instructor', 'Referee', 'TO', 'TO Supervisor', 'Table', 'Staff', 'Stuff'));
+
+drop policy if exists "announcements read" on public.announcements;
+create policy "announcements read" on public.announcements
 for select using (public.current_user_role() in ('Instructor', 'Referee', 'TO', 'TO Supervisor', 'Table', 'Staff', 'Stuff'));
 
 drop policy if exists "activity instructor read" on public.user_activity;

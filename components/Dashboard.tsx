@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
+import { AnnouncementItem, User, InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
 import { getNominationSlotLabel, getTOSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import { getMatchTimestamp, isPastMatch } from '../matchTiming';
@@ -50,6 +50,7 @@ interface DashboardProps {
       | 'reports'
       | 'toReports'
       | 'news'
+      | 'announcement'
       | 'members'
       | 'access'
       | 'activity',
@@ -105,13 +106,14 @@ const getAssignmentStatusClasses = (status: string) => {
 };
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpdateUser }) => {
-  const { language, t } = useI18n();
+  const { language, locale, t } = useI18n();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [referees, setReferees] = useState<RefereeDirectoryItem[]>([]);
   const [toOfficials, setTOOfficials] = useState<RefereeDirectoryItem[]>([]);
   const [instructorNominations, setInstructorNominations] = useState<InstructorNomination[]>([]);
   const [refereeAssignments, setRefereeAssignments] = useState<RefereeNomination[]>([]);
   const [replacementNotices, setReplacementNotices] = useState<ReplacementNotice[]>([]);
+  const [activeAnnouncement, setActiveAnnouncement] = useState<AnnouncementItem | null>(null);
   const [dashboardError, setDashboardError] = useState('');
   const [dashboardMessage, setDashboardMessage] = useState('');
   const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
@@ -158,6 +160,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         nominations: InstructorNomination[];
         assignments: RefereeNomination[];
         replacementNotices: ReplacementNotice[];
+        activeAnnouncement: AnnouncementItem | null;
       }>(cacheKey);
 
       if (!cached) {
@@ -169,6 +172,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       setInstructorNominations(cached.nominations || []);
       setRefereeAssignments(cached.assignments || []);
       setReplacementNotices(cached.replacementNotices || []);
+      setActiveAnnouncement(cached.activeAnnouncement || null);
       setIsLoadingAssignments(false);
       return true;
     };
@@ -185,12 +189,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       setInstructorNominations(response.nominations);
       setRefereeAssignments(response.assignments);
       setReplacementNotices(response.replacementNotices);
+      setActiveAnnouncement(response.activeAnnouncement || null);
       writeViewCache(cacheKey, {
         referees: response.referees,
         toOfficials: response.toOfficials,
         nominations: response.nominations,
         assignments: response.assignments,
         replacementNotices: response.replacementNotices,
+        activeAnnouncement: response.activeAnnouncement || null,
       });
     };
 
@@ -203,12 +209,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
       setRefereeAssignments(response.nominations);
       setReplacementNotices(response.replacementNotices);
+      setActiveAnnouncement(response.activeAnnouncement || null);
       writeViewCache(cacheKey, {
         referees: [],
         toOfficials: [],
         nominations: [],
         assignments: response.nominations,
         replacementNotices: response.replacementNotices,
+        activeAnnouncement: response.activeAnnouncement || null,
       });
     };
 
@@ -345,12 +353,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     setInstructorNominations(response.nominations);
     setRefereeAssignments(response.assignments);
     setReplacementNotices(response.replacementNotices);
+    setActiveAnnouncement(response.activeAnnouncement || null);
   };
 
   const refreshRefereeData = async () => {
     const response = await getRefereeNominations(user.id);
     setRefereeAssignments(response.nominations);
     setReplacementNotices(response.replacementNotices);
+    setActiveAnnouncement(response.activeAnnouncement || null);
   };
 
   const handleCreateNomination = async (e: React.FormEvent) => {
@@ -543,6 +553,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       ? [
           { id: 'teyinat' as const, label: t('teyinat.title'), icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
           { id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
+          { id: 'announcement' as const, label: t('announcement.title'), icon: Bell, iconColor: 'text-amber-500', color: 'bg-amber-50' },
+        ]
+      : isTOSupervisor
+      ? [
+          { id: 'announcement' as const, label: t('announcement.title'), icon: Bell, iconColor: 'text-amber-500', color: 'bg-amber-50' },
         ]
       : []),
     ...(isInstructor || isStaff
@@ -1098,8 +1113,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           ? t('dashboard.toDashboard')
           : t('dashboard.refZoneDashboard');
 
+  const formatAnnouncementDate = (value: string) =>
+    new Intl.DateTimeFormat(locale, {
+      timeZone: 'Asia/Baku',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value));
+
   return (
       <Layout title={dashboardTitle} showBack={false} onLogout={onLogout}>
+      {activeAnnouncement ? (
+        <div className="mb-6 rounded-3xl border border-amber-200 bg-[linear-gradient(135deg,#fff8e7_0%,#fff2d8_55%,#fbe6bf_100%)] p-5 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="rounded-2xl bg-white/80 p-3 text-amber-600 shadow-sm">
+              <Bell size={22} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-bold uppercase tracking-[0.22em] text-amber-700">{t('announcement.title')}</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm font-medium text-slate-800">{activeAnnouncement.message}</div>
+              <div className="mt-3 text-xs text-slate-600">
+                {t('announcement.expiresAt', { date: formatAnnouncementDate(activeAnnouncement.expiresAt) })}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
         <div className="flex items-center gap-4">
           <div className="relative cursor-pointer group" onClick={handlePhotoClick}>

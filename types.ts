@@ -266,6 +266,16 @@ export interface NewsItem {
   createdByName: string;
 }
 
+export interface AnnouncementItem {
+  id: string;
+  audienceRole: 'Referee' | 'TO';
+  message: string;
+  createdAt: string;
+  expiresAt: string;
+  createdById: string;
+  createdByName: string;
+}
+
 export interface ActivityEntry {
   userId: string;
   fullName: string;
