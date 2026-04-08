@@ -608,7 +608,7 @@ const saveCurrentAnnouncement = async (admin, currentUser, body) => {
   if (generatedTranslations.usedFallback && !hasAllManualTranslations) {
     throw new HttpError(
       400,
-      'Automatic announcement translation is unavailable right now. Fill in AZ, EN, and RU texts manually, or configure GEMINI_API_KEY on the server.',
+      'Automatic announcement translation is unavailable right now. Fill in AZ, EN, and RU texts manually, or configure OPENAI_API_KEY or GEMINI_API_KEY on the server.',
     );
   }
 
@@ -1388,6 +1388,92 @@ const extractJsonObject = (text) => {
   }
 };
 
+const extractFirstStringDeep = (value) => {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = extractFirstStringDeep(item);
+      if (found) {
+        return found;
+      }
+    }
+
+    return '';
+  }
+
+  if (value && typeof value === 'object') {
+    if (typeof value.output_text === 'string' && value.output_text.trim()) {
+      return value.output_text.trim();
+    }
+
+    for (const key of ['text', 'content', 'output', 'message']) {
+      if (key in value) {
+        const found = extractFirstStringDeep(value[key]);
+        if (found) {
+          return found;
+        }
+      }
+    }
+
+    for (const item of Object.values(value)) {
+      const found = extractFirstStringDeep(item);
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  return '';
+};
+
+const generateAnnouncementTranslationsWithOpenAI = async (message, sourceLanguage = 'en') => {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new HttpError(500, 'OPENAI_API_KEY is missing.');
+  }
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      input:
+        `Translate the following announcement into Azerbaijani (az), English (en), and Russian (ru). ` +
+        `Preserve meaning, tone, and line breaks. Return only JSON with keys az, en, ru. ` +
+        `The source language is ${sourceLanguage}. Announcement:\n${message}`,
+      text: {
+        format: {
+          type: 'json_object',
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new HttpError(response.status, 'OpenAI translation request failed.');
+  }
+
+  const payload = await response.json();
+  const responseText = extractFirstStringDeep(payload);
+  const parsed = extractJsonObject(responseText);
+  if (!parsed || typeof parsed !== 'object') {
+    throw new HttpError(500, 'OpenAI translation response was invalid.');
+  }
+
+  return {
+    az: String(parsed.az || '').trim(),
+    en: String(parsed.en || '').trim(),
+    ru: String(parsed.ru || '').trim(),
+    usedFallback: false,
+  };
+};
+
 const generateAnnouncementTranslations = async (message, sourceLanguage = 'en') => {
   const normalizedMessage = String(message || '').trim();
   const normalizedSourceLanguage = ['az', 'en', 'ru'].includes(String(sourceLanguage)) ? String(sourceLanguage) : 'en';
@@ -1400,6 +1486,17 @@ const generateAnnouncementTranslations = async (message, sourceLanguage = 'en') 
 
   if (!normalizedMessage) {
     return fallback;
+  }
+
+  try {
+    if (process.env.OPENAI_API_KEY) {
+      const translated = await generateAnnouncementTranslationsWithOpenAI(normalizedMessage, normalizedSourceLanguage);
+      if (translated.az && translated.en && translated.ru) {
+        return translated;
+      }
+    }
+  } catch {
+    // Fall through to Gemini and finally to manual fallback.
   }
 
   try {
