@@ -553,12 +553,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       ? [
           { id: 'teyinat' as const, label: t('teyinat.title'), icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
           { id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
-          { id: 'announcement' as const, label: t('announcement.title'), icon: Bell, iconColor: 'text-amber-500', color: 'bg-amber-50' },
         ]
       : isTOSupervisor
-      ? [
-          { id: 'announcement' as const, label: t('announcement.title'), icon: Bell, iconColor: 'text-amber-500', color: 'bg-amber-50' },
-        ]
+      ? []
       : []),
     ...(isInstructor || isStaff
       ? [
@@ -1194,6 +1191,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             </div>
             <div className="flex flex-wrap justify-end gap-3">
               <button
+                onClick={() => onNavigate('announcement')}
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-100 px-4 py-3 text-sm font-bold text-amber-900"
+              >
+                <Bell size={16} />
+                {t('announcement.title')}
+              </button>
+              <button
                 onClick={() => onNavigate('members')}
                 className="inline-flex items-center gap-2 rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-800"
               >
@@ -1382,11 +1386,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       {isTOSupervisor && (
         <div className="space-y-5 mb-8">
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <Shield size={18} className="text-[#581c1c]" />
-              <h3 className="text-base font-bold text-slate-900">TO Supervisor Controls</h3>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield size={18} className="text-[#581c1c]" />
+                  <h3 className="text-base font-bold text-slate-900">TO Supervisor Controls</h3>
+                </div>
+                <p className="text-sm text-slate-500">New games appear here automatically. Choose 4 TO officials for each match.</p>
+              </div>
+              <div className="flex flex-wrap justify-end gap-3">
+                <button
+                  onClick={() => onNavigate('announcement')}
+                  className="inline-flex items-center gap-2 rounded-xl bg-amber-100 px-4 py-3 text-sm font-bold text-amber-900"
+                >
+                  <Bell size={16} />
+                  {t('announcement.title')}
+                </button>
+              </div>
             </div>
-            <p className="text-sm text-slate-500">New games appear here automatically. Choose 4 TO officials for each match.</p>
             <div className="mt-4">{renderAnnouncementNotice()}</div>
           </div>
 
