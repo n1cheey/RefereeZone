@@ -30,6 +30,16 @@ const ANNOUNCEMENT_AUDIENCE = {
   REFEREE: 'Referee',
   TO: 'TO',
 };
+const ANNOUNCEMENT_TRANSLATION_GLOSSARY = [
+  { source: 'Assistant Scorer', az: 'Katib köməkçisi', ru: 'Помощник протоколиста' },
+  { source: '24sec Operator', az: '24/14 operator', ru: 'Оператор 24 секунд' },
+  { source: 'Umpire 1', az: 'Köməkçi Hakim 1', ru: 'Судья 1' },
+  { source: 'Umpire 2', az: 'Köməkçi Hakim 2', ru: 'Судья 2' },
+  { source: 'Nominations', az: 'Təyinatlar', ru: 'Назначения' },
+  { source: 'Referee', az: 'Baş Hakim', ru: 'Старший судья' },
+  { source: 'Scorer', az: 'Katib', ru: 'Протоколист' },
+  { source: 'Timer', az: 'Tablo', ru: 'Хронометрист' },
+];
 const ROLE_PREFIX = {
   Instructor: 'INS',
   'TO Supervisor': 'TOS',
@@ -613,9 +623,9 @@ const saveCurrentAnnouncement = async (admin, currentUser, body) => {
   }
 
   const translations = {
-    az: manualTranslations.az || generatedTranslations.az,
+    az: applyAnnouncementGlossary(manualTranslations.az || generatedTranslations.az, 'az'),
     en: manualTranslations.en || generatedTranslations.en,
-    ru: manualTranslations.ru || generatedTranslations.ru,
+    ru: applyAnnouncementGlossary(manualTranslations.ru || generatedTranslations.ru, 'ru'),
   };
 
   const { error: deleteError } = await admin.from('announcements').delete().eq('audience_role', audienceRole);
@@ -1429,6 +1439,28 @@ const extractFirstStringDeep = (value) => {
   return '';
 };
 
+const buildAnnouncementGlossaryPrompt = () =>
+  ANNOUNCEMENT_TRANSLATION_GLOSSARY.map(
+    ({ source, az, ru }) => `- "${source}" => az: "${az}", ru: "${ru}"`,
+  ).join('\n');
+
+const applyAnnouncementGlossary = (text, language) => {
+  const sourceText = String(text || '');
+  if (!sourceText) {
+    return '';
+  }
+
+  const glossaryKey = language === 'az' ? 'az' : language === 'ru' ? 'ru' : null;
+  if (!glossaryKey) {
+    return sourceText;
+  }
+
+  return ANNOUNCEMENT_TRANSLATION_GLOSSARY
+    .slice()
+    .sort((left, right) => right.source.length - left.source.length)
+    .reduce((result, item) => result.replaceAll(item.source, item[glossaryKey]), sourceText);
+};
+
 const generateAnnouncementTranslationsWithOpenAI = async (message, sourceLanguage = 'en') => {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -1445,7 +1477,9 @@ const generateAnnouncementTranslationsWithOpenAI = async (message, sourceLanguag
       model: 'gpt-4o-mini',
       input:
         `Translate the following announcement into Azerbaijani (az), English (en), and Russian (ru). ` +
-        `Preserve meaning, tone, and line breaks. Return only JSON with keys az, en, ru. ` +
+        `Preserve meaning, tone, and line breaks. Use the glossary exactly when these terms appear. ` +
+        `Glossary:\n${buildAnnouncementGlossaryPrompt()}\n` +
+        `Return only JSON with keys az, en, ru. ` +
         `The source language is ${sourceLanguage}. Announcement:\n${message}`,
       text: {
         format: {
@@ -1467,9 +1501,9 @@ const generateAnnouncementTranslationsWithOpenAI = async (message, sourceLanguag
   }
 
   return {
-    az: String(parsed.az || '').trim(),
+    az: applyAnnouncementGlossary(String(parsed.az || '').trim(), 'az'),
     en: String(parsed.en || '').trim(),
-    ru: String(parsed.ru || '').trim(),
+    ru: applyAnnouncementGlossary(String(parsed.ru || '').trim(), 'ru'),
     usedFallback: false,
   };
 };
@@ -1506,6 +1540,7 @@ const generateAnnouncementTranslations = async (message, sourceLanguage = 'en') 
       contents:
         `Translate the following announcement into Azerbaijani (az), English (en), and Russian (ru). ` +
         `Preserve meaning, tone, line breaks, and keep it concise. ` +
+        `Use the glossary exactly when these terms appear.\n${buildAnnouncementGlossaryPrompt()}\n` +
         `The source language is ${normalizedSourceLanguage}. ` +
         `Return only valid JSON like {"az":"...","en":"...","ru":"..."}. ` +
         `Announcement:\n${normalizedMessage}`,
@@ -1520,9 +1555,9 @@ const generateAnnouncementTranslations = async (message, sourceLanguage = 'en') 
     }
 
     return {
-      az: String(parsed.az || fallback.az).trim() || fallback.az,
+      az: applyAnnouncementGlossary(String(parsed.az || fallback.az).trim() || fallback.az, 'az'),
       en: String(parsed.en || fallback.en).trim() || fallback.en,
-      ru: String(parsed.ru || fallback.ru).trim() || fallback.ru,
+      ru: applyAnnouncementGlossary(String(parsed.ru || fallback.ru).trim() || fallback.ru, 'ru'),
       usedFallback: false,
     };
   } catch {
