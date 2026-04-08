@@ -12,6 +12,7 @@ export function getMembers(instructorId: string) {
 export function updateMemberProfile(payload: {
   instructorId: string;
   memberId: string;
+  email: string;
   fullName: string;
   licenseNumber: string;
   photoUrl: string;

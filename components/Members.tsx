@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Layout from './Layout';
 import { User } from '../types';
 import { deleteMember, getMembers, updateMemberProfile } from '../services/adminService';
-import { Camera, Mail, Shield, Trash2 } from 'lucide-react';
+import { Camera, Shield, Trash2 } from 'lucide-react';
 import { getRoleLabel, useI18n } from '../i18n';
 
 interface MembersProps {
@@ -15,6 +15,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
   const { language, t } = useI18n();
   const [members, setMembers] = useState<User[]>([]);
   const [selectedMember, setSelectedMember] = useState<User | null>(null);
+  const [email, setEmail] = useState('');
   const [fullName, setFullName] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
@@ -39,6 +40,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
         setMembers(response.members);
         const initialSelected = response.members[0] ?? null;
         setSelectedMember(initialSelected);
+        setEmail(initialSelected?.email ?? '');
         setFullName(initialSelected?.fullName ?? '');
         setLicenseNumber(initialSelected?.licenseNumber ?? '');
         setPhotoUrl(initialSelected?.photoUrl ?? '');
@@ -63,6 +65,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
 
   const handleSelectMember = (member: User) => {
     setSelectedMember(member);
+    setEmail(member.email);
     setFullName(member.fullName);
     setLicenseNumber(member.licenseNumber);
     setPhotoUrl(member.photoUrl);
@@ -102,6 +105,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
       const response = await updateMemberProfile({
         instructorId: user.id,
         memberId: selectedMember.id,
+        email,
         fullName,
         licenseNumber,
         photoUrl,
@@ -109,6 +113,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
 
       setMembers((prev) => prev.map((member) => (member.id === response.member.id ? response.member : member)));
       setSelectedMember(response.member);
+      setEmail(response.member.email);
       setFullName(response.member.fullName);
       setLicenseNumber(response.member.licenseNumber);
       setPhotoUrl(response.member.photoUrl);
@@ -143,6 +148,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
       setMembers(nextMembers);
       const nextSelected = nextMembers[0] ?? null;
       setSelectedMember(nextSelected);
+      setEmail(nextSelected?.email ?? '');
       setFullName(nextSelected?.fullName ?? '');
       setLicenseNumber(nextSelected?.licenseNumber ?? '');
       setPhotoUrl(nextSelected?.photoUrl ?? '');
@@ -215,6 +221,16 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('common.emailAddress')}</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
+                />
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('common.fullName')}</label>
                 <input
                   value={fullName}
@@ -233,10 +249,6 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
               </div>
 
               <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600 space-y-2">
-                <div className="flex items-center gap-2">
-                  <Mail size={14} className="text-[#f39200]" />
-                  {selectedMember.email}
-                </div>
                 <div className="flex items-center gap-2">
                   <Shield size={14} className="text-[#f39200]" />
                   {getRoleLabel(selectedMember.role, language)}

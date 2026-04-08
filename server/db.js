@@ -398,7 +398,7 @@ const mapReportEntry = (row) =>
 const getUserByEmail = (email) =>
   queryOne(
     `
-      SELECT id, email, full_name, role, photo_url, license_number
+      SELECT id, email, full_name, role, photo_url, license_number, allowed_email_id
       FROM users
       WHERE email = ?
     `,
@@ -408,7 +408,7 @@ const getUserByEmail = (email) =>
 const getUserById = (id) =>
   queryOne(
     `
-      SELECT id, email, full_name, role, photo_url, license_number
+      SELECT id, email, full_name, role, photo_url, license_number, allowed_email_id
       FROM users
       WHERE id = ?
     `,
@@ -418,7 +418,7 @@ const getUserById = (id) =>
 const requireUser = (userId) => {
   const user = queryOne(
     `
-      SELECT id, email, full_name, role, photo_url, license_number
+      SELECT id, email, full_name, role, photo_url, license_number, allowed_email_id
       FROM users
       WHERE id = ?
     `,
@@ -1038,23 +1038,80 @@ export const listMembers = (requestingUserId) => {
   ).map(mapUser);
 };
 
-export const updateMemberProfile = ({ instructorId, memberId, fullName, photoUrl }) => {
+export const updateMemberProfile = ({ instructorId, memberId, email, fullName, licenseNumber, photoUrl }) => {
   requireRole(instructorId, 'Instructor');
   const member = requireUser(memberId);
+  const normalizedEmail = normalizeEmail(email || '');
   const trimmedName = (fullName || '').trim();
+  const trimmedLicenseNumber = (licenseNumber || '').trim();
   const nextPhotoUrl = (photoUrl || '').trim();
+
+  if (!normalizedEmail) {
+    throw new HttpError(400, 'E-mail is required.');
+  }
 
   if (!trimmedName) {
     throw new HttpError(400, 'Full name is required.');
   }
 
+  if (!trimmedLicenseNumber) {
+    throw new HttpError(400, 'License is required.');
+  }
+
+  const existingUser = getUserByEmail(normalizedEmail);
+  if (existingUser && Number(existingUser.id) !== Number(memberId)) {
+    throw new HttpError(409, 'A user with this e-mail already exists.');
+  }
+
+  let nextAllowedEmailId = Number(member.allowed_email_id || 0) || null;
+  if (normalizedEmail !== normalizeEmail(member.email || '')) {
+    const currentAllowedEmail =
+      nextAllowedEmailId !== null
+        ? queryOne('SELECT id, email, allowed_role FROM allowed_emails WHERE id = ?', [nextAllowedEmailId])
+        : null;
+    const existingAllowedEmail = queryOne('SELECT id, email, allowed_role FROM allowed_emails WHERE email = ?', [normalizedEmail]);
+
+    if (existingAllowedEmail && Number(existingAllowedEmail.id) !== Number(nextAllowedEmailId)) {
+      const linkedUser = queryOne('SELECT id FROM users WHERE allowed_email_id = ? AND id != ? LIMIT 1', [
+        Number(existingAllowedEmail.id),
+        Number(memberId),
+      ]);
+      if (linkedUser) {
+        throw new HttpError(409, 'This e-mail is already linked to another registered user.');
+      }
+
+      nextAllowedEmailId = Number(existingAllowedEmail.id);
+    } else if (currentAllowedEmail) {
+      dbInstance.run('UPDATE allowed_emails SET email = ?, allowed_role = ? WHERE id = ?', [
+        normalizedEmail,
+        member.role,
+        Number(currentAllowedEmail.id),
+      ]);
+    } else {
+      dbInstance.run('INSERT INTO allowed_emails (email, display_name, allowed_role) VALUES (?, ?, ?)', [
+        normalizedEmail,
+        trimmedName,
+        member.role,
+      ]);
+      const insertedAllowedEmail = queryOne('SELECT last_insert_rowid() AS id');
+      nextAllowedEmailId = Number(insertedAllowedEmail?.id || 0) || null;
+    }
+  }
+
   dbInstance.run(
     `
       UPDATE users
-      SET full_name = ?, photo_url = ?
+      SET email = ?, full_name = ?, photo_url = ?, license_number = ?, allowed_email_id = ?
       WHERE id = ?
     `,
-    [trimmedName, nextPhotoUrl || member.photo_url || DEFAULT_PHOTO_URL, Number(memberId)],
+    [
+      normalizedEmail,
+      trimmedName,
+      nextPhotoUrl || member.photo_url || DEFAULT_PHOTO_URL,
+      trimmedLicenseNumber,
+      nextAllowedEmailId,
+      Number(memberId),
+    ],
   );
 
   persistDatabase();

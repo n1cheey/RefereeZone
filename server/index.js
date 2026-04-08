@@ -100,7 +100,9 @@ app.patch('/api/members/:memberId', (request, response) => {
     const member = updateMemberProfile({
       instructorId: request.body.instructorId,
       memberId: request.params.memberId,
+      email: request.body.email,
       fullName: request.body.fullName,
+      licenseNumber: request.body.licenseNumber,
       photoUrl: request.body.photoUrl,
     });
     response.json({ message: 'Member updated.', member });

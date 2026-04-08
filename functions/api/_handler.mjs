@@ -1959,12 +1959,17 @@ const listMembers = async (admin, currentUser) => {
   return ensureData(data || [], error, 'Failed to load members.').map(mapUser);
 };
 
-const updateMemberProfile = async (admin, currentUser, memberId, fullName, licenseNumber, photoUrl) => {
+const updateMemberProfile = async (admin, currentUser, memberId, email, fullName, licenseNumber, photoUrl) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const member = await requireProfileById(admin, memberId);
+  const normalizedEmail = normalizeEmail(email);
   const trimmedName = String(fullName || '').trim();
   const trimmedLicenseNumber = String(licenseNumber || '').trim();
   const nextPhotoUrl = String(photoUrl || '').trim();
+
+  if (!normalizedEmail) {
+    throw new HttpError(400, 'E-mail is required.');
+  }
 
   if (!trimmedName) {
     throw new HttpError(400, 'Full name is required.');
@@ -1974,12 +1979,101 @@ const updateMemberProfile = async (admin, currentUser, memberId, fullName, licen
     throw new HttpError(400, 'License is required.');
   }
 
+  const existingProfile = await loadProfileByEmail(admin, normalizedEmail);
+  if (existingProfile && existingProfile.id !== memberId) {
+    throw new HttpError(409, 'A user with this e-mail already exists.');
+  }
+
+  let nextAllowedAccessId = member.allowed_access_id || null;
+  const currentAllowedAccess = member.allowed_access_id ? await requireAllowedAccessById(admin, member.allowed_access_id) : null;
+
+  if (normalizedEmail !== normalizeEmail(member.email || '')) {
+    const targetAllowedAccess = await loadAllowedAccessByEmail(admin, normalizedEmail);
+
+    if (targetAllowedAccess && targetAllowedAccess.id !== member.allowed_access_id) {
+      const linkedProfile = await maybeSingle(
+        admin.from('profiles').select('id').eq('allowed_access_id', targetAllowedAccess.id).neq('id', memberId).limit(1),
+        'Failed to check linked users.',
+      );
+
+      if (linkedProfile) {
+        throw new HttpError(409, 'This e-mail is already linked to another registered user.');
+      }
+
+      const { error: targetAccessError } = await admin
+        .from('allowed_access')
+        .update({
+          allowed_role: toStorageRole(member.role),
+          license_number: trimmedLicenseNumber,
+        })
+        .eq('id', targetAllowedAccess.id);
+
+      if (targetAccessError) {
+        throw new HttpError(500, 'Failed to update allowed access.');
+      }
+
+      nextAllowedAccessId = targetAllowedAccess.id;
+    } else if (currentAllowedAccess) {
+      const { error: currentAccessError } = await admin
+        .from('allowed_access')
+        .update({
+          email: normalizedEmail,
+          allowed_role: toStorageRole(member.role),
+          license_number: trimmedLicenseNumber,
+        })
+        .eq('id', currentAllowedAccess.id);
+
+      if (currentAccessError) {
+        throw new HttpError(500, 'Failed to update allowed access.');
+      }
+    } else {
+      const { data: insertedAccess, error: insertAccessError } = await admin
+        .from('allowed_access')
+        .insert({
+          email: normalizedEmail,
+          allowed_role: toStorageRole(member.role),
+          license_number: trimmedLicenseNumber,
+        })
+        .select('*')
+        .single();
+
+      if (insertAccessError || !insertedAccess) {
+        throw new HttpError(500, 'Failed to create allowed access for the new e-mail.');
+      }
+
+      nextAllowedAccessId = insertedAccess.id;
+    }
+
+    const { error: authUpdateError } = await admin.auth.admin.updateUserById(memberId, {
+      email: normalizedEmail,
+      email_confirm: true,
+    });
+
+    if (authUpdateError) {
+      throw new HttpError(500, 'Failed to update auth e-mail.');
+    }
+  } else if (currentAllowedAccess) {
+    const { error: currentAccessError } = await admin
+      .from('allowed_access')
+      .update({
+        allowed_role: toStorageRole(member.role),
+        license_number: trimmedLicenseNumber,
+      })
+      .eq('id', currentAllowedAccess.id);
+
+    if (currentAccessError) {
+      throw new HttpError(500, 'Failed to update allowed access.');
+    }
+  }
+
   const { error } = await admin
     .from('profiles')
     .update({
+      email: normalizedEmail,
       full_name: trimmedName,
       license_number: trimmedLicenseNumber,
       photo_url: nextPhotoUrl || member.photo_url || DEFAULT_PHOTO_URL,
+      allowed_access_id: nextAllowedAccessId,
     })
     .eq('id', memberId);
 
@@ -3675,7 +3769,15 @@ const routeRequest = async (event) => {
 
   const memberMatch = path.match(/^\/members\/([^/]+)$/);
   if (method === 'PATCH' && memberMatch) {
-    const member = await updateMemberProfile(admin, currentUser, memberMatch[1], body.fullName, body.licenseNumber, body.photoUrl);
+    const member = await updateMemberProfile(
+      admin,
+      currentUser,
+      memberMatch[1],
+      body.email,
+      body.fullName,
+      body.licenseNumber,
+      body.photoUrl,
+    );
     return json(200, { message: 'Member updated.', member });
   }
 
