@@ -3,6 +3,7 @@ import Layout from './Layout';
 import { AllowedAccessItem, User, UserRole } from '../types';
 import { addAllowedAccess, deleteAllowedAccess, getAllowedAccess } from '../services/adminService';
 import { Trash2 } from 'lucide-react';
+import { getRoleLabel, useI18n } from '../i18n';
 
 interface AccessManagerProps {
   user: User;
@@ -13,6 +14,7 @@ const roleOptions: UserRole[] = ['Instructor', 'TO Supervisor', 'TO', 'Referee',
 const ACCESS_REFRESH_INTERVAL_MS = 10000;
 
 const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
+  const { language, t } = useI18n();
   const [accessList, setAccessList] = useState<AllowedAccessItem[]>([]);
   const [email, setEmail] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
@@ -108,7 +110,7 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
   };
 
   return (
-    <Layout title="Add Access" onBack={onBack}>
+    <Layout title={t('access.title')} onBack={onBack}>
       {errorMessage && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
@@ -123,8 +125,8 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
       <div className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
           <div>
-            <h3 className="text-base font-bold text-slate-900">Grant Registration Access</h3>
-            <p className="mt-1 text-sm text-slate-500">The selected role becomes mandatory during registration.</p>
+            <h3 className="text-base font-bold text-slate-900">{t('access.grantTitle')}</h3>
+            <p className="mt-1 text-sm text-slate-500">{t('access.grantHelp')}</p>
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">E-mail</label>
@@ -138,7 +140,7 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
             />
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Role</label>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('common.role')}</label>
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as UserRole)}
@@ -146,7 +148,7 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
             >
               {roleOptions.map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {getRoleLabel(item, language)}
                 </option>
               ))}
             </select>
@@ -166,23 +168,23 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
             disabled={isSaving}
             className="w-full rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
           >
-            {isSaving ? 'Saving...' : 'Add Access'}
+            {isSaving ? t('common.saving') : t('access.add')}
           </button>
         </form>
 
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-          <h3 className="text-base font-bold text-slate-900 mb-4">Allowed Registration List</h3>
+          <h3 className="text-base font-bold text-slate-900 mb-4">{t('access.allowedList')}</h3>
           {isLoading ? (
-            <p className="text-sm text-slate-500">Loading access list...</p>
+            <p className="text-sm text-slate-500">{t('access.loading')}</p>
           ) : accessList.length === 0 ? (
-            <p className="text-sm text-slate-500">No access entries found.</p>
+            <p className="text-sm text-slate-500">{t('access.none')}</p>
           ) : (
             <div className="space-y-3">
               {accessList.map((item) => (
                 <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between gap-3">
                   <div>
                     <div className="font-semibold text-slate-900">{item.email}</div>
-                    <div className="mt-1 text-sm text-slate-500">{item.role}</div>
+                    <div className="mt-1 text-sm text-slate-500">{getRoleLabel(item.role, language)}</div>
                     <div className="text-xs text-slate-400">{item.licenseNumber || 'Pending'}</div>
                   </div>
                   <button
@@ -192,7 +194,7 @@ const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {
                     className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-60"
                   >
                     <Trash2 size={14} />
-                    {deletingId === item.id ? 'Deleting...' : 'Delete'}
+                    {deletingId === item.id ? t('common.deleting') : t('common.delete')}
                   </button>
                 </div>
               ))}

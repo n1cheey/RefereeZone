@@ -5,6 +5,7 @@ import { ReportDetail, ReportListItem, ReportMode, ReportStatus, User } from '..
 import { getNominationSlotLabel } from '../slotLabels';
 import { deleteReport, extendReportDeadline, getReportDetail, getReports, saveReport } from '../services/reportsService';
 import { getReferees } from '../services/nominationService';
+import { getReportStatusLabel, useI18n } from '../i18n';
 
 interface ReportsProps {
   user: User;
@@ -57,6 +58,7 @@ const getStatusIcon = (statusLabel: string) => {
 };
 
 const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard' as ReportMode }) => {
+  const { language, t } = useI18n();
   const [reports, setReports] = useState<ReportListItem[]>([]);
   const [selectedDetail, setSelectedDetail] = useState<ReportDetail | null>(null);
   const [isChoosingNew, setIsChoosingNew] = useState(false);
@@ -84,7 +86,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
   const isReferee = user.role === 'Referee';
   const isTestReportPage = reportMode === 'test_to';
   const canWriteReportsOnPage = isTestReportPage ? isInstructor : isInstructor || isReferee;
-  const pageTitle = isTestReportPage ? 'Report Test TO' : user.role === 'Staff' ? 'Reports' : 'My Reports';
+  const pageTitle = isTestReportPage ? 'Report Test TO' : user.role === 'Staff' ? t('reports.title') : t('reports.myTitle');
 
   const buildNewTestReportDetail = async (): Promise<ReportDetail> => {
     const response = await getReferees(user.id);
@@ -342,7 +344,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white"
       >
         <ExternalLink size={16} />
-        Google Drive
+        {t('common.gameScoresheet')}
       </a>
     ) : null;
 
@@ -425,7 +427,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
               {`Send To: ${canEditForm ? draftRecipientName || 'Select referee below' : selectedRecipientName || item.refereeName || 'No referee selected'}`}
             </p>
           ) : (
-            <p className="mt-1 text-sm text-slate-500">{`${getNominationSlotLabel(item.slotNumber)}: ${item.refereeName}`}</p>
+            <p className="mt-1 text-sm text-slate-500">{`${getNominationSlotLabel(item.slotNumber, language)}: ${item.refereeName}`}</p>
           )}
         </div>
 
@@ -447,9 +449,9 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
         {!isTestReport && (isInstructor || user.role === 'Staff') && (
           <div className="mb-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-            <h3 className="mb-3 text-base font-bold text-slate-900">Referee Report</h3>
+          <h3 className="mb-3 text-base font-bold text-slate-900">{t('reports.refereeReport')}</h3>
             {!selectedDetail.refereeReport ? (
-              <p className="text-sm text-slate-500">Referee has not submitted the report yet.</p>
+              <p className="text-sm text-slate-500">{t('reports.refereeNotSubmittedYet')}</p>
             ) : (
               <div className="space-y-3 text-sm text-slate-700">
                 <div><span className="font-bold">3PO & IOT:</span> {selectedDetail.refereeReport.threePO_IOT}</div>
@@ -463,9 +465,9 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
         {!isTestReport && (isReferee || user.role === 'Staff') && (
           <div className="mb-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-            <h3 className="mb-3 text-base font-bold text-slate-900">Instructor Report</h3>
+          <h3 className="mb-3 text-base font-bold text-slate-900">{t('reports.instructorReport')}</h3>
             {!selectedDetail.instructorReport ? (
-              <p className="text-sm text-slate-500">Instructor report is not available yet.</p>
+              <p className="text-sm text-slate-500">{t('reports.instructorNotAvailableYet')}</p>
             ) : (
               <div className="space-y-3 text-sm text-slate-700">
                 <div><span className="font-bold">3PO & IOT:</span> {selectedDetail.instructorReport.threePO_IOT}</div>
@@ -502,7 +504,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         {canWriteCurrentReport && (
           <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
             <h3 className="mb-4 text-base font-bold text-slate-900">
-              {isTestReport ? 'Report Test TO' : isInstructor ? 'Instructor Evaluation' : 'My Report'}
+            {isTestReport ? 'Report Test TO' : isInstructor ? t('reports.instructorEvaluation') : t('reports.myReport')}
             </h3>
 
             {!canEditForm && currentReport ? (
@@ -518,7 +520,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                   <div className="pt-2">{renderGoogleDriveButton(currentReport.googleDriveUrl)}</div>
                 )}
                 <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs font-bold uppercase text-slate-500">
-                  Status: {item.instructorReportStatus === 'Reviewed' ? 'Reviewed' : currentReport.status}
+                  {`Status: ${getReportStatusLabel(item.instructorReportStatus === 'Reviewed' ? 'Reviewed' : currentReport.status, language)}`}
                 </div>
                 {isInstructor && (
                   <button
@@ -679,14 +681,14 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                     disabled={isSaving || (!isTestReport && selectedDetail.deadlineExceeded)}
                     className="rounded-xl bg-slate-200 py-3 text-sm font-bold text-slate-700 disabled:opacity-70"
                   >
-                    {isSaving ? 'Saving...' : 'Save Draft'}
+                  {isSaving ? t('common.saving') : t('common.saveDraft')}
                   </button>
                   <button
                     onClick={() => handleSaveReport('Submitted')}
                     disabled={isSaving || (!isTestReport && selectedDetail.deadlineExceeded)}
                     className="rounded-xl bg-[#581c1c] py-3 text-sm font-bold text-white disabled:opacity-70"
                   >
-                    {isSaving ? 'Saving...' : isTestReport ? 'Submit' : isInstructor ? 'Submit Review' : 'Submit'}
+                    {isSaving ? t('common.saving') : isTestReport ? t('common.submit') : isInstructor ? t('reports.submitReview') : t('common.submit')}
                   </button>
                 </div>
 
@@ -696,7 +698,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                     disabled={isSaving}
                     className="w-full rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700 disabled:opacity-70"
                   >
-                    Cancel Edit
+                    {t('dashboard.cancelEdit')}
                   </button>
                 )}
 
@@ -707,7 +709,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                     className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 py-3 text-sm font-bold text-white disabled:opacity-70"
                   >
                     <Trash2 size={16} />
-                    {isSaving ? 'Deleting...' : 'Delete Draft'}
+                    {isSaving ? t('common.deleting') : t('reports.deleteDraft')}
                   </button>
                 )}
               </div>
@@ -733,7 +735,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
       {canWriteReportsOnPage && (
         <div className="mb-4 flex items-center justify-between px-1">
-          <h3 className="px-1 text-sm font-semibold uppercase tracking-widest text-slate-400">Recent Activity</h3>
+          <h3 className="px-1 text-sm font-semibold uppercase tracking-widest text-slate-400">{t('common.recentActivity')}</h3>
           <button
             onClick={() => {
               if (isTestReportPage) {
@@ -746,16 +748,16 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
             className="flex items-center gap-1 rounded-full bg-[#581c1c]/5 px-3 py-1.5 text-xs font-bold text-[#581c1c]"
           >
             {isChoosingNew ? <X size={14} /> : <Plus size={14} />}
-            {isTestReportPage ? 'New Report Test TO' : 'New Report'}
+            {isTestReportPage ? 'New Report Test TO' : t('reports.newReport')}
           </button>
         </div>
       )}
 
       {isChoosingNew && !isTestReportPage && (
         <div className="mb-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <h3 className="mb-3 text-base font-bold text-slate-900">Choose Game For New Report</h3>
+          <h3 className="mb-3 text-base font-bold text-slate-900">{t('reports.chooseGameForNew')}</h3>
           {eligibleNewReports.length === 0 ? (
-            <p className="text-sm text-slate-500">No report slot is available right now.</p>
+            <p className="text-sm text-slate-500">{t('reports.noSlotAvailable')}</p>
           ) : (
             <div className="space-y-3">
               {eligibleNewReports.map((item) => (
@@ -776,10 +778,10 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       )}
 
       {isLoading ? (
-        <p className="text-sm text-slate-500">Loading reports...</p>
+        <p className="text-sm text-slate-500">{t('reports.loading')}</p>
       ) : reports.length === 0 ? (
         <div className="rounded-xl border border-slate-100 bg-white p-4 text-sm text-slate-500">
-          {isTestReportPage ? 'No Report Test TO found.' : 'No reports found.'}
+          {isTestReportPage ? 'No Report Test TO found.' : t('reports.none')}
         </div>
       ) : (
         <div className="space-y-4">
@@ -795,7 +797,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                   <div className={`rounded-xl p-3 ${getStatusClasses(statusLabel)}`}>{getStatusIcon(statusLabel)}</div>
                   <div>
                     <div className="font-bold text-slate-800">{`${report.gameCode} | ${report.teams}`}</div>
-                    <div className="text-xs text-slate-500">{`${report.matchDate} | ${report.refereeName} | ${statusLabel}`}</div>
+                    <div className="text-xs text-slate-500">{`${report.matchDate} | ${report.refereeName} | ${getReportStatusLabel(statusLabel, language)}`}</div>
                     {report.reportMode === 'test_to' && (
                       <div className="mt-1 text-[11px] text-slate-400">Type: Report Test TO</div>
                     )}

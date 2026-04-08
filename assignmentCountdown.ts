@@ -1,4 +1,33 @@
-export const formatAutoDeclineCountdown = (autoDeclineAt: string | null, now = Date.now()) => {
+import { Language } from './i18n';
+
+const countdownLabels: Record<Language, Record<string, string>> = {
+  en: {
+    applied: 'Auto reject is being applied.',
+    inDays: 'Auto reject in {days}d {hours}h {minutes}m',
+    inHours: 'Auto reject in {hours}h {minutes}m',
+    inMinutes: 'Auto reject in {minutes}m {seconds}s',
+    inSeconds: 'Auto reject in {seconds}s',
+  },
+  az: {
+    applied: 'Avto imtina tətbiq olunur.',
+    inDays: 'Avto imtinaya {days}g {hours}s {minutes}d',
+    inHours: 'Avto imtinaya {hours}s {minutes}d',
+    inMinutes: 'Avto imtinaya {minutes}d {seconds}san',
+    inSeconds: 'Avto imtinaya {seconds}san',
+  },
+  ru: {
+    applied: 'Автоотказ применяется.',
+    inDays: 'Автоотказ через {days}д {hours}ч {minutes}м',
+    inHours: 'Автоотказ через {hours}ч {minutes}м',
+    inMinutes: 'Автоотказ через {minutes}м {seconds}с',
+    inSeconds: 'Автоотказ через {seconds}с',
+  },
+};
+
+const interpolate = (template: string, params: Record<string, number>) =>
+  Object.entries(params).reduce((result, [key, value]) => result.replaceAll(`{${key}}`, String(value)), template);
+
+export const formatAutoDeclineCountdown = (autoDeclineAt: string | null, now = Date.now(), language: Language = 'en') => {
   if (!autoDeclineAt) {
     return null;
   }
@@ -11,7 +40,7 @@ export const formatAutoDeclineCountdown = (autoDeclineAt: string | null, now = D
 
   const diffMs = deadlineTime - now;
   if (diffMs <= 0) {
-    return 'Auto reject is being applied.';
+    return countdownLabels[language].applied;
   }
 
   const totalSeconds = Math.floor(diffMs / 1000);
@@ -21,16 +50,16 @@ export const formatAutoDeclineCountdown = (autoDeclineAt: string | null, now = D
   const seconds = totalSeconds % 60;
 
   if (days > 0) {
-    return `Auto reject in ${days}d ${hours}h ${minutes}m`;
+    return interpolate(countdownLabels[language].inDays, { days, hours, minutes });
   }
 
   if (hours > 0) {
-    return `Auto reject in ${hours}h ${minutes}m`;
+    return interpolate(countdownLabels[language].inHours, { hours, minutes });
   }
 
   if (minutes > 0) {
-    return `Auto reject in ${minutes}m ${seconds}s`;
+    return interpolate(countdownLabels[language].inMinutes, { minutes, seconds });
   }
 
-  return `Auto reject in ${seconds}s`;
+  return interpolate(countdownLabels[language].inSeconds, { seconds });
 };

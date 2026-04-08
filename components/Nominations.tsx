@@ -15,6 +15,7 @@ import {
   respondToNomination,
   updateNominationScore,
 } from '../services/nominationService';
+import { getAssignmentStatusLabel, useI18n } from '../i18n';
 
 interface NominationsProps {
   user: User;
@@ -45,6 +46,7 @@ const getAssignmentStatusClasses = (status: string) => {
 };
 
 const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
+  const { language, t } = useI18n();
   const [referees, setReferees] = useState<RefereeDirectoryItem[]>([]);
   const [toOfficials, setTOOfficials] = useState<RefereeDirectoryItem[]>([]);
   const [instructorNominations, setInstructorNominations] = useState<InstructorNomination[]>([]);
@@ -345,7 +347,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       <div className="mt-3 grid gap-2 md:grid-cols-3">
         {crew.map((official) => (
           <div key={`${official.refereeId}-${official.slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-            <div className="text-[11px] font-bold uppercase text-slate-500">{getNominationSlotLabel(official.slotNumber)}</div>
+            <div className="text-[11px] font-bold uppercase text-slate-500">{getNominationSlotLabel(official.slotNumber, language)}</div>
             <div className="mt-1 text-sm font-semibold text-slate-900">{official.refereeName}</div>
             <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${
               official.status === 'Accepted'
@@ -354,7 +356,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                   ? 'bg-red-100 text-red-700'
                   : 'bg-amber-100 text-amber-700'
             }`}>
-              {official.status}
+              {getAssignmentStatusLabel(official.status, language)}
             </div>
           </div>
         ))}
@@ -365,7 +367,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const renderFinalScore = (finalScore: string | null) =>
     finalScore ? (
       <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
-        Final score: {finalScore}
+        {t('common.finalScore', { score: finalScore })}
       </div>
     ) : null;
 
@@ -387,7 +389,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             className={`${baseButtonClass} border-red-200 bg-red-50 text-red-700 hover:bg-red-100`}
           >
             <Youtube size={16} />
-            YouTube
+            {t('common.youtube')}
           </a>
         ) : null}
         {matchProtocolUrl ? (
@@ -398,7 +400,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             className={`${baseButtonClass} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
           >
             <FileText size={16} />
-            Game Scoresheet
+            {t('common.gameScoresheet')}
           </a>
         ) : null}
       </div>
@@ -516,7 +518,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {nomination.referees.map((referee) => (
             <div key={`${nomination.id}-${referee.slotNumber}`} className="rounded-lg bg-slate-50 p-3">
-              <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber)}</div>
+              <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber, language)}</div>
               {editingNominationId === nomination.id ? (
                 <select
                   value={editSelections[`referee${referee.slotNumber}`] || ''}
@@ -548,7 +550,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                         ? 'bg-red-100 text-red-700'
                         : 'bg-amber-100 text-amber-700'
                   }`}>
-                    {referee.status}
+                    {getAssignmentStatusLabel(referee.status, language)}
                   </div>
                 </>
               )}
@@ -556,7 +558,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
           ))}
         </div>
         <div className="mt-4 rounded-xl bg-slate-50 p-3">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
+          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.toCrew')}</div>
           <div className="mt-3 grid gap-3 md:grid-cols-4">
             {[1, 2, 3, 4].map((slotNumber) => {
               const existingAssignment = nomination.toCrew.find((item) => item.slotNumber === slotNumber);
@@ -564,7 +566,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
               const canAssignTOCrew = isTOSupervisor && !isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
               return (
                 <div key={`${nomination.id}-to-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                  <div className="text-xs font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber)}</div>
+                  <div className="text-xs font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber, language)}</div>
                   {canAssignTOCrew ? (
                     <select
                       value={currentSelection}
@@ -589,14 +591,14 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                       <div className="mt-1 font-semibold text-slate-900">{existingAssignment?.toName || 'Not assigned'}</div>
                       {existingAssignment ? (
                         <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
-                          {existingAssignment.status}
+                        {getAssignmentStatusLabel(existingAssignment.status, language)}
                         </div>
                       ) : null}
                     </>
                   )}
                   {canAssignTOCrew && existingAssignment ? (
                     <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
-                      {existingAssignment.status}
+                      {getAssignmentStatusLabel(existingAssignment.status, language)}
                     </div>
                   ) : null}
                 </div>
@@ -646,16 +648,16 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       <div className="bg-[#581c1c]/5 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
         <span className="text-xs font-bold text-[#581c1c]">{nom.assignmentLabel}</span>
         <div className="flex items-center gap-2">
-          {nom.status === 'Accepted' && <span className="text-[10px] font-bold text-green-600 uppercase flex items-center gap-1"><CheckCircle2 size={10} /> Accepted</span>}
-          {nom.status === 'Declined' && <span className="text-[10px] font-bold text-red-600 uppercase flex items-center gap-1"><XCircle size={10} /> Declined</span>}
-          {nom.status === 'Pending' && <span className="text-[10px] font-bold text-amber-600 uppercase">Pending</span>}
+          {nom.status === 'Accepted' && <span className="text-[10px] font-bold text-green-600 uppercase flex items-center gap-1"><CheckCircle2 size={10} /> {getAssignmentStatusLabel('Accepted', language)}</span>}
+          {nom.status === 'Declined' && <span className="text-[10px] font-bold text-red-600 uppercase flex items-center gap-1"><XCircle size={10} /> {getAssignmentStatusLabel('Declined', language)}</span>}
+          {nom.status === 'Pending' && <span className="text-[10px] font-bold text-amber-600 uppercase">{getAssignmentStatusLabel('Pending', language)}</span>}
           <span className="text-[10px] text-slate-500 uppercase">{nom.nominationId}</span>
         </div>
       </div>
       <div className="p-4">
         {nom.assignmentGroup === 'Referee' && nom.status === 'Pending' ? (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            {formatAutoDeclineCountdown(nom.autoDeclineAt, countdownNow) || 'Auto reject timer unavailable.'}
+            {formatAutoDeclineCountdown(nom.autoDeclineAt, countdownNow, language) || t('dashboard.autoRejectUnavailable')}
           </div>
         ) : null}
         <div className="text-lg font-bold text-slate-800 mb-3">{nom.teams}</div>
@@ -687,19 +689,19 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
           </div>
         ) : (
           <div className="mt-4 rounded-xl bg-slate-50 p-3">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.toCrew')}</div>
             <div className="mt-3 grid gap-2 md:grid-cols-4">
               {[1, 2, 3, 4].map((slotNumber) => {
                 const toSlot = nom.toCrew.find((item) => item.slotNumber === slotNumber);
                 return (
                   <div key={`${nom.id}-to-${slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                    <div className="text-[11px] font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber)}</div>
+                    <div className="text-[11px] font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber, language)}</div>
                     <div className="mt-1 text-sm font-semibold text-slate-900">
-                      {toSlot?.toName || (user.role === 'Referee' ? 'Awaiting confirmation' : 'Not assigned')}
+                      {toSlot?.toName || (user.role === 'Referee' ? t('common.awaitingConfirmation') : t('common.notAssigned'))}
                     </div>
                     {toSlot ? (
                       <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(toSlot.status)}`}>
-                        {toSlot.status}
+                        {getAssignmentStatusLabel(toSlot.status, language)}
                       </div>
                     ) : null}
                   </div>
@@ -716,14 +718,14 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
               disabled={actionAssignmentId === nom.id}
               className="py-2 bg-green-600 text-white rounded-lg text-sm font-bold shadow-sm disabled:opacity-70"
             >
-              {actionAssignmentId === nom.id ? 'Saving...' : 'Accept'}
+              {actionAssignmentId === nom.id ? t('common.saving') : t('dashboard.accept')}
             </button>
             <button
               onClick={() => handleStatusChange(nom.nominationId, 'Declined', nom.id)}
               disabled={actionAssignmentId === nom.id}
               className="py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-bold shadow-sm disabled:opacity-70"
             >
-              {actionAssignmentId === nom.id ? 'Saving...' : 'Decline'}
+              {actionAssignmentId === nom.id ? t('common.saving') : t('dashboard.decline')}
             </button>
           </div>
         ) : (
@@ -734,7 +736,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                 ? 'bg-blue-50 text-blue-700'
                 : 'bg-red-50 text-red-700'
           }`}>
-            Assignment {nom.status}
+            {`Assignment ${getAssignmentStatusLabel(nom.status, language)}`}
           </div>
         )}
       </div>
@@ -768,7 +770,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   );
 
   return (
-    <Layout title={isInstructor || isStaff || isTOSupervisor ? 'Nominations' : 'My Nominations'} onBack={onBack}>
+    <Layout title={isInstructor || isStaff || isTOSupervisor ? t('nominations.title') : t('nominations.myTitle')} onBack={onBack}>
       {errorMessage && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
@@ -776,7 +778,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-slate-500">Loading nominations...</p>
+        <p className="text-sm text-slate-500">{t('nominations.loading')}</p>
       ) : isInstructor || isStaff || isTOSupervisor ? (
         <div className="space-y-8">
           {renderInstructorSection(

@@ -2,29 +2,15 @@ import React, { useEffect, useState } from 'react';
 import Layout from './Layout';
 import { ActivityEntry, User } from '../types';
 import { getRecentActivity } from '../services/activityService';
+import { formatLocalizedDateTime, getRoleLabel, useI18n } from '../i18n';
 
 interface ActivityProps {
   user: User;
   onBack: () => void;
 }
 
-const formatLastSeen = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Baku',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-};
-
 const Activity: React.FC<ActivityProps> = ({ user, onBack }) => {
+  const { language, locale, t } = useI18n();
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -47,7 +33,7 @@ const Activity: React.FC<ActivityProps> = ({ user, onBack }) => {
           return;
         }
 
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to load activity.');
+        setErrorMessage(error instanceof Error ? error.message : t('activity.loading'));
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -63,14 +49,14 @@ const Activity: React.FC<ActivityProps> = ({ user, onBack }) => {
   }, []);
 
   return (
-    <Layout title="Activity" onBack={onBack}>
+    <Layout title={t('activity.title')} onBack={onBack}>
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-        <h2 className="text-lg font-bold text-slate-900">Last 24 Hours</h2>
-        <p className="mt-2 text-sm text-slate-500">Shows who entered the system during the last 24 hours.</p>
+        <h2 className="text-lg font-bold text-slate-900">{t('activity.last24h')}</h2>
+        <p className="mt-2 text-sm text-slate-500">{t('activity.help')}</p>
 
         {user.role !== 'Instructor' && (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Only Instructor can open this page.
+            {t('activity.onlyInstructor')}
           </div>
         )}
 
@@ -81,10 +67,10 @@ const Activity: React.FC<ActivityProps> = ({ user, onBack }) => {
         )}
 
         {isLoading ? (
-          <p className="mt-4 text-sm text-slate-500">Loading activity...</p>
+          <p className="mt-4 text-sm text-slate-500">{t('activity.loading')}</p>
         ) : activity.length === 0 ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
-            No users in the last 24 hours yet.
+            {t('activity.none')}
           </div>
         ) : (
           <div className="mt-4 space-y-3">
@@ -97,9 +83,9 @@ const Activity: React.FC<ActivityProps> = ({ user, onBack }) => {
                   </div>
                   <div className="text-right">
                     <div className="inline-flex rounded-full bg-[#57131b]/10 px-3 py-1 text-xs font-bold text-[#57131b]">
-                      {item.role}
+                      {getRoleLabel(item.role, language)}
                     </div>
-                    <div className="mt-2 text-sm text-slate-500">{formatLastSeen(item.lastSeenAt)}</div>
+                    <div className="mt-2 text-sm text-slate-500">{formatLocalizedDateTime(item.lastSeenAt, locale)}</div>
                   </div>
                 </div>
               </div>

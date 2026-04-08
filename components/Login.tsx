@@ -12,6 +12,7 @@ import {
   updatePassword,
 } from '../services/authService';
 import loginLogo from '../img/login.webp';
+import { getRoleLabel, useI18n } from '../i18n';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -20,6 +21,7 @@ interface LoginProps {
 const roles: UserRole[] = ['Instructor', 'TO Supervisor', 'TO', 'Referee', 'Staff'];
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
+  const { language, setLanguage, t } = useI18n();
   const [isRegister, setIsRegister] = useState(false);
   const [isResetMode, setIsResetMode] = useState(false);
   const [isRecoveryMode, setIsRecoveryMode] = useState(() => isPasswordRecoveryMode());
@@ -78,7 +80,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     try {
       if (isRecoveryMode || isResetPage) {
         if (password !== confirmPassword) {
-          throw new Error('Passwords do not match.');
+          throw new Error(t('login.passwordsMismatch'));
         }
 
         await updatePassword(password);
@@ -97,13 +99,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
         setPassword('');
         setConfirmPassword('');
-        setSuccessMessage('Password updated. Sign in with your new password.');
+        setSuccessMessage(t('login.passwordUpdated'));
         return;
       }
 
       if (isResetMode) {
         await requestPasswordReset(email);
-        setSuccessMessage('Password reset email has been sent. Check your inbox.');
+        setSuccessMessage(t('login.passwordResetSent'));
         return;
       }
 
@@ -113,7 +115,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
       onLogin(response.user);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Authentication failed.');
+      setErrorMessage(error instanceof Error ? error.message : t('login.authenticationFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -138,7 +140,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 ABL Hakimlərin platforması
               </h1>
               <p className="mt-5 max-w-sm text-base leading-7 text-white/72">
-                Secure nominations, reports, rankings and member administration for the ABL refereeing staff.
+                {t('login.securePlatform')}
               </p>
             </div>
           </div>
@@ -146,6 +148,22 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
         <section className="flex items-center justify-center px-5 py-8 sm:px-8 lg:px-12">
           <div className="w-full max-w-md space-y-8 text-center">
+            <div className="flex justify-center">
+              <div className="inline-flex rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+                {(['az', 'en', 'ru'] as const).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setLanguage(item)}
+                    className={`rounded-full px-3 py-1 text-xs font-bold transition ${
+                      language === item ? 'bg-[#57131b] text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {t(`language.${item}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div>
               <div className="flex justify-center lg:hidden">
                 <img
@@ -155,29 +173,29 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 />
               </div>
               <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.3em] text-[#57131b]/55">
-                {isResetPage ? 'Password Recovery' : 'ABL RefZone'}
+                {isResetPage ? t('login.passwordRecovery') : 'ABL RefZone'}
               </div>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[#57131b] sm:text-4xl">
                 {isRecoveryMode
-                  ? 'Set New Password'
+                  ? t('login.setNewPassword')
                   : isResetPage
-                    ? 'Reset Your Password'
+                    ? t('login.resetYourPassword')
                     : isResetMode
-                      ? 'Reset Password'
+                      ? t('login.resetPassword')
                       : isRegister
-                        ? 'Create Official Account'
-                        : 'Sign In'}
+                        ? t('login.createOfficialAccount')
+                        : t('login.signIn')}
               </h2>
               <p className="mt-3 text-sm leading-6 text-slate-500">
                 {isRecoveryMode
-                  ? 'Enter your new password to complete the recovery process.'
+                  ? t('login.recoveryHelp')
                   : isResetPage
-                    ? 'Open this page from the reset email. After Supabase validates the recovery link, you can set a new password here.'
+                    ? t('login.resetPageHelp')
                   : isResetMode
-                    ? 'Enter your e-mail address and we will send you a password reset link.'
+                    ? t('login.resetHelp')
                     : isRegister
-                  ? 'Registration is available only for e-mails and roles approved by Instructor.'
-                  : 'Use your approved ABL account to access nominations, reports and rankings.'}
+                  ? t('login.registerHelp')
+                  : t('login.signInHelp')}
               </p>
             </div>
 
@@ -186,7 +204,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 <>
                   <div>
                     <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Full Name
+                      {t('common.fullName')}
                     </label>
                     <input
                       type="text"
@@ -195,12 +213,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                       onChange={(e) => setFullName(e.target.value)}
                       autoComplete="name"
                       className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm shadow-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#581c1c]"
-                      placeholder="Full name"
+                      placeholder={t('login.fullNamePlaceholder')}
                     />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                      Role
+                      {t('common.role')}
                     </label>
                     <select
                       required
@@ -211,12 +229,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     >
                       {roles.map((item) => (
                         <option key={item} value={item}>
-                          {item}
+                          {getRoleLabel(item, language)}
                         </option>
                       ))}
                     </select>
                     <p className="mt-2 text-xs leading-5 text-slate-400">
-                      Registration works only for e-mails that were added to the allowed access list with the same role.
+                      {t('login.registrationRoleHelp')}
                     </p>
                   </div>
                 </>
@@ -225,7 +243,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               {!isRecoveryMode && !isResetPage && (
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                    Email Address
+                    {t('common.emailAddress')}
                   </label>
                   <input
                     type="email"
@@ -234,7 +252,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                     onChange={(e) => setEmail(e.target.value)}
                     autoComplete="email"
                     className="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm shadow-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-[#581c1c]"
-                    placeholder="Email"
+                    placeholder={t('login.emailPlaceholder')}
                   />
                 </div>
               )}
@@ -242,7 +260,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               {(!isResetMode || isResetPage) && (
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                    Password
+                    {t('common.password')}
                   </label>
                   <input
                     type="password"
@@ -256,7 +274,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   />
                   {(isRegister || isRecoveryMode || isResetPage) && (
                     <p className="mt-2 text-xs leading-5 text-slate-400">
-                      Minimum 10 characters. Use a mix of letters and numbers for better security.
+                      {t('login.passwordHelp')}
                     </p>
                   )}
                 </div>
@@ -265,7 +283,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               {(isRecoveryMode || isResetPage) && (
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
-                    Confirm Password
+                    {t('common.confirmPassword')}
                   </label>
                   <input
                     type="password"
@@ -297,14 +315,14 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 className="w-full rounded-2xl bg-[#57131b] px-4 py-4 text-sm font-semibold tracking-[0.04em] text-white shadow-lg shadow-[#57131b]/20 transition-all hover:bg-[#481016] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {isSubmitting
-                  ? 'PROCESSING...'
+                  ? t('login.processing')
                   : isRecoveryMode || isResetPage
-                    ? 'UPDATE PASSWORD'
+                    ? t('login.updatePassword')
                     : isResetMode
-                      ? 'SEND RESET EMAIL'
+                      ? t('login.sendResetEmail')
                       : isRegister
-                        ? 'REGISTER'
-                        : 'SIGN IN'}
+                        ? t('login.register')
+                        : t('login.signInButton')}
               </button>
             </form>
 
@@ -313,10 +331,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 {!isRegister && !isResetMode && (
                   <button
                     type="button"
-                    onClick={openResetMode}
-                    className="block text-sm font-semibold text-[#57131b] transition-colors hover:text-[#f39200]"
-                  >
-                    Forgot password?
+                  onClick={openResetMode}
+                  className="block text-sm font-semibold text-[#57131b] transition-colors hover:text-[#f39200]"
+                >
+                    {t('login.forgotPassword')}
                   </button>
                 )}
                 <button
@@ -325,10 +343,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   className="block text-sm font-semibold text-[#f39200] transition-colors hover:text-[#581c1c]"
                 >
                   {isResetMode
-                    ? 'Back to sign in'
+                    ? t('login.backToSignIn')
                     : isRegister
-                      ? 'Already have an account? Sign in'
-                      : 'New official? Request registration'}
+                      ? `${t('login.haveAccount')} ${t('login.signInNow')}`
+                      : `${t('login.needAccount')} ${t('login.registerNow')}`}
                 </button>
               </div>
             )}

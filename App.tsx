@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, startTransition, useEffect, useRef, useState } from 'react';
 import { User } from './types';
 import Login from './components/Login';
+import { I18nProvider, useI18n } from './i18n';
 import {
   getCurrentUserProfile,
   isPasswordRecoveryMode,
@@ -125,7 +126,8 @@ const LoadingScreen = ({ label }: { label: string }) => (
   </div>
 );
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
+  const { t } = useI18n();
   const recoveryModeRef = useRef(typeof window !== 'undefined' && (isPasswordRecoveryMode() || isPasswordResetPage()));
   const sessionSyncPromiseRef = useRef<Promise<void> | null>(null);
   const lastSessionSyncAtRef = useRef(0);
@@ -361,7 +363,7 @@ const App: React.FC = () => {
 
   const renderView = () => {
     if (isAuthLoading) {
-      return <LoadingScreen label="Loading session..." />;
+      return <LoadingScreen label={t('common.loadingSession')} />;
     }
 
     if (!currentUser && currentView !== 'login') {
@@ -385,9 +387,21 @@ const App: React.FC = () => {
       case 'teyinat':
         return <Teyinat user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'ranking':
-        return <Ranking user={currentUser!} onBack={() => setCurrentView('dashboard')} rankingMode="referee" />;
+        return (
+          <Ranking
+            user={currentUser!}
+            onBack={() => setCurrentView('dashboard')}
+            rankingMode={currentUser!.role === 'TO' || currentUser!.role === 'TO Supervisor' ? 'to' : 'referee'}
+          />
+        );
       case 'toRanking':
-        return <Ranking user={currentUser!} onBack={() => setCurrentView('dashboard')} rankingMode="to" />;
+        return (
+          <Ranking
+            user={currentUser!}
+            onBack={() => setCurrentView('dashboard')}
+            rankingMode={currentUser!.role === 'TO' || currentUser!.role === 'TO Supervisor' ? 'to' : 'referee'}
+          />
+        );
       case 'reports':
         return <Reports user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'news':
@@ -403,7 +417,13 @@ const App: React.FC = () => {
     }
   };
 
-  return <Suspense fallback={<LoadingScreen label="Loading page..." />}>{renderView()}</Suspense>;
+  return <Suspense fallback={<LoadingScreen label={t('common.loadingPage')} />}>{renderView()}</Suspense>;
 };
+
+const App: React.FC = () => (
+  <I18nProvider>
+    <AppContent />
+  </I18nProvider>
+);
 
 export default App;

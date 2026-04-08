@@ -3,6 +3,7 @@ import Layout from './Layout';
 import { User } from '../types';
 import { deleteMember, getMembers, updateMemberProfile } from '../services/adminService';
 import { Camera, Mail, Shield, Trash2 } from 'lucide-react';
+import { getRoleLabel, useI18n } from '../i18n';
 
 interface MembersProps {
   user: User;
@@ -11,6 +12,7 @@ interface MembersProps {
 }
 
 const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated }) => {
+  const { language, t } = useI18n();
   const [members, setMembers] = useState<User[]>([]);
   const [selectedMember, setSelectedMember] = useState<User | null>(null);
   const [fullName, setFullName] = useState('');
@@ -153,7 +155,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
   };
 
   return (
-    <Layout title="All Members" onBack={onBack}>
+    <Layout title={t('members.title')} onBack={onBack}>
       {errorMessage && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
@@ -167,11 +169,11 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
 
       <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-          <h3 className="text-base font-bold text-slate-900 mb-4">Members List</h3>
+          <h3 className="text-base font-bold text-slate-900 mb-4">{t('members.list')}</h3>
           {isLoading ? (
-            <p className="text-sm text-slate-500">Loading members...</p>
+            <p className="text-sm text-slate-500">{t('members.loading')}</p>
           ) : members.length === 0 ? (
-            <p className="text-sm text-slate-500">No members found.</p>
+            <p className="text-sm text-slate-500">{t('members.none')}</p>
           ) : (
             <div className="space-y-3">
               {members.map((member) => (
@@ -186,7 +188,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
                     <img src={member.photoUrl} alt={member.fullName} className="h-14 w-14 rounded-xl object-cover" />
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-900 truncate">{member.fullName}</div>
-                      <div className="text-sm text-slate-500">{member.role}</div>
+                      <div className="text-sm text-slate-500">{getRoleLabel(member.role, language)}</div>
                       <div className="text-xs text-slate-400 truncate">{member.email}</div>
                     </div>
                   </div>
@@ -197,9 +199,9 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-          <h3 className="text-base font-bold text-slate-900 mb-4">Mini Profile</h3>
+          <h3 className="text-base font-bold text-slate-900 mb-4">{t('members.miniProfile')}</h3>
           {!selectedMember ? (
-            <p className="text-sm text-slate-500">Select a member to edit profile details.</p>
+            <p className="text-sm text-slate-500">{t('members.selectToEdit')}</p>
           ) : (
             <form onSubmit={handleSave} className="space-y-4">
               <div className="flex flex-col items-center">
@@ -213,7 +215,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Full Name</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('common.fullName')}</label>
                 <input
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
@@ -222,7 +224,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">License</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{t('common.license')}</label>
                 <input
                   value={licenseNumber}
                   onChange={(e) => setLicenseNumber(e.target.value)}
@@ -237,7 +239,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
                 </div>
                 <div className="flex items-center gap-2">
                   <Shield size={14} className="text-[#f39200]" />
-                  {selectedMember.role}
+                  {getRoleLabel(selectedMember.role, language)}
                 </div>
               </div>
 
@@ -246,7 +248,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
                 disabled={isSaving}
                 className="w-full rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
               >
-                {isSaving ? 'Saving...' : 'Save Profile'}
+                {isSaving ? t('common.saving') : t('members.saveProfile')}
               </button>
               <button
                 type="button"
@@ -255,7 +257,7 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
                 className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
               >
                 <Trash2 size={16} />
-                {isDeleting ? 'Deleting...' : selectedMember.id === user.id ? 'Cannot Delete Yourself' : 'Delete Member'}
+                {isDeleting ? t('common.deleting') : selectedMember.id === user.id ? t('members.cannotDeleteSelf') : t('members.deleteMember')}
               </button>
             </form>
           )}

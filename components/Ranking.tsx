@@ -4,6 +4,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { Award, Save, Shield, TrendingUp } from 'lucide-react';
 import { RankingDashboardData, RankingGameOption, RankingPerformanceEntry, RankingPerformanceProfile, User } from '../types';
 import { getRankingAdminData, getRankingDashboard, getTORankingAdminData, getTORankingDashboard, saveRankingPerformance } from '../services/rankingService';
+import { useI18n } from '../i18n';
 
 const scoreOptions = [-1, 0, 1];
 const CORRECTION_GAME_ID = '__correction__';
@@ -31,7 +32,7 @@ const emptyMatchPerformanceForm = {
   externalEvaluation: 0,
 };
 
-const performanceFields: Array<[keyof Omit<typeof emptyMatchPerformanceForm, 'gameId' | 'gameCode' | 'evaluationDate' | 'note'>, string]> = [
+const refereePerformanceFields: Array<[keyof Omit<typeof emptyMatchPerformanceForm, 'gameId' | 'gameCode' | 'evaluationDate' | 'note'>, string]> = [
   ['physicalFitness', 'Fiziki hazirliq'],
   ['mechanics', 'Mexanika'],
   ['iot', 'IOT'],
@@ -43,17 +44,57 @@ const performanceFields: Array<[keyof Omit<typeof emptyMatchPerformanceForm, 'ga
   ['externalEvaluation', 'Kənardan qiymətləndirmə'],
 ];
 
+const toPerformanceFields: Array<[keyof Omit<typeof emptyMatchPerformanceForm, 'gameId' | 'gameCode' | 'evaluationDate' | 'note'>, string]> = [
+  ['criteriaScore', 'Nizam-Intizam'],
+  ['teamworkScore', 'Iş fəaliyyəti'],
+  ['communication', 'Ünsiyyət'],
+];
+
+const getPerformanceFieldLabel = (
+  key: keyof Omit<typeof emptyMatchPerformanceForm, 'gameId' | 'gameCode' | 'evaluationDate' | 'note'>,
+  language: 'en' | 'az' | 'ru',
+  isTOFlow: boolean,
+) => {
+  if (isTOFlow) {
+    const toLabels = {
+      criteriaScore: { en: 'Discipline', az: 'Nizam-Intizam', ru: 'Дисциплина' },
+      teamworkScore: { en: 'Work Activity', az: 'Iş fəaliyyəti', ru: 'Рабочая деятельность' },
+      communication: { en: 'Communication', az: 'Ünsiyyət', ru: 'Коммуникация' },
+    } as const;
+
+    return toLabels[key as keyof typeof toLabels]?.[language] || String(key);
+  }
+
+  const refereeLabels = {
+    physicalFitness: { en: 'Physical Fitness', az: 'Fiziki hazırlıq', ru: 'Физическая готовность' },
+    mechanics: { en: 'Mechanics', az: 'Mexanika', ru: 'Механика' },
+    iot: { en: 'IOT', az: 'IOT', ru: 'IOT' },
+    criteriaScore: { en: 'Criteria', az: 'Kriteriya', ru: 'Критерии' },
+    teamworkScore: { en: 'Teamwork', az: 'Komanda işi', ru: 'Командная работа' },
+    gameControl: { en: 'Game Control', az: 'Oyun kontrolu', ru: 'Контроль игры' },
+    newPhilosophy: { en: 'New Philosophy', az: 'Yeni filosofiya', ru: 'Новая философия' },
+    communication: { en: 'Communication', az: 'Ünsiyyət', ru: 'Коммуникация' },
+    externalEvaluation: { en: 'External Evaluation', az: 'Kənardan qiymətləndirmə', ru: 'Внешняя оценка' },
+  } as const;
+
+  return refereeLabels[key as keyof typeof refereeLabels]?.[language] || String(key);
+};
+
 const formatAverage = (value: number | null | undefined) => Number(value || 0).toFixed(2);
 
-const getMatchAverage = (values: typeof emptyMatchPerformanceForm) => {
-  const total = performanceFields.reduce((sum, [key]) => sum + Number(values[key] || 0), 0);
-  return Number((total / performanceFields.length).toFixed(2));
+const getMatchAverage = (
+  values: typeof emptyMatchPerformanceForm,
+  fields: Array<[keyof Omit<typeof emptyMatchPerformanceForm, 'gameId' | 'gameCode' | 'evaluationDate' | 'note'>, string]>,
+) => {
+  const total = fields.reduce((sum, [key]) => sum + Number(values[key] || 0), 0);
+  return Number((total / fields.length).toFixed(2));
 };
 
 const shouldShowScoreLegend = (role: User['role']) =>
   role === 'Referee' || role === 'Staff' || role === 'TO' || role === 'TO Supervisor';
 
 const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee' }) => {
+  const { language, t } = useI18n();
   const isInstructor = user.role === 'Instructor';
   const isStaff = user.role === 'Staff';
   const isTOSupervisor = user.role === 'TO Supervisor';
@@ -61,7 +102,14 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
   const isTOFlow = rankingMode === 'to';
   const canManageSubject = (rankingMode === 'referee' && isInstructor) || (rankingMode === 'to' && isTOSupervisor);
   const entityLabel = isTOFlow ? 'TO' : 'Referee';
-  const rankingTitle = isInstructor || isStaff || isTOSupervisor ? `${entityLabel} Ranking` : `My ${entityLabel} Ranking`;
+  const rankingTitle = isTOFlow
+    ? isInstructor || isStaff || isTOSupervisor
+      ? t('dashboard.navTORanking')
+      : `My ${t('dashboard.navTORanking')}`
+    : isInstructor || isStaff || isTOSupervisor
+      ? t('dashboard.navRanking')
+      : t('dashboard.navMyRanking');
+  const performanceFields = isTOFlow ? toPerformanceFields : refereePerformanceFields;
 
   const [dashboard, setDashboard] = useState<RankingDashboardData | null>(null);
   const [adminData, setAdminData] = useState<{
@@ -260,7 +308,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
             </div>
             <p className="text-sm text-slate-500">
               `Match Performance Sheet` saves one game. `Total Performance Sheet` is calculated automatically from all
-              saved matches. `AVG` = match criteria sum / 9, then average of all match averages for that {entityLabel}.
+              saved matches. `AVG` = match criteria sum / {performanceFields.length}, then average of all match averages for that {entityLabel}.
             </p>
           </div>
 
@@ -351,7 +399,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
               <div className="grid gap-4 md:grid-cols-2">
                 {performanceFields.map(([key, label]) => (
                   <div key={key}>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{label}</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{getPerformanceFieldLabel(key, language, isTOFlow)}</label>
                     <select
                       value={matchPerformanceForm[key]}
                       onChange={(event) =>
@@ -378,7 +426,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                 />
               </div>
               <div className="inline-flex rounded-full bg-[#f39200]/10 px-3 py-1 text-sm font-bold text-[#f39200]">
-                Current match average: {formatAverage(getMatchAverage(matchPerformanceForm))}
+                Current match average: {formatAverage(getMatchAverage(matchPerformanceForm, performanceFields))}
               </div>
               <div>
                 <button
@@ -421,7 +469,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
               <div className="grid gap-4 md:grid-cols-2">
                 {performanceFields.map(([key, label]) => (
                   <div key={key}>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{label}</label>
+                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{getPerformanceFieldLabel(key, language, isTOFlow)}</label>
                     <input
                       readOnly
                       value={formatAverage(selectedProfile?.[key])}
@@ -492,7 +540,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
             <div className="grid gap-4 md:grid-cols-2">
               {performanceFields.map(([key, label]) => (
                 <div key={key}>
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{label}</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">{getPerformanceFieldLabel(key, language, isTOFlow)}</label>
                   <input
                     readOnly
                     value={formatAverage(dashboard.performanceProfile?.[key])}
@@ -603,7 +651,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                 <div className="grid gap-3 md:grid-cols-2">
                   {performanceFields.map(([key, label]) => (
                     <div key={`${entry.id}-${key}`} className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center justify-between">
-                      <span className="text-sm text-slate-600">{label}</span>
+                      <span className="text-sm text-slate-600">{getPerformanceFieldLabel(key, language, isTOFlow)}</span>
                       <span className="text-sm font-bold text-[#581c1c]">{entry[key]}</span>
                     </div>
                   ))}

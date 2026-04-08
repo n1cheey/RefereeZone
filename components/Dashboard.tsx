@@ -36,6 +36,7 @@ import {
   respondToNomination,
   updateNominationScore,
 } from '../services/nominationService';
+import { getAssignmentStatusLabel, getRoleLabel, useI18n } from '../i18n';
 
 interface DashboardProps {
   user: User;
@@ -85,6 +86,7 @@ const getAssignmentStatusClasses = (status: string) => {
 };
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpdateUser }) => {
+  const { language, t } = useI18n();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [referees, setReferees] = useState<RefereeDirectoryItem[]>([]);
   const [toOfficials, setTOOfficials] = useState<RefereeDirectoryItem[]>([]);
@@ -479,17 +481,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   };
 
   const navItems = [
-    { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff ? 'Nominations' : 'My Nominations', icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
+    { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff ? t('nominations.title') : t('nominations.myTitle'), icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
     ...(isInstructor
       ? [
-          { id: 'teyinat' as const, label: 'Teyinat', icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
-          { id: 'activity' as const, label: 'Activity', icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
-          { id: 'toRanking' as const, label: 'TO Ranking', icon: TrendingUp, iconColor: 'text-teal-600', color: 'bg-teal-50' },
+          { id: 'teyinat' as const, label: t('teyinat.title'), icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
+          { id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
         ]
       : []),
-    { id: 'ranking' as const, label: isInstructor || isTOSupervisor || isStaff ? 'Ranking' : 'My Ranking', icon: TrendingUp, iconColor: 'text-green-500', color: 'bg-green-50' },
-    ...(!isTO && !isTOSupervisor ? [{ id: 'reports' as const, label: isStaff ? 'Reports' : 'My Reports', icon: FileText, iconColor: 'text-purple-500', color: 'bg-purple-50' }] : []),
-    { id: 'news' as const, label: 'News', icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
+    ...(isTO || isTOSupervisor
+      ? [
+          {
+            id: 'toRanking' as const,
+            label: isTOSupervisor ? t('dashboard.navTORanking') : `My ${t('dashboard.navTORanking')}`,
+            icon: TrendingUp,
+            iconColor: 'text-teal-600',
+            color: 'bg-teal-50',
+          },
+        ]
+      : [
+          {
+            id: 'ranking' as const,
+            label: isInstructor || isStaff ? t('dashboard.navRanking') : t('dashboard.navMyRanking'),
+            icon: TrendingUp,
+            iconColor: 'text-green-500',
+            color: 'bg-green-50',
+          },
+        ]),
+    ...(!isTO && !isTOSupervisor ? [{ id: 'reports' as const, label: isStaff ? t('reports.title') : t('reports.myTitle'), icon: FileText, iconColor: 'text-purple-500', color: 'bg-purple-50' }] : []),
+    { id: 'news' as const, label: t('news.title'), icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
   ];
 
   const declinedAssignments = instructorNominations.flatMap((nomination) =>
@@ -867,13 +886,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     <div key={assignment.id} className="rounded-xl border border-slate-200 p-4">
       {user.role === 'Referee' && assignment.assignmentGroup === 'Referee' && isUpcomingMatchDay(assignment.matchDate, assignment.matchTime, countdownNow) ? (
         <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
-          <div className="font-black uppercase tracking-[0.18em] text-emerald-700">Gameday!</div>
-          <div className="mt-1 font-medium">Good luck today. Stay sharp and have a great game.</div>
+          <div className="font-black uppercase tracking-[0.18em] text-emerald-700">{t('dashboard.gameDay')}</div>
+          <div className="mt-1 font-medium">{t('dashboard.gameDayWish')}</div>
         </div>
       ) : null}
       {assignment.assignmentGroup === 'Referee' && assignment.status === 'Pending' ? (
         <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-          {formatAutoDeclineCountdown(assignment.autoDeclineAt, countdownNow) || 'Auto reject timer unavailable.'}
+          {formatAutoDeclineCountdown(assignment.autoDeclineAt, countdownNow, language) || t('dashboard.autoRejectUnavailable')}
         </div>
       ) : null}
       <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -902,19 +921,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       <div className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
           getAssignmentStatusClasses(assignment.status)
         }`}>
-          {assignment.status}
+          {getAssignmentStatusLabel(assignment.status, language)}
         </div>
       </div>
       {renderFinalScore(assignment.finalScore)}
       {renderMatchLinks(assignment.matchVideoUrl, assignment.matchProtocolUrl)}
       <div className="mt-4 rounded-xl bg-slate-50 p-3">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-          {assignment.assignmentGroup === 'TO' ? 'Referee Crew' : 'Crew'}
+          {assignment.assignmentGroup === 'TO' ? 'Referee Crew' : t('common.crew')}
         </div>
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           {assignment.crew.map((official) => (
             <div key={`${assignment.id}-${official.refereeId}-${official.slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-              <div className="text-[11px] font-bold uppercase text-slate-500">{getNominationSlotLabel(official.slotNumber)}</div>
+              <div className="text-[11px] font-bold uppercase text-slate-500">{getNominationSlotLabel(official.slotNumber, language)}</div>
               <div className="mt-1 text-sm font-semibold text-slate-900">{official.refereeName}</div>
             </div>
           ))}
@@ -926,19 +945,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       ) : (
         <div className="mt-4 rounded-xl bg-slate-50 p-3">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">TO Crew</div>
+          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.toCrew')}</div>
           <div className="mt-3 grid gap-2 md:grid-cols-4">
             {[1, 2, 3, 4].map((slotNumber) => {
               const toSlot = assignment.toCrew.find((item) => item.slotNumber === slotNumber);
               return (
                 <div key={`${assignment.id}-to-${slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <div className="text-[11px] font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber)}</div>
+                  <div className="text-[11px] font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber, language)}</div>
                   <div className="mt-1 text-sm font-semibold text-slate-900">
-                    {toSlot?.toName || (user.role === 'Referee' ? 'Awaiting confirmation' : 'Not assigned')}
+                    {toSlot?.toName || (user.role === 'Referee' ? t('common.awaitingConfirmation') : t('common.notAssigned'))}
                   </div>
                   {toSlot ? (
                     <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(toSlot.status)}`}>
-                      {toSlot.status}
+                      {getAssignmentStatusLabel(toSlot.status, language)}
                     </div>
                   ) : null}
                 </div>
@@ -954,16 +973,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             disabled={actionAssignmentId === assignment.id}
             className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
           >
-            {actionAssignmentId === assignment.id ? 'Saving...' : 'Accept'}
-          </button>
+              {actionAssignmentId === assignment.id ? t('common.saving') : t('dashboard.accept')}
+            </button>
           <button
             onClick={() => handleNominationResponse(assignment.nominationId, 'Declined', assignment.id)}
             disabled={actionAssignmentId === assignment.id}
             className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700 disabled:opacity-70"
           >
-            {actionAssignmentId === assignment.id ? 'Saving...' : 'Decline'}
-          </button>
-        </div>
+              {actionAssignmentId === assignment.id ? t('common.saving') : t('dashboard.decline')}
+            </button>
+          </div>
       )}
     </div>
   );
@@ -989,10 +1008,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           <div>
             <h2 className="text-xl font-bold text-slate-800">{user.fullName}</h2>
             <p className="text-sm text-slate-500 flex items-center gap-1">
-              <UserIcon size={14} /> License: {user.licenseNumber}
+              <UserIcon size={14} /> {t('common.license')}: {user.licenseNumber}
             </p>
             <div className="mt-1 inline-block px-2 py-0.5 bg-[#581c1c] text-white text-[10px] uppercase font-bold rounded">
-              {user.role}
+              {getRoleLabel(user.role, language)}
             </div>
           </div>
         </div>

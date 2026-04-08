@@ -1546,7 +1546,7 @@ const getInstructorDashboardData = async (admin, instructorId) => {
   };
 };
 
-const rankingPerformanceFieldMap = [
+const rankingRefereePerformanceFieldMap = [
   ['physicalFitness', 'physical_fitness'],
   ['mechanics', 'mechanics'],
   ['iot', 'iot'],
@@ -1556,6 +1556,12 @@ const rankingPerformanceFieldMap = [
   ['newPhilosophy', 'new_philosophy'],
   ['communication', 'communication'],
   ['externalEvaluation', 'external_evaluation'],
+];
+
+const rankingTOPerformanceFieldMap = [
+  ['criteriaScore', 'criteria_score'],
+  ['teamworkScore', 'teamwork_score'],
+  ['communication', 'communication'],
 ];
 
 const createEmptyRankingPerformanceProfile = (refereeId, refereeName) => ({
@@ -1572,11 +1578,11 @@ const createEmptyRankingPerformanceProfile = (refereeId, refereeName) => ({
   externalEvaluation: 0,
 });
 
-const getRankingPerformanceValues = (item) =>
-  rankingPerformanceFieldMap.map(([clientKey]) => Number(item?.[clientKey] || 0));
+const getRankingPerformanceValues = (item, performanceFieldMap = rankingRefereePerformanceFieldMap) =>
+  performanceFieldMap.map(([clientKey]) => Number(item?.[clientKey] || 0));
 
-const calculateRankingPerformanceAverage = (item) => {
-  const values = getRankingPerformanceValues(item);
+const calculateRankingPerformanceAverage = (item, performanceFieldMap = rankingRefereePerformanceFieldMap) => {
+  const values = getRankingPerformanceValues(item, performanceFieldMap);
   if (!values.length) {
     return 0;
   }
@@ -1597,6 +1603,7 @@ const buildRankingState = async (
     subjectRole = 'Referee',
     performanceTable = 'ranking_match_performance',
     subjectIdColumn = 'referee_id',
+    performanceFieldMap = rankingRefereePerformanceFieldMap,
     notFoundMessage = 'Failed to load referees.',
   } = {},
 ) => {
@@ -1663,7 +1670,7 @@ const buildRankingState = async (
 
     return {
       ...entry,
-      matchAverage: calculateRankingPerformanceAverage(entry),
+      matchAverage: calculateRankingPerformanceAverage(entry, performanceFieldMap),
     };
   });
 
@@ -1682,7 +1689,7 @@ const buildRankingState = async (
       }
 
       const profile = createEmptyRankingPerformanceProfile(referee.id, referee.full_name);
-      rankingPerformanceFieldMap.forEach(([clientKey]) => {
+      performanceFieldMap.forEach(([clientKey]) => {
         const averageValue =
           entries.reduce((sum, entry) => sum + Number(entry[clientKey] || 0), 0) / entries.length;
         profile[clientKey] = Number(averageValue.toFixed(2));
@@ -3270,6 +3277,7 @@ const getRankingDashboardConfig = (role, subjectRole = null) => {
       subjectRole: 'TO',
       performanceTable: 'ranking_to_match_performance',
       subjectIdColumn: 'to_id',
+      performanceFieldMap: rankingTOPerformanceFieldMap,
       notFoundMessage: 'Failed to load TO ranking.',
       adminRoles: ['TO Supervisor'],
       viewerRoles: ['Instructor'],
@@ -3281,6 +3289,7 @@ const getRankingDashboardConfig = (role, subjectRole = null) => {
     subjectRole: 'Referee',
     performanceTable: 'ranking_match_performance',
     subjectIdColumn: 'referee_id',
+    performanceFieldMap: rankingRefereePerformanceFieldMap,
     notFoundMessage: 'Failed to load referee ranking.',
     adminRoles: ['Instructor', 'Staff'],
     viewerRoles: [],
@@ -3425,17 +3434,8 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
   const gameCode = String(body.gameCode || '').trim();
   const evaluationDate = String(body.evaluationDate || '').trim();
   const note = String(body.note || '').trim();
-  const values = [
-    Number(body.physicalFitness),
-    Number(body.mechanics),
-    Number(body.iot),
-    Number(body.criteriaScore),
-    Number(body.teamworkScore),
-    Number(body.gameControl),
-    Number(body.newPhilosophy),
-    Number(body.communication),
-    Number(body.externalEvaluation),
-  ];
+  const activeFieldMap = rankingConfig.performanceFieldMap || rankingRefereePerformanceFieldMap;
+  const values = activeFieldMap.map(([clientKey]) => Number(body[clientKey]));
 
   if (values.some((value) => ![-1, 0, 1].includes(value))) {
     throw new HttpError(400, 'Performance values must be -1, 0 or 1.');
@@ -3446,21 +3446,20 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
   }
 
   const subjectColumn = rankingConfig.subjectIdColumn;
+  const zeroedPerformancePayload = Object.fromEntries(
+    rankingRefereePerformanceFieldMap.map(([, columnKey]) => [columnKey, 0]),
+  );
+  const activePerformancePayload = Object.fromEntries(
+    activeFieldMap.map(([clientKey, columnKey]) => [columnKey, Number(body[clientKey])]),
+  );
   const { error } = await admin.from(rankingConfig.performanceTable).upsert(
     {
       [subjectColumn]: body.refereeId,
       game_code: gameCode,
       evaluation_date: evaluationDate,
       note,
-      physical_fitness: values[0],
-      mechanics: values[1],
-      iot: values[2],
-      criteria_score: values[3],
-      teamwork_score: values[4],
-      game_control: values[5],
-      new_philosophy: values[6],
-      communication: values[7],
-      external_evaluation: values[8],
+      ...zeroedPerformancePayload,
+      ...activePerformancePayload,
       updated_by: currentUser.id,
       updated_at: new Date().toISOString(),
     },

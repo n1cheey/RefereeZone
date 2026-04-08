@@ -5,6 +5,7 @@ import { getNominationSlotLabel } from '../slotLabels';
 import { exportTeyinatPdf, TeyinatGroup } from '../services/teyinatPdf';
 import { getInstructorNominations } from '../services/nominationService';
 import { InstructorNomination, User } from '../types';
+import { useI18n } from '../i18n';
 
 interface TeyinatProps {
   user: User;
@@ -15,6 +16,7 @@ const MAX_SELECTED_GAMES = 6;
 const MAX_GROUP_GAMES = 3;
 
 const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
+  const { language, t } = useI18n();
   const [nominations, setNominations] = useState<InstructorNomination[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [groupSelections, setGroupSelections] = useState<Record<string, TeyinatGroup>>({});
@@ -128,16 +130,16 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
 
   if (user.role !== 'Instructor') {
     return (
-      <Layout title="Teyinat" onBack={onBack}>
+      <Layout title={t('teyinat.title')} onBack={onBack}>
         <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-500">
-          Only Instructor accounts can create Teyinat files.
+          {t('teyinat.onlyInstructor')}
         </div>
       </Layout>
     );
   }
 
   return (
-    <Layout title="Teyinat" onBack={onBack}>
+    <Layout title={t('teyinat.title')} onBack={onBack}>
       {errorMessage && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
@@ -153,14 +155,14 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
       <div className="mb-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Export Match Assignment Sheet</h2>
+            <h2 className="text-lg font-bold text-slate-900">{t('teyinat.exportTitle')}</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Choose up to 6 games. The original Word layout supports up to 3 games in Group A and 3 games in Group B.
+              {t('teyinat.exportHelp')}
             </p>
           </div>
           <div className="flex flex-col items-start gap-3 md:items-end">
             <div className="rounded-full bg-[#581c1c]/8 px-3 py-1 text-xs font-bold uppercase tracking-wide text-[#581c1c]">
-              Selected {selectedIds.length} / {MAX_SELECTED_GAMES}
+              {t('teyinat.selectedCount', { count: selectedIds.length, max: MAX_SELECTED_GAMES })}
             </div>
             <button
               onClick={handleExport}
@@ -168,17 +170,17 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
               className="inline-flex items-center gap-2 rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-[#581c1c]/15 disabled:opacity-60"
             >
               <Download size={16} />
-              {isExporting ? 'Generating PDF...' : 'Download PDF'}
+              {isExporting ? t('teyinat.generating') : t('teyinat.downloadPdf')}
             </button>
           </div>
         </div>
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-slate-500">Loading games...</p>
+        <p className="text-sm text-slate-500">{t('teyinat.loadingGames')}</p>
       ) : nominations.length === 0 ? (
         <div className="rounded-xl bg-white border border-slate-100 p-4 text-sm text-slate-500">
-          No games available for Teyinat.
+          {t('teyinat.none')}
         </div>
       ) : (
         <div className="space-y-4">
@@ -222,7 +224,7 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
                         </div>
                       </div>
                       <div className="mt-4 flex items-center gap-3">
-                        <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Group</span>
+                        <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{t('teyinat.group')}</span>
                         <select
                           value={groupSelections[nomination.id] || 'B'}
                           onChange={(event) =>
@@ -234,8 +236,8 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
                           onClick={(event) => event.stopPropagation()}
                           className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-[#581c1c]"
                         >
-                          <option value="B">B Group</option>
-                          <option value="A">A Group</option>
+                          <option value="B">{t('teyinat.groupB')}</option>
+                          <option value="A">{t('teyinat.groupA')}</option>
                         </select>
                       </div>
                     </div>
@@ -248,7 +250,7 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
                       .map((referee) => (
                         <div key={`${nomination.id}-${referee.slotNumber}`} className="rounded-xl bg-slate-50 p-3">
                           <div className="text-xs font-bold uppercase text-slate-500">
-                            {getNominationSlotLabel(referee.slotNumber)}
+                            {getNominationSlotLabel(referee.slotNumber, language)}
                           </div>
                           <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
                         </div>
