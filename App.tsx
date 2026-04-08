@@ -1,6 +1,16 @@
-import React, { Suspense, lazy, startTransition, useEffect, useRef, useState } from 'react';
+import React, { startTransition, useEffect, useRef, useState } from 'react';
 import { User } from './types';
 import Login from './components/Login';
+import Dashboard from './components/Dashboard';
+import Nominations from './components/Nominations';
+import Teyinat from './components/Teyinat';
+import Ranking from './components/Ranking';
+import Reports from './components/Reports';
+import News from './components/News';
+import Members from './components/Members';
+import AccessManager from './components/AccessManager';
+import Activity from './components/Activity';
+import AnnouncementManager from './components/AnnouncementManager';
 import { I18nProvider, useI18n } from './i18n';
 import {
   getCurrentUserProfile,
@@ -9,68 +19,6 @@ import {
   logoutUser,
   subscribeToAuthChanges,
 } from './services/authService';
-
-const LAZY_RELOAD_STORAGE_KEY = 'abl-lazy-reload-once';
-
-const isChunkLoadError = (error: unknown) => {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : '';
-  const normalized = message.toLowerCase();
-
-  return (
-    normalized.includes('failed to fetch dynamically imported module') ||
-    normalized.includes('importing a module script failed') ||
-    normalized.includes('chunkloaderror') ||
-    normalized.includes('loading chunk')
-  );
-};
-
-const buildChunkRecoveryUrl = () => {
-  const url = new URL(window.location.href);
-  url.searchParams.set('v', Date.now().toString());
-  return url.toString();
-};
-
-const lazyWithRetry = <T extends React.ComponentType<any>>(
-  importer: () => Promise<{ default: T }>,
-) =>
-  lazy(async () => {
-    try {
-      const module = await importer();
-      if (typeof window !== 'undefined') {
-        window.sessionStorage.removeItem(LAZY_RELOAD_STORAGE_KEY);
-      }
-      return module;
-    } catch (error) {
-      if (typeof window !== 'undefined' && isChunkLoadError(error)) {
-        const hasRetried = window.sessionStorage.getItem(LAZY_RELOAD_STORAGE_KEY) === '1';
-        if (!hasRetried) {
-          window.sessionStorage.setItem(LAZY_RELOAD_STORAGE_KEY, '1');
-          window.location.replace(buildChunkRecoveryUrl());
-          await new Promise(() => {});
-        }
-
-        window.sessionStorage.removeItem(LAZY_RELOAD_STORAGE_KEY);
-      }
-
-      throw error instanceof Error ? error : new Error('Failed to load application module.');
-    }
-  });
-
-const Dashboard = lazyWithRetry(() => import('./components/Dashboard'));
-const Nominations = lazyWithRetry(() => import('./components/Nominations'));
-const Teyinat = lazyWithRetry(() => import('./components/Teyinat'));
-const Ranking = lazyWithRetry(() => import('./components/Ranking'));
-const Reports = lazyWithRetry(() => import('./components/Reports'));
-const News = lazyWithRetry(() => import('./components/News'));
-const Members = lazyWithRetry(() => import('./components/Members'));
-const AccessManager = lazyWithRetry(() => import('./components/AccessManager'));
-const Activity = lazyWithRetry(() => import('./components/Activity'));
-const AnnouncementManager = lazyWithRetry(() => import('./components/AnnouncementManager'));
 
 type View =
   | 'login'
@@ -477,7 +425,7 @@ const AppContent: React.FC = () => {
     }
   };
 
-  return <Suspense fallback={<LoadingScreen label={t('common.loadingPage')} />}>{renderView()}</Suspense>;
+  return renderView();
 };
 
 const App: React.FC = () => (
