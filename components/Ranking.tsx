@@ -202,20 +202,16 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
         }),
     [performanceEntries, selectedRefereeId],
   );
-  const selectedHistory = useMemo(() => {
-    if (!dashboard) {
-      return [];
-    }
-
-    if (!canViewFullLeaderboard) {
-      return dashboard.history || [];
-    }
-
-    return dashboard.refereeHistories?.[selectedRefereeId] || [];
-  }, [canViewFullLeaderboard, dashboard, selectedRefereeId]);
-  const selectedAverageHistory = useMemo(
-    () => selectedHistory.map((point) => ({ ...point, average: Number(point.average ?? 0) })),
-    [selectedHistory],
+  const selectedMatchAverageHistory = useMemo(
+    () =>
+      [...selectedEntries]
+        .reverse()
+        .map((entry) => ({
+          date: entry.evaluationDate,
+          gameCode: entry.gameCode,
+          matchAverage: Number(entry.matchAverage ?? 0),
+        })),
+    [selectedEntries],
   );
   const matchPerformanceTotal = useMemo(() => {
     const currentLeaderboardItem = rankingItems.find((item) => item.refereeId === matchPerformanceRefereeId);
@@ -506,14 +502,14 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
 
             <div className="h-64 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={dashboard.history}>
+                <LineChart data={selectedMatchAverageHistory}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="gameCode" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <YAxis reversed domain={[1, Math.max(5, dashboard.totalReferees || 1)]} hide />
+                  <YAxis domain={[-1, 1]} hide />
                   <Tooltip
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                     labelStyle={{ fontWeight: 'bold' }}
-                    formatter={(value: number) => [`#${value}`, t('ranking.rank')]}
+                    formatter={(value: number) => [formatAverage(value), t('ranking.matchAverageLabel')]}
                     labelFormatter={(label: string, payload) => {
                       const point = payload?.[0]?.payload as { date?: string; gameCode?: string } | undefined;
                       return point ? `${point.gameCode || label} • ${point.date || ''}` : label;
@@ -521,7 +517,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                   />
                   <Line
                     type="monotone"
-                    dataKey="rank"
+                    dataKey="matchAverage"
                     stroke="#f97316"
                     strokeWidth={3}
                     dot={{ r: 6, fill: '#f97316' }}
@@ -591,29 +587,30 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
             </div>
           </div>
 
-          {selectedLeaderboardItem && selectedHistory.length > 0 && (
+          {selectedLeaderboardItem && selectedMatchAverageHistory.length > 0 && (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
               <div className="flex justify-between items-start gap-4 mb-6">
                 <div>
-                  <p className="text-sm text-slate-500">{t('ranking.selectedAvgTrend', { entity: entityLabel })}</p>
+                  <p className="text-sm text-slate-500">{t('ranking.selectedMatchAvgTrend', { entity: entityLabel })}</p>
                   <h3 className="text-3xl font-black text-[#581c1c]">{selectedLeaderboardItem.refereeName}</h3>
-                  <p className="text-sm text-slate-500 mt-2">{t('ranking.currentAvg', { value: formatAverage(selectedLeaderboardItem.performanceAverage) })}</p>
+                  <p className="text-sm text-slate-500 mt-2">{t('ranking.currentRank', { rank: selectedLeaderboardItem.rank })}</p>
+                  <p className="text-sm text-slate-500 mt-1">{t('ranking.avgPerformance', { value: formatAverage(selectedLeaderboardItem.performanceAverage) })}</p>
                 </div>
                 <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full flex items-center gap-1 text-sm font-bold">
-                  <TrendingUp size={16} /> {t('ranking.avgWithValue', { value: formatAverage(selectedLeaderboardItem.performanceAverage) })}
+                  <TrendingUp size={16} /> {t('ranking.totalWithValue', { value: formatAverage(selectedLeaderboardItem.overallScore) })}
                 </div>
               </div>
 
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={selectedAverageHistory}>
+                  <LineChart data={selectedMatchAverageHistory}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="gameCode" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
                     <YAxis domain={[-1, 1]} hide />
                     <Tooltip
                       contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                       labelStyle={{ fontWeight: 'bold' }}
-                      formatter={(value: number) => [formatAverage(value), t('ranking.average')]}
+                      formatter={(value: number) => [formatAverage(value), t('ranking.matchAverageLabel')]}
                       labelFormatter={(label: string, payload) => {
                         const point = payload?.[0]?.payload as { date?: string; gameCode?: string } | undefined;
                         return point ? `${point.gameCode || label} • ${point.date || ''}` : label;
@@ -621,7 +618,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                     />
                     <Line
                       type="monotone"
-                      dataKey="average"
+                      dataKey="matchAverage"
                       stroke="#f97316"
                       strokeWidth={3}
                       dot={{ r: 6, fill: '#f97316' }}
