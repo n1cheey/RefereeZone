@@ -349,7 +349,7 @@ Object.assign(translations.en, {
   'nominations.myTitle': 'My Nominations',
   'reports.title': 'Reports',
   'reports.myTitle': 'My Reports',
-  'reports.refereeTitle': 'Отчеты судей',
+  'reports.refereeTitle': 'Referee Reports',
   'reports.toTitle': 'TO Reports',
   'news.title': 'News',
   'announcement.title': 'Announcement',
@@ -391,7 +391,7 @@ Object.assign(translations.ru, {
   'nominations.myTitle': 'Мои назначения',
   'reports.title': 'Отчеты',
   'reports.myTitle': 'Мои отчеты',
-  'reports.refereeTitle': 'Referee Reports',
+  'reports.refereeTitle': 'Отчеты судей',
   'reports.toTitle': 'TO отчеты',
   'news.title': 'Новости',
   'announcement.title': 'Объявление',
@@ -788,7 +788,7 @@ Object.assign(translations.ru, {
 
 Object.assign(translations.en, {
   'ranking.myTORankingTitle': 'My TO Ranking',
-  'ranking.refereeTitle': 'Рейтинг судей',
+  'ranking.refereeTitle': 'Referee Ranking',
   'ranking.failedToLoad': 'Failed to load rankings.',
   'ranking.saved': 'Match performance saved.',
   'ranking.failedToSave': 'Failed to save performance.',
@@ -872,7 +872,7 @@ Object.assign(translations.az, {
 
 Object.assign(translations.ru, {
   'ranking.myTORankingTitle': 'Мой рейтинг TO',
-  'ranking.refereeTitle': 'Referee Ranking',
+  'ranking.refereeTitle': 'Рейтинг судей',
   'ranking.failedToLoad': 'Не удалось загрузить рейтинг.',
   'ranking.saved': 'Оценка за матч сохранена.',
   'ranking.failedToSave': 'Не удалось сохранить оценку.',
