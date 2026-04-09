@@ -91,6 +91,31 @@ const getMatchAverage = (
   return Number((total / fields.length).toFixed(2));
 };
 
+const getMatchAverageChartDomain = (points: Array<{ matchAverage: number }>) => {
+  if (!points.length) {
+    return [-1, 1] as const;
+  }
+
+  const values = points.map((point) => Number(point.matchAverage || 0));
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const spread = maxValue - minValue;
+
+  if (spread <= 0) {
+    const padding = 0.15;
+    return [
+      Math.max(-1, Number((minValue - padding).toFixed(2))),
+      Math.min(1, Number((maxValue + padding).toFixed(2))),
+    ] as const;
+  }
+
+  const padding = Math.max(0.05, spread * 0.35);
+  return [
+    Math.max(-1, Number((minValue - padding).toFixed(2))),
+    Math.min(1, Number((maxValue + padding).toFixed(2))),
+  ] as const;
+};
+
 const shouldShowScoreLegend = (role: User['role']) =>
   role === 'Referee' || role === 'Staff' || role === 'TO' || role === 'TO Supervisor';
 
@@ -212,6 +237,10 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
           matchAverage: Number(entry.matchAverage ?? 0),
         })),
     [selectedEntries],
+  );
+  const selectedMatchAverageDomain = useMemo(
+    () => getMatchAverageChartDomain(selectedMatchAverageHistory),
+    [selectedMatchAverageHistory],
   );
   const matchPerformanceTotal = useMemo(() => {
     const currentLeaderboardItem = rankingItems.find((item) => item.refereeId === matchPerformanceRefereeId);
@@ -505,7 +534,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                 <LineChart data={selectedMatchAverageHistory}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="gameCode" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <YAxis domain={[-1, 1]} hide />
+                  <YAxis domain={selectedMatchAverageDomain} hide />
                   <Tooltip
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                     labelStyle={{ fontWeight: 'bold' }}
@@ -606,7 +635,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                   <LineChart data={selectedMatchAverageHistory}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="gameCode" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                    <YAxis domain={[-1, 1]} hide />
+                    <YAxis domain={selectedMatchAverageDomain} hide />
                     <Tooltip
                       contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                       labelStyle={{ fontWeight: 'bold' }}
