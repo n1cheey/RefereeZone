@@ -171,6 +171,7 @@ export interface RankingPoint {
   date: string;
   gameCode: string;
   rank: number;
+  average?: number;
 }
 
 export interface RankingEvaluation {

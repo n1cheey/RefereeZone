@@ -2234,10 +2234,13 @@ const buildRankingHistory = (targetRefereeId, rankingState) => {
       return;
     }
 
+    const targetSnapshot = snapshot.find((item) => item.refereeId === targetRefereeId);
+
     history.push({
       date: matchRecord.evaluationDate,
       gameCode: matchRecord.gameCode,
       rank: snapshot.findIndex((item) => item.refereeId === targetRefereeId) + 1,
+      average: targetSnapshot?.performanceAverage || 0,
     });
   });
 
