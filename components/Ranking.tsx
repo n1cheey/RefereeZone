@@ -5,6 +5,7 @@ import { Award, Save, Shield, TrendingUp } from 'lucide-react';
 import { RankingDashboardData, RankingGameOption, RankingPerformanceEntry, RankingPerformanceProfile, User } from '../types';
 import { getRankingAdminData, getRankingDashboard, getTORankingAdminData, getTORankingDashboard, saveRankingPerformance } from '../services/rankingService';
 import { getRoleLabel, useI18n } from '../i18n';
+import { readViewCache, writeViewCache } from '../services/viewCache';
 
 const scoreOptions = [-1, 0, 1];
 const CORRECTION_GAME_ID = '__correction__';
@@ -119,6 +120,36 @@ const getMatchAverageChartDomain = (points: Array<{ matchAverage: number }>) => 
 const shouldShowScoreLegend = (role: User['role']) =>
   role === 'Referee' || role === 'Staff' || role === 'TO' || role === 'TO Supervisor';
 
+interface RankingAdminState {
+  performanceEntries: RankingPerformanceEntry[];
+  performanceProfiles: RankingPerformanceProfile[];
+  games: RankingGameOption[];
+  referees: Array<{ id: string; fullName: string }>;
+}
+
+interface RankingViewState {
+  dashboard: RankingDashboardData;
+  adminData: RankingAdminState | null;
+}
+
+const getRankingCacheKey = (userId: string, rankingMode: string) => `ranking:${rankingMode}:${userId}`;
+
+const buildDashboardFromAdminData = (adminResponse: {
+  leaderboard: RankingDashboardData['leaderboard'];
+  performanceEntries: RankingPerformanceEntry[];
+  performanceProfiles: RankingPerformanceProfile[];
+}): RankingDashboardData => ({
+  leaderboard: adminResponse.leaderboard,
+  history: [],
+  refereeHistories: {},
+  currentUserItem: null,
+  performanceProfile: null,
+  visiblePerformanceProfiles: adminResponse.performanceProfiles,
+  performanceEntries: adminResponse.performanceEntries,
+  totalReferees: adminResponse.leaderboard.length,
+  canViewFullLeaderboard: true,
+});
+
 const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee' }) => {
   const { language, t } = useI18n();
   const isInstructor = user.role === 'Instructor';
@@ -139,12 +170,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
   const performanceFields = isTOFlow ? toPerformanceFields : refereePerformanceFields;
 
   const [dashboard, setDashboard] = useState<RankingDashboardData | null>(null);
-  const [adminData, setAdminData] = useState<{
-    performanceEntries: RankingPerformanceEntry[];
-    performanceProfiles: RankingPerformanceProfile[];
-    games: RankingGameOption[];
-    referees: Array<{ id: string; fullName: string }>;
-  } | null>(null);
+  const [adminData, setAdminData] = useState<RankingAdminState | null>(null);
   const [selectedRefereeId, setSelectedRefereeId] = useState('');
   const [matchPerformanceRefereeId, setMatchPerformanceRefereeId] = useState('');
   const [matchPerformanceForm, setMatchPerformanceForm] = useState(emptyMatchPerformanceForm);
@@ -154,28 +180,43 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
   const [isSavingMatchPerformance, setIsSavingMatchPerformance] = useState(false);
 
   const loadData = async () => {
-    setIsLoading(true);
+    const cacheKey = getRankingCacheKey(user.id, rankingMode);
+    const cachedState = readViewCache<RankingViewState>(cacheKey);
+
+    if (cachedState) {
+      setDashboard(cachedState.dashboard);
+      setAdminData(cachedState.adminData);
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
+
     try {
-      const [dashboardResponse, adminResponse] = await Promise.all([
-        rankingMode === 'to' ? getTORankingDashboard(user.id) : getRankingDashboard(user.id),
-        canManageSubject
-          ? rankingMode === 'to'
-            ? getTORankingAdminData(user.id)
-            : getRankingAdminData(user.id)
-          : Promise.resolve(null),
-      ]);
+      const adminResponse = canManageSubject
+        ? rankingMode === 'to'
+          ? await getTORankingAdminData(user.id)
+          : await getRankingAdminData(user.id)
+        : null;
+      const dashboardResponse = adminResponse
+        ? buildDashboardFromAdminData(adminResponse)
+        : rankingMode === 'to'
+          ? await getTORankingDashboard(user.id)
+          : await getRankingDashboard(user.id);
+      const nextAdminData = adminResponse
+        ? {
+            performanceEntries: adminResponse.performanceEntries,
+            performanceProfiles: adminResponse.performanceProfiles,
+            games: adminResponse.games,
+            referees: adminResponse.referees,
+          }
+        : null;
 
       setDashboard(dashboardResponse);
-      setAdminData(
-        adminResponse
-          ? {
-              performanceEntries: adminResponse.performanceEntries,
-              performanceProfiles: adminResponse.performanceProfiles,
-              games: adminResponse.games,
-              referees: adminResponse.referees,
-            }
-          : null,
-      );
+      setAdminData(nextAdminData);
+      writeViewCache<RankingViewState>(cacheKey, {
+        dashboard: dashboardResponse,
+        adminData: nextAdminData,
+      });
 
       const defaultSelectedRefereeId =
         selectedRefereeId ||

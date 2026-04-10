@@ -18,12 +18,12 @@ const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, show
   return (
     <div className="min-h-screen bg-[#57131b]">
       <header className="sticky top-0 z-50 border-b border-[#6b1b24] bg-[#57131b] text-white shadow-[0_18px_35px_rgba(42,10,14,0.28)]">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-2 px-3 py-2 sm:gap-4 sm:px-6 sm:py-3 lg:px-8">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
             {showBack ? (
               <button
                 onClick={onBack}
-                className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-white/15 bg-white/10 transition hover:bg-white/16"
+                className="flex h-9 w-9 flex-none items-center justify-center rounded-full border border-white/15 bg-white/10 transition hover:bg-white/16 sm:h-10 sm:w-10"
               >
                 <ChevronLeft size={22} />
               </button>
@@ -31,21 +31,21 @@ const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, show
               <img
                 src={headerLogo}
                 alt="ABL header logo"
-                className="h-14 w-auto flex-none rounded-lg object-contain shadow-none"
+                className="h-10 w-auto flex-none rounded-lg object-contain shadow-none sm:h-14"
               />
             )}
-            <div className="min-w-0">
-              <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-white/70">ABL RefZone</div>
-              <h1 className="truncate text-lg font-black tracking-tight text-white sm:text-xl">{title}</h1>
+            <div className="min-w-0 flex-1">
+              <div className="hidden text-[11px] font-bold uppercase tracking-[0.28em] text-white/70 sm:block">ABL RefZone</div>
+              <h1 className="truncate text-base font-black tracking-tight text-white sm:text-xl">{title}</h1>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-none items-center gap-1.5 sm:gap-2">
             <div className="inline-flex rounded-full border border-white/15 bg-white/10 p-1">
               {(['az', 'en', 'ru'] as const).map((item) => (
                 <button
                   key={item}
                   onClick={() => setLanguage(item)}
-                  className={`rounded-full px-3 py-1 text-xs font-bold transition ${
+                  className={`rounded-full px-2.5 py-1 text-xs font-bold transition sm:px-3 ${
                     language === item ? 'bg-white text-[#57131b]' : 'text-white/80 hover:bg-white/10'
                   }`}
                 >

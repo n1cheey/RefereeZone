@@ -51,8 +51,10 @@ const BAKU_TIMEZONE = 'Asia/Baku';
 const BAKU_OFFSET = '+04:00';
 let googleGenAiModulePromise = null;
 const CURRENT_USER_CACHE_TTL_MS = 30000;
+const RANKING_STATE_CACHE_TTL_MS = 20000;
 const currentUserCache = new Map();
 const currentUserRequestCache = new Map();
+const rankingStateCache = new Map();
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -2187,6 +2189,41 @@ const buildRankingState = async (
   };
 };
 
+const getRankingStateCacheKey = (rankingConfig) =>
+  [
+    rankingConfig.subjectRole,
+    rankingConfig.performanceTable,
+    rankingConfig.subjectIdColumn,
+    (rankingConfig.performanceFieldMap || [])
+      .map(([clientKey, columnKey]) => `${clientKey}:${columnKey}`)
+      .join(','),
+  ].join('|');
+
+const clearRankingStateCache = () => {
+  rankingStateCache.clear();
+};
+
+const getCachedRankingState = async (admin, rankingConfig) => {
+  const cacheKey = getRankingStateCacheKey(rankingConfig);
+  const cachedState = rankingStateCache.get(cacheKey);
+
+  if (cachedState && cachedState.expiresAt > Date.now()) {
+    return cachedState.value;
+  }
+
+  if (cachedState) {
+    rankingStateCache.delete(cacheKey);
+  }
+
+  const value = await buildRankingState(admin, rankingConfig);
+  rankingStateCache.set(cacheKey, {
+    expiresAt: Date.now() + RANKING_STATE_CACHE_TTL_MS,
+    value,
+  });
+
+  return value;
+};
+
 const buildRankingHistory = (targetRefereeId, rankingState) => {
   const targetMatches = rankingState.matchRecords.filter(
     (item) => item.refereeId === targetRefereeId && typeof item.matchAverage === 'number',
@@ -4127,20 +4164,17 @@ const getRankingDashboardConfig = (role, subjectRole = null) => {
 
 const getRankingDashboard = async (admin, currentUser, subjectRole = null) => {
   const rankingConfig = getRankingDashboardConfig(currentUser.role, subjectRole);
-  const rankingState = await buildRankingState(admin, rankingConfig);
+  const rankingState = await getCachedRankingState(admin, rankingConfig);
   const totalReferees = rankingState.leaderboard.length;
 
   if (rankingConfig.selfRoles.includes(currentUser.role)) {
     const currentUserItem = rankingState.leaderboard.find((item) => item.refereeId === currentUser.id) || null;
     const currentUserPerformanceProfile = rankingState.performanceProfiles.get(currentUser.id) || null;
-    const currentUserHistory = buildRankingHistory(currentUser.id, rankingState);
 
     return {
       leaderboard: currentUserItem ? [currentUserItem] : [],
-      history: currentUserHistory,
-      refereeHistories: {
-        [currentUser.id]: currentUserHistory,
-      },
+      history: [],
+      refereeHistories: {},
       currentUserItem,
       performanceProfile: currentUserPerformanceProfile,
       visiblePerformanceProfiles: currentUserPerformanceProfile ? [currentUserPerformanceProfile] : [],
@@ -4151,14 +4185,10 @@ const getRankingDashboard = async (admin, currentUser, subjectRole = null) => {
   }
 
   if (rankingConfig.adminRoles.includes(currentUser.role) || rankingConfig.viewerRoles.includes(currentUser.role)) {
-    const refereeHistories = Object.fromEntries(
-      rankingState.referees.map((referee) => [referee.id, buildRankingHistory(referee.id, rankingState)]),
-    );
-
     return {
       leaderboard: rankingState.leaderboard,
       history: [],
-      refereeHistories,
+      refereeHistories: {},
       currentUserItem: null,
       performanceProfile: null,
       visiblePerformanceProfiles: Array.from(rankingState.performanceProfiles.values()),
@@ -4187,7 +4217,7 @@ const getRankingAdminData = async (admin, currentUser, subjectRole = null) => {
     throw new HttpError(403, 'This role cannot manage ranking data.');
   }
 
-  const rankingState = await buildRankingState(admin, rankingConfig);
+  const rankingState = await getCachedRankingState(admin, rankingConfig);
   const gamesResponse = await admin
     .from('nominations')
     .select('id, game_code, match_date, teams')
@@ -4244,6 +4274,8 @@ const createRankingEvaluation = async (admin, currentUser, body) => {
   if (error) {
     throw new HttpError(500, 'Failed to save ranking evaluation.');
   }
+
+  clearRankingStateCache();
 };
 
 const saveRankingPerformance = async (admin, currentUser, body) => {
@@ -4299,6 +4331,8 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
   if (error) {
     throw new HttpError(500, 'Failed to save match performance.');
   }
+
+  clearRankingStateCache();
 };
 
 const registerUser = async (admin, body) => {
