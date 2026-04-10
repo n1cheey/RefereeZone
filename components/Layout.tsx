@@ -18,7 +18,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, show
   return (
     <div className="min-h-screen bg-[#57131b]">
       <header className="sticky top-0 z-50 border-b border-[#6b1b24] bg-[#57131b] text-white shadow-[0_18px_35px_rgba(42,10,14,0.28)]">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-2 px-3 py-2 sm:gap-4 sm:px-6 sm:py-3 lg:px-8">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2 px-3 py-2 sm:flex-nowrap sm:gap-4 sm:px-6 sm:py-3 lg:px-8">
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
             {showBack ? (
               <button
@@ -31,15 +31,15 @@ const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, show
               <img
                 src={headerLogo}
                 alt="ABL header logo"
-                className="h-10 w-auto flex-none rounded-lg object-contain shadow-none sm:h-14"
+                className="h-8 w-auto flex-none rounded-lg object-contain shadow-none sm:h-14"
               />
             )}
             <div className="min-w-0 flex-1">
-              <div className="hidden text-[11px] font-bold uppercase tracking-[0.28em] text-white/70 sm:block">ABL RefZone</div>
-              <h1 className="truncate text-base font-black tracking-tight text-white sm:text-xl">{title}</h1>
+              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/70 sm:text-[11px] sm:tracking-[0.28em]">ABL RefZone</div>
+              <h1 className="hidden truncate text-xl font-black tracking-tight text-white sm:block">{title}</h1>
             </div>
           </div>
-          <div className="flex flex-none items-center gap-1.5 sm:gap-2">
+          <div className="ml-auto flex flex-none items-center gap-1.5 sm:gap-2">
             <div className="inline-flex rounded-full border border-white/15 bg-white/10 p-1">
               {(['az', 'en', 'ru'] as const).map((item) => (
                 <button
