@@ -249,29 +249,29 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
         </div>
       ) : null}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr),minmax(320px,0.9fr)]">
-        <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr),minmax(320px,0.9fr)] xl:gap-5">
+        <section className="overflow-hidden rounded-[28px] border border-slate-100 bg-white p-3.5 shadow-sm sm:rounded-3xl sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
-                <CalendarDays size={24} />
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-sky-50 text-sky-700 sm:h-12 sm:w-12">
+                <CalendarDays size={22} className="sm:h-6 sm:w-6" />
               </div>
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">{t('calendar.monthView')}</h2>
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-bold text-slate-900 sm:text-lg">{t('calendar.monthView')}</h2>
                 <p className="text-sm text-slate-500">{monthLabel}</p>
               </div>
             </div>
             <div className="flex items-center gap-2 self-start sm:self-auto">
               <button
                 onClick={() => setMonthAnchor((previous) => new Date(previous.getFullYear(), previous.getMonth() - 1, 1))}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-600 transition hover:bg-white"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-600 transition hover:bg-white sm:h-11 sm:w-11"
                 aria-label="Previous month"
               >
                 <ChevronLeft size={20} />
               </button>
               <button
                 onClick={() => setMonthAnchor((previous) => new Date(previous.getFullYear(), previous.getMonth() + 1, 1))}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-600 transition hover:bg-white"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-600 transition hover:bg-white sm:h-11 sm:w-11"
                 aria-label="Next month"
               >
                 <ChevronRight size={20} />
@@ -279,20 +279,20 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
             </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-7 gap-2 text-center text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+          <div className="mt-4 grid grid-cols-7 gap-1 text-center text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400 sm:mt-5 sm:gap-2 sm:text-xs sm:tracking-[0.18em]">
             {weekdayLabels.map((label) => (
-              <div key={label} className="py-2">
+              <div key={label} className="py-1.5 sm:py-2">
                 {label}
               </div>
             ))}
           </div>
 
-          <div className="grid grid-cols-7 gap-2">
+          <div className="grid grid-cols-7 gap-1 sm:gap-2">
             {calendarDays.map((day) => (
               <button
                 key={day.dateKey}
                 onClick={() => setSelectedDate(day.dateKey)}
-                className={`min-h-[84px] rounded-2xl border px-2 py-2 text-left transition sm:min-h-[96px] sm:px-3 ${
+                className={`relative min-h-[58px] rounded-[18px] border px-1.5 py-1.5 text-left transition sm:min-h-[96px] sm:rounded-2xl sm:px-3 sm:py-2 ${
                   day.isSelected
                     ? 'border-sky-300 bg-sky-50 shadow-sm'
                     : day.isCurrentMonth
@@ -300,9 +300,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
                       : 'border-slate-100 bg-slate-50/40 text-slate-300'
                 }`}
               >
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start justify-between gap-1">
                   <span
-                    className={`text-sm font-bold sm:text-base ${
+                    className={`text-xs font-bold sm:text-base ${
                       day.isToday
                         ? 'text-sky-700'
                         : day.isCurrentMonth
@@ -313,15 +313,18 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
                     {day.date.getDate()}
                   </span>
                   {day.count > 0 ? (
-                    <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-[#57131b] px-2 py-1 text-[11px] font-bold text-white">
+                    <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[#57131b] px-1.5 py-0.5 text-[10px] font-bold text-white sm:min-w-6 sm:px-2 sm:py-1 sm:text-[11px]">
                       {day.count}
                     </span>
                   ) : null}
                 </div>
                 {day.count > 0 ? (
-                  <div className="mt-4 flex flex-wrap gap-1">
+                  <div className="mt-2 flex flex-wrap gap-1 sm:mt-4">
                     {Array.from({ length: Math.min(day.count, 3) }).map((_, index) => (
-                      <span key={`${day.dateKey}-${index}`} className="h-2 w-2 rounded-full bg-amber-400" />
+                      <span
+                        key={`${day.dateKey}-${index}`}
+                        className="h-1.5 w-1.5 rounded-full bg-amber-400 sm:h-2 sm:w-2"
+                      />
                     ))}
                   </div>
                 ) : null}
@@ -336,13 +339,13 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
           ) : null}
         </section>
 
-        <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+        <section className="rounded-[28px] border border-slate-100 bg-white p-3.5 shadow-sm sm:rounded-3xl sm:p-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
-              <CalendarDays size={24} />
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-50 text-amber-700 sm:h-12 sm:w-12">
+              <CalendarDays size={22} className="sm:h-6 sm:w-6" />
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">{t('calendar.selectedDate')}</h2>
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-bold text-slate-900 sm:text-lg">{t('calendar.selectedDate')}</h2>
               <p className="text-sm text-slate-500">{formatSelectedDate(selectedDate)}</p>
             </div>
           </div>
@@ -385,16 +388,16 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
                     <div className="mt-4 grid gap-2 text-sm text-slate-600">
                       <div className="flex items-center gap-2">
                         <Clock size={15} className="text-amber-500" />
-                        <span>{match.matchTime}</span>
+                        <span className="min-w-0 break-words">{match.matchTime}</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <MapPin size={15} className="text-rose-500" />
-                        <span>{match.venue}</span>
+                        <span className="min-w-0 break-words">{match.venue}</span>
                       </div>
                       {match.assignmentLabel ? (
                         <div className="flex items-center gap-2">
                           <Shield size={15} className="text-sky-600" />
-                          <span>{match.assignmentLabel}</span>
+                          <span className="min-w-0 break-words">{match.assignmentLabel}</span>
                         </div>
                       ) : null}
                     </div>
