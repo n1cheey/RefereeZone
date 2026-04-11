@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AnnouncementItem, User, InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
+import { AnnouncementItem, ChatConversationItem, User, InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
 import { getNominationSlotLabel, getTOSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import { getMatchTimestamp, isPastMatch } from '../matchTiming';
@@ -37,8 +37,10 @@ import {
   respondToNomination,
   updateNominationScore,
 } from '../services/nominationService';
+import { getChatBootstrap } from '../services/chatService';
 import { readViewCache, writeViewCache } from '../services/viewCache';
 import { getAssignmentStatusLabel, getRoleLabel, useI18n } from '../i18n';
+import { supabase } from '../services/supabaseClient';
 
 interface DashboardProps {
   user: User;
@@ -64,6 +66,7 @@ interface DashboardProps {
 const POLL_INTERVAL_MS = 45000;
 const getDashboardCacheKey = (userId: string, role: User['role']) => `dashboard:${userId}:${role}`;
 const getNominationsCacheKey = (userId: string, role: User['role']) => `nominations:${userId}:${role}`;
+const getChatDashboardCacheKey = (userId: string) => `chat:bootstrap:${userId}`;
 const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Baku',
   year: 'numeric',
@@ -89,6 +92,13 @@ const splitMatchesByTime = <T extends { matchDate: string; matchTime: string }>(
   upcoming: sortMatchesAsc(items.filter((item) => !isPastMatch(item.matchDate, item.matchTime, now))),
   past: sortMatchesDesc(items.filter((item) => isPastMatch(item.matchDate, item.matchTime, now))),
 });
+
+const sortChatConversations = (items: ChatConversationItem[]) =>
+  [...items].sort((left, right) => {
+    const leftTimestamp = new Date(left.lastMessageAt || left.createdAt || 0).getTime();
+    const rightTimestamp = new Date(right.lastMessageAt || right.createdAt || 0).getTime();
+    return rightTimestamp - leftTimestamp;
+  });
 
 const isUpcomingMatchDay = (matchDate: string, matchTime: string, now: number) => {
   const matchTimestamp = getMatchTimestamp(matchDate, matchTime);
@@ -124,6 +134,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [refereeAssignments, setRefereeAssignments] = useState<RefereeNomination[]>([]);
   const [replacementNotices, setReplacementNotices] = useState<ReplacementNotice[]>([]);
   const [activeAnnouncement, setActiveAnnouncement] = useState<AnnouncementItem | null>(null);
+  const [chatConversations, setChatConversations] = useState<ChatConversationItem[]>([]);
   const [dashboardError, setDashboardError] = useState('');
   const [dashboardMessage, setDashboardMessage] = useState('');
   const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
@@ -159,6 +170,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const isTO = user.role === 'TO';
   const dashboardCacheKey = getDashboardCacheKey(user.id, user.role);
   const nominationsCacheKey = getNominationsCacheKey(user.id, user.role);
+  const chatDashboardCacheKey = getChatDashboardCacheKey(user.id);
 
   useEffect(() => {
     let isMounted = true;
@@ -323,6 +335,92 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [dashboardCacheKey, nominationsCacheKey, user.id, user.role]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let intervalId: number | null = null;
+
+    const applyCachedChat = () => {
+      const cached = readViewCache<{ conversations: ChatConversationItem[] }>(chatDashboardCacheKey);
+      if (!cached) {
+        return false;
+      }
+
+      setChatConversations(sortChatConversations(cached.conversations || []));
+      return true;
+    };
+
+    const loadChatData = async () => {
+      try {
+        const response = await getChatBootstrap();
+        if (!isMounted) {
+          return;
+        }
+
+        const nextConversations = sortChatConversations(response.conversations);
+        setChatConversations(nextConversations);
+        writeViewCache(chatDashboardCacheKey, {
+          conversations: nextConversations,
+        });
+      } catch (error) {
+        console.error('Failed to load dashboard chat data', error);
+      }
+    };
+
+    const startPolling = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          void loadChatData();
+        }
+      }, POLL_INTERVAL_MS);
+    };
+
+    const hasCachedChat = applyCachedChat();
+    void loadChatData();
+    if (!hasCachedChat) {
+      setChatConversations([]);
+    }
+    startPolling();
+
+    const channel = supabase
+      .channel(`dashboard-chat-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_conversations' },
+        () => {
+          void loadChatData();
+        },
+      )
+      .subscribe();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadChatData();
+        startPolling();
+        return;
+      }
+
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      isMounted = false;
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      void supabase.removeChannel(channel);
+    };
+  }, [chatDashboardCacheKey, user.id]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -598,6 +696,157 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     }
   };
 
+  const declinedAssignments = instructorNominations.flatMap((nomination) =>
+    nomination.createdById === user.id
+      ? nomination.referees
+      .filter((referee) => referee.status === 'Declined')
+      .map((referee) => ({
+        nomination,
+        referee,
+      }))
+      : [],
+  );
+
+  const getReplacementOptions = (nomination: InstructorNomination, slotNumber: number) => {
+    const occupied = new Set(
+      nomination.referees.filter((item) => item.slotNumber !== slotNumber).map((item) => item.refereeId),
+    );
+
+    return referees.filter((referee) => !occupied.has(referee.id));
+  };
+
+  const createdNominationSections = useMemo(
+    () => splitMatchesByTime(instructorNominations, countdownNow),
+    [instructorNominations, countdownNow],
+  );
+  const assignmentSections = useMemo(
+    () => splitMatchesByTime(refereeAssignments, countdownNow),
+    [refereeAssignments, countdownNow],
+  );
+  const totalUnreadChatCount = useMemo(
+    () => chatConversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0),
+    [chatConversations],
+  );
+  const pendingResponseCount = useMemo(
+    () => refereeAssignments.filter((assignment) => assignment.status === 'Pending').length,
+    [refereeAssignments],
+  );
+  const pendingTOCrewCount = useMemo(
+    () =>
+      createdNominationSections.upcoming.filter(
+        (nomination) =>
+          nomination.toCrew.length < 4 || nomination.toCrew.some((member) => member.status === 'Declined'),
+      ).length,
+    [createdNominationSections],
+  );
+  const todayGamesCount = useMemo(() => {
+    const source =
+      isInstructor || isTOSupervisor || isStaff ? createdNominationSections.upcoming : assignmentSections.upcoming;
+    return source.filter((item) => isUpcomingMatchDay(item.matchDate, item.matchTime, countdownNow)).length;
+  }, [assignmentSections, countdownNow, createdNominationSections, isInstructor, isStaff, isTOSupervisor]);
+  const pendingActionCount = isInstructor
+    ? declinedAssignments.length
+    : isTOSupervisor
+      ? pendingTOCrewCount
+      : pendingResponseCount + replacementNotices.length;
+  const quickOverviewItems = [
+    {
+      id: 'unreadMessages',
+      label: t('dashboard.unreadMessages'),
+      value: totalUnreadChatCount,
+      tone: 'border-cyan-100 bg-cyan-50 text-cyan-700',
+      icon: MessageSquare,
+    },
+    {
+      id: 'pendingActions',
+      label: t('dashboard.pendingActions'),
+      value: pendingActionCount,
+      tone: 'border-amber-100 bg-amber-50 text-amber-700',
+      icon: Bell,
+    },
+    {
+      id: 'todayGames',
+      label: t('dashboard.todayGames'),
+      value: todayGamesCount,
+      tone: 'border-blue-100 bg-blue-50 text-blue-700',
+      icon: Calendar,
+    },
+  ];
+  const actionCenterItems = [
+    ...(totalUnreadChatCount > 0
+      ? [
+          {
+            id: 'chat',
+            title: t('dashboard.unreadMessages'),
+            description: t('dashboard.notificationUnreadMessages', { count: totalUnreadChatCount }),
+            actionLabel: t('dashboard.openChat'),
+            actionView: 'chat' as const,
+            tone: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+          },
+        ]
+      : []),
+    ...(isInstructor && declinedAssignments.length > 0
+      ? [
+          {
+            id: 'declinedAssignments',
+            title: t('dashboard.pendingActions'),
+            description: t('dashboard.notificationDeclinedAssignments', { count: declinedAssignments.length }),
+            actionLabel: t('dashboard.openNominations'),
+            actionView: 'nominations' as const,
+            tone: 'border-amber-200 bg-amber-50 text-amber-800',
+          },
+        ]
+      : []),
+    ...(isTOSupervisor && pendingTOCrewCount > 0
+      ? [
+          {
+            id: 'toCrew',
+            title: t('dashboard.pendingActions'),
+            description: t('dashboard.notificationTOCrewPending', { count: pendingTOCrewCount }),
+            actionLabel: t('dashboard.openNominations'),
+            actionView: 'nominations' as const,
+            tone: 'border-teal-200 bg-teal-50 text-teal-800',
+          },
+        ]
+      : []),
+    ...((user.role === 'Referee' || isTO) && pendingResponseCount > 0
+      ? [
+          {
+            id: 'assignmentResponses',
+            title: t('dashboard.pendingActions'),
+            description: t('dashboard.notificationPendingAssignments', { count: pendingResponseCount }),
+            actionLabel: t('dashboard.openNominations'),
+            actionView: 'nominations' as const,
+            tone: 'border-amber-200 bg-amber-50 text-amber-800',
+          },
+        ]
+      : []),
+    ...(replacementNotices.length > 0
+      ? [
+          {
+            id: 'replacementNotices',
+            title: t('dashboard.pendingActions'),
+            description: t('dashboard.notificationReplacementNotices', { count: replacementNotices.length }),
+            actionLabel: t('dashboard.openNominations'),
+            actionView: 'nominations' as const,
+            tone: 'border-red-200 bg-red-50 text-red-800',
+          },
+        ]
+      : []),
+    ...(todayGamesCount > 0
+      ? [
+          {
+            id: 'todayGames',
+            title: t('dashboard.todayGames'),
+            description: t('dashboard.notificationTodayGames', { count: todayGamesCount }),
+            actionLabel: t('dashboard.openNominations'),
+            actionView: 'nominations' as const,
+            tone: 'border-blue-200 bg-blue-50 text-blue-800',
+          },
+        ]
+      : []),
+  ];
+
   const navItems = [
     { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff ? t('nominations.title') : t('nominations.myTitle'), icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
     ...(isInstructor
@@ -672,37 +921,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             color: 'bg-purple-50',
           },
         ]),
-    { id: 'chat' as const, label: t('dashboard.navChat'), icon: MessageSquare, iconColor: 'text-cyan-600', color: 'bg-cyan-50' },
+    {
+      id: 'chat' as const,
+      label: t('dashboard.navChat'),
+      icon: MessageSquare,
+      iconColor: 'text-cyan-600',
+      color: 'bg-cyan-50',
+      badgeCount: totalUnreadChatCount,
+    },
     { id: 'news' as const, label: t('news.title'), icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
   ];
-
-  const declinedAssignments = instructorNominations.flatMap((nomination) =>
-    nomination.createdById === user.id
-      ? nomination.referees
-      .filter((referee) => referee.status === 'Declined')
-      .map((referee) => ({
-        nomination,
-        referee,
-      }))
-      : [],
-  );
-
-  const getReplacementOptions = (nomination: InstructorNomination, slotNumber: number) => {
-    const occupied = new Set(
-      nomination.referees.filter((item) => item.slotNumber !== slotNumber).map((item) => item.refereeId),
-    );
-
-    return referees.filter((referee) => !occupied.has(referee.id));
-  };
-
-  const createdNominationSections = useMemo(
-    () => splitMatchesByTime(instructorNominations, countdownNow),
-    [instructorNominations, countdownNow],
-  );
-  const assignmentSections = useMemo(
-    () => splitMatchesByTime(refereeAssignments, countdownNow),
-    [refereeAssignments, countdownNow],
-  );
 
   const handleSaveScore = async (nomination: InstructorNomination) => {
     const finalScore = (scoreInputs[nomination.id] ?? nomination.finalScore ?? '').trim();
@@ -1231,6 +1459,53 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       )}
 
+      <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,1.25fr),minmax(0,1fr)]">
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <TrendingUp size={18} className="text-[#581c1c]" />
+            <h3 className="text-base font-bold text-slate-900">{t('dashboard.quickOverview')}</h3>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {quickOverviewItems.map((item) => (
+              <div key={item.id} className={`rounded-2xl border px-4 py-4 ${item.tone}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-bold uppercase tracking-[0.18em] opacity-80">{item.label}</div>
+                  <item.icon size={18} />
+                </div>
+                <div className="mt-3 text-3xl font-black tracking-tight">{item.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <Bell size={18} className="text-[#581c1c]" />
+            <h3 className="text-base font-bold text-slate-900">{t('dashboard.actionCenter')}</h3>
+          </div>
+          {actionCenterItems.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
+              {t('dashboard.noNewNotifications')}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {actionCenterItems.map((item) => (
+                <div key={item.id} className={`rounded-2xl border px-4 py-4 ${item.tone}`}>
+                  <div className="text-sm font-bold">{item.title}</div>
+                  <div className="mt-1 text-sm opacity-90">{item.description}</div>
+                  <button
+                    onClick={() => onNavigate(item.actionView)}
+                    className="mt-3 inline-flex rounded-xl bg-white/80 px-3 py-2 text-xs font-bold text-slate-800 transition hover:bg-white"
+                  >
+                    {item.actionLabel}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       {isInstructor && (
         <div className="space-y-5 mb-8">
           <div className="flex items-center justify-between gap-4">
@@ -1531,8 +1806,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           <button
             key={item.id}
             onClick={() => onNavigate(item.id)}
-            className={`${item.color} rounded-2xl p-5 flex flex-col items-center justify-center gap-3 transition-transform active:scale-95 shadow-sm min-h-36`}
+            className={`${item.color} relative rounded-2xl p-5 flex flex-col items-center justify-center gap-3 transition-transform active:scale-95 shadow-sm min-h-36`}
           >
+            {item.badgeCount ? (
+              <div className="absolute right-3 top-3 inline-flex min-w-7 items-center justify-center rounded-full bg-[#57131b] px-2 py-1 text-[11px] font-black text-white shadow-sm">
+                {item.badgeCount}
+              </div>
+            ) : null}
             <div className="p-3 bg-white rounded-xl shadow-sm">
               <item.icon size={28} className={item.iconColor} />
             </div>
