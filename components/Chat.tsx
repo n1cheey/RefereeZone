@@ -10,6 +10,7 @@ import {
   openChatConversation,
   sendChatMessage,
 } from '../services/chatService';
+import { consumeNavigationIntent } from '../services/navigationIntent';
 import { isViewCacheFresh, readViewCache, writeViewCache } from '../services/viewCache';
 import { supabase } from '../services/supabaseClient';
 
@@ -53,12 +54,17 @@ const getUserInitials = (fullName: string) =>
     .map((part) => part[0]?.toUpperCase() || '')
     .join('') || '?';
 
+const TYPING_IDLE_TIMEOUT_MS = 1400;
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
+
 const Chat: React.FC<ChatProps> = ({ user, onBack }) => {
   const { language, locale, t } = useI18n();
   const bootstrapCacheKey = getChatBootstrapCacheKey(user.id);
   const selectedConversationIdRef = useRef<string | null>(null);
   const bootstrapLoadPromiseRef = useRef<Promise<void> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
+  const typingChannelRef = useRef<any>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [conversations, setConversations] = useState<ChatConversationItem[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
@@ -70,6 +76,8 @@ const Chat: React.FC<ChatProps> = ({ user, onBack }) => {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isOpeningConversation, setIsOpeningConversation] = useState<string | null>(null);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [typingConversationId, setTypingConversationId] = useState<string | null>(null);
+  const [typingUserName, setTypingUserName] = useState('');
 
   const selectedConversation = useMemo(
     () => conversations.find((item) => item.id === selectedConversationId) || null,
@@ -116,6 +124,57 @@ const Chat: React.FC<ChatProps> = ({ user, onBack }) => {
       ? { hour: '2-digit', minute: '2-digit' }
       : { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(timestamp);
   };
+
+  const formatLastSeenLabel = (value: string | null | undefined) => {
+    if (!value) {
+      return '';
+    }
+
+    const timestamp = new Date(value).getTime();
+    if (!Number.isFinite(timestamp)) {
+      return '';
+    }
+
+    if (Date.now() - timestamp <= ONLINE_THRESHOLD_MS) {
+      return t('chat.onlineNow');
+    }
+
+    return t('chat.lastSeen', { date: formatConversationTime(value) });
+  };
+
+  const currentConversationLastOwnMessage = useMemo(() => {
+    if (!selectedConversation) {
+      return null;
+    }
+
+    return [...messages].reverse().find((message) => message.senderId === user.id) || null;
+  }, [messages, selectedConversation, user.id]);
+
+  const currentConversationReadState = useMemo(() => {
+    if (!selectedConversation || !currentConversationLastOwnMessage) {
+      return '';
+    }
+
+    const otherLastReadAt = selectedConversation.otherUserLastReadAt
+      ? new Date(selectedConversation.otherUserLastReadAt).getTime()
+      : null;
+    const messageCreatedAt = currentConversationLastOwnMessage.createdAt
+      ? new Date(currentConversationLastOwnMessage.createdAt).getTime()
+      : null;
+
+    if (otherLastReadAt && messageCreatedAt && otherLastReadAt >= messageCreatedAt) {
+      return t('chat.seenAt', { date: formatConversationTime(selectedConversation.otherUserLastReadAt || null) });
+    }
+
+    if (
+      selectedConversation.lastMessageSenderId === user.id &&
+      selectedConversation.lastMessageAt === currentConversationLastOwnMessage.createdAt
+    ) {
+      return t('chat.delivered');
+    }
+
+    return '';
+  }, [currentConversationLastOwnMessage, selectedConversation, t]);
 
   const writeBootstrapCache = (nextUsers: User[], nextConversations: ChatConversationItem[]) => {
     writeViewCache(bootstrapCacheKey, {
@@ -212,6 +271,24 @@ const Chat: React.FC<ChatProps> = ({ user, onBack }) => {
   }, [selectedConversationId]);
 
   useEffect(() => {
+    if (!conversations.length) {
+      return;
+    }
+
+    const intent = consumeNavigationIntent('chat');
+    if (!intent?.targetId) {
+      return;
+    }
+
+    const targetConversation = conversations.find((conversation) => conversation.id === intent.targetId);
+    if (targetConversation) {
+      setSelectedConversationId(targetConversation.id);
+      setDraftMessage('');
+      setChatError('');
+    }
+  }, [conversations]);
+
+  useEffect(() => {
     const cached = readViewCache<{
       users: User[];
       conversations: ChatConversationItem[];
@@ -285,7 +362,101 @@ const Chat: React.FC<ChatProps> = ({ user, onBack }) => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages]);
 
+  useEffect(() => {
+    if (typingChannelRef.current) {
+      void supabase.removeChannel(typingChannelRef.current);
+      typingChannelRef.current = null;
+    }
+
+    if (!selectedConversationId) {
+      setTypingConversationId(null);
+      setTypingUserName('');
+      return;
+    }
+
+    const channel: any = supabase.channel(`chat-typing-${selectedConversationId}`);
+    channel
+      .on('broadcast', { event: 'typing' }, (payload: { payload?: { conversationId?: string; userId?: string; fullName?: string; isTyping?: boolean } }) => {
+        const typingPayload = payload.payload;
+        if (!typingPayload || typingPayload.userId === user.id) {
+          return;
+        }
+
+        if (!typingPayload.isTyping) {
+          setTypingConversationId((previous) =>
+            previous === typingPayload.conversationId ? null : previous,
+          );
+          setTypingUserName('');
+          return;
+        }
+
+        setTypingConversationId(String(typingPayload.conversationId || ''));
+        setTypingUserName(String(typingPayload.fullName || ''));
+      })
+      .subscribe();
+
+    typingChannelRef.current = channel;
+
+    return () => {
+      if (typingTimeoutRef.current !== null) {
+        window.clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      void supabase.removeChannel(channel);
+      if (typingChannelRef.current === channel) {
+        typingChannelRef.current = null;
+      }
+    };
+  }, [selectedConversationId, user.id]);
+
+  const sendTypingState = (isTyping: boolean) => {
+    if (!typingChannelRef.current || !selectedConversationId) {
+      return;
+    }
+
+    void typingChannelRef.current.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: {
+        conversationId: selectedConversationId,
+        userId: user.id,
+        fullName: user.fullName,
+        isTyping,
+      },
+    });
+  };
+
+  useEffect(() => {
+    if (!selectedConversationId) {
+      return;
+    }
+
+    if (!draftMessage.trim()) {
+      sendTypingState(false);
+      return;
+    }
+
+    sendTypingState(true);
+
+    if (typingTimeoutRef.current !== null) {
+      window.clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = window.setTimeout(() => {
+      sendTypingState(false);
+      typingTimeoutRef.current = null;
+    }, TYPING_IDLE_TIMEOUT_MS);
+
+    return () => {
+      if (typingTimeoutRef.current !== null) {
+        window.clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+    };
+  }, [draftMessage, selectedConversationId]);
+
   const handleSelectConversation = (conversationId: string) => {
+    sendTypingState(false);
     setSelectedConversationId(conversationId);
     setDraftMessage('');
     setChatError('');
@@ -336,6 +507,7 @@ const Chat: React.FC<ChatProps> = ({ user, onBack }) => {
         writeViewCache(getChatMessagesCacheKey(user.id, selectedConversation.id), next);
         return next;
       });
+      sendTypingState(false);
       setDraftMessage('');
     } catch (error) {
       setChatError(error instanceof Error ? error.message : 'Failed to send chat message.');
@@ -488,7 +660,13 @@ const Chat: React.FC<ChatProps> = ({ user, onBack }) => {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-base font-bold text-slate-900">{selectedConversation.otherUser.fullName}</div>
                     <div className="truncate text-sm text-slate-500">
-                      {getRoleLabel(selectedConversation.otherUser.role, language)}
+                      {typingConversationId === selectedConversation.id
+                        ? `${typingUserName || getRoleLabel(selectedConversation.otherUser.role, language)} ${t('chat.typing')}`
+                        : `${getRoleLabel(selectedConversation.otherUser.role, language)}${
+                            selectedConversation.otherUser.lastSeenAt
+                              ? ` • ${formatLastSeenLabel(selectedConversation.otherUser.lastSeenAt)}`
+                              : ''
+                          }`}
                     </div>
                   </div>
                 </div>
@@ -535,6 +713,11 @@ const Chat: React.FC<ChatProps> = ({ user, onBack }) => {
                 </div>
 
                 <form onSubmit={handleSendMessage} className="border-t border-slate-100 px-5 py-4">
+                  {currentConversationReadState ? (
+                    <div className="mb-3 text-right text-xs font-medium text-slate-500">
+                      {currentConversationReadState}
+                    </div>
+                  ) : null}
                   <div className="flex items-end gap-3">
                     <label className="min-h-[56px] flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                       <textarea

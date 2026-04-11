@@ -12,6 +12,7 @@ export interface User {
   licenseNumber: string;
   role: UserRole;
   category: string;
+  lastSeenAt?: string | null;
 }
 
 export interface AuthResponse {
@@ -294,8 +295,10 @@ export interface ChatConversationItem {
   otherUser: User;
   lastMessageText: string;
   lastMessageAt: string | null;
+  lastMessageSenderId?: string | null;
   unreadCount: number;
   createdAt: string | null;
+  otherUserLastReadAt?: string | null;
 }
 
 export interface ChatMessage {
@@ -305,4 +308,29 @@ export interface ChatMessage {
   body: string;
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+export type AvailabilityStatus = 'Pending' | 'Approved' | 'Declined';
+
+export interface AvailabilityRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  approverRole: 'Instructor' | 'TO Supervisor';
+  startDate: string;
+  endDate: string;
+  reason: string;
+  status: AvailabilityStatus;
+  reviewedById: string | null;
+  reviewedByName: string;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AvailabilityOverview {
+  myRequests: AvailabilityRequest[];
+  pendingApprovals: AvailabilityRequest[];
+  upcomingApproved: AvailabilityRequest[];
 }

@@ -49,14 +49,28 @@ const ROLE_PREFIX = {
 };
 const BAKU_TIMEZONE = 'Asia/Baku';
 const BAKU_OFFSET = '+04:00';
+const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: BAKU_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
 let googleGenAiModulePromise = null;
 const CURRENT_USER_CACHE_TTL_MS = 30000;
 const RANKING_STATE_CACHE_TTL_MS = 20000;
 const CHAT_MESSAGE_MAX_LENGTH = 4000;
+const AVAILABILITY_REASON_MAX_LENGTH = 1200;
+const AVAILABILITY_STATUS = {
+  PENDING: 'Pending',
+  APPROVED: 'Approved',
+  DECLINED: 'Declined',
+};
+const AVAILABILITY_OVERVIEW_CACHE_TTL_MS = 20000;
 const RESTRICTED_CHAT_INITIATOR_EMAIL = 'nikolas.osadchey@gmail.com';
 const currentUserCache = new Map();
 const currentUserRequestCache = new Map();
 const rankingStateCache = new Map();
+const availabilityOverviewCache = new Map();
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -334,7 +348,7 @@ const isDeadlineExceeded = (assignment) => {
   return Boolean(deadline && Date.now() > deadline.getTime());
 };
 
-const mapUser = (profile) => ({
+const mapUser = (profile, lastSeenAt = null) => ({
   id: profile.id,
   email: profile.email,
   fullName: profile.full_name,
@@ -342,6 +356,7 @@ const mapUser = (profile) => ({
   licenseNumber: profile.license_number || 'Pending',
   role: normalizeRole(profile.role),
   category: normalizeRole(profile.role),
+  lastSeenAt,
 });
 
 const mapAllowedAccess = (item) => ({
@@ -540,6 +555,20 @@ const listProfilesByIds = async (admin, ids) => {
   return ensureData(data || [], error, 'Failed to load user profiles.').map(normalizeProfileRow);
 };
 
+const listLastSeenMap = async (admin, ids) => {
+  if (!ids.length) {
+    return new Map();
+  }
+
+  const { data, error } = await admin
+    .from('user_activity')
+    .select('user_id, last_seen_at')
+    .in('user_id', ids);
+
+  const activityRows = ensureData(data || [], error, 'Failed to load last seen activity.');
+  return new Map(activityRows.map((row) => [String(row.user_id || ''), row.last_seen_at || null]));
+};
+
 const normalizeChatPair = (leftUserId, rightUserId) => {
   const left = String(leftUserId || '').trim();
   const right = String(rightUserId || '').trim();
@@ -574,18 +603,23 @@ const requireChatConversationParticipant = (conversation, currentUserId) => {
   }
 };
 
-const mapChatUser = (profile) => mapUser(profile);
+const mapChatUser = (profile, lastSeenAt = null) => mapUser(profile, lastSeenAt);
 
 const mapChatConversation = (conversation, currentUserId, otherUser) => ({
   id: conversation.id,
-  otherUser: mapChatUser(otherUser),
+  otherUser: mapChatUser(otherUser, otherUser.last_seen_at || otherUser.lastSeenAt || null),
   lastMessageText: String(conversation.last_message_text || ''),
   lastMessageAt: conversation.last_message_at || null,
+  lastMessageSenderId: conversation.last_message_sender_id || null,
   unreadCount:
     String(conversation.user_a_id || '') === String(currentUserId || '')
       ? Number(conversation.user_a_unread_count || 0)
       : Number(conversation.user_b_unread_count || 0),
   createdAt: conversation.created_at || null,
+  otherUserLastReadAt:
+    String(conversation.user_a_id || '') === String(currentUserId || '')
+      ? conversation.user_b_last_read_at || null
+      : conversation.user_a_last_read_at || null,
 });
 
 const mapChatMessage = (message) => ({
@@ -605,10 +639,15 @@ const getChatUsers = async (admin, currentUser) => {
     .order('role', { ascending: true })
     .order('full_name', { ascending: true });
 
-  return ensureData(data || [], error, 'Failed to load chat users.')
+  const profiles = ensureData(data || [], error, 'Failed to load chat users.')
     .map(normalizeProfileRow)
-    .filter((profile) => canInitiateDirectChat(currentUser, profile))
-    .map((profile) => mapChatUser(profile));
+    .filter((profile) => canInitiateDirectChat(currentUser, profile));
+  const lastSeenMap = await listLastSeenMap(
+    admin,
+    profiles.map((profile) => profile.id),
+  );
+
+  return profiles.map((profile) => mapChatUser(profile, lastSeenMap.get(profile.id) || null));
 };
 
 const listChatConversations = async (admin, currentUser) => {
@@ -634,6 +673,7 @@ const listChatConversations = async (admin, currentUser) => {
     ),
   ];
   const otherUsers = await listProfilesByIds(admin, otherUserIds);
+  const lastSeenMap = await listLastSeenMap(admin, otherUserIds);
   const otherUserMap = new Map(otherUsers.map((profile) => [profile.id, profile]));
 
   return conversations
@@ -648,7 +688,14 @@ const listChatConversations = async (admin, currentUser) => {
         return null;
       }
 
-      return mapChatConversation(conversation, currentUser.id, otherUser);
+      return mapChatConversation(
+        conversation,
+        currentUser.id,
+        {
+          ...otherUser,
+          lastSeenAt: lastSeenMap.get(otherUser.id) || null,
+        },
+      );
     })
     .filter(Boolean);
 };
@@ -664,7 +711,10 @@ const openChatConversation = async (admin, currentUser, otherUserId) => {
   if (existingConversation) {
     return {
       conversation: existingConversation,
-      otherUser,
+      otherUser: {
+        ...otherUser,
+        lastSeenAt: (await listLastSeenMap(admin, [otherUser.id])).get(otherUser.id) || null,
+      },
     };
   }
 
@@ -690,7 +740,10 @@ const openChatConversation = async (admin, currentUser, otherUserId) => {
 
   return {
     conversation: insertedConversation,
-    otherUser,
+    otherUser: {
+      ...otherUser,
+      lastSeenAt: (await listLastSeenMap(admin, [otherUser.id])).get(otherUser.id) || null,
+    },
   };
 };
 
@@ -813,6 +866,209 @@ const sendChatMessage = async (admin, currentUser, body) => {
     chatMessage: mapChatMessage(insertedMessage),
     conversation: mapChatConversation(updatedConversation, currentUser.id, otherUser),
   };
+};
+
+const clearAvailabilityOverviewCache = () => {
+  availabilityOverviewCache.clear();
+};
+
+const getTodayDateString = () => BAKU_DATE_FORMATTER.format(new Date());
+
+const getAvailabilityApproverRole = (role) =>
+  normalizeRole(role) === 'TO' ? 'TO Supervisor' : 'Instructor';
+
+const mapAvailabilityRequest = (request, requester, reviewer) => ({
+  id: request.id,
+  userId: request.user_id,
+  userName: requester?.full_name || 'Unknown user',
+  userRole: normalizeRole(requester?.role || ''),
+  approverRole: request.approver_role,
+  startDate: request.start_date,
+  endDate: request.end_date,
+  reason: String(request.reason || ''),
+  status: request.status,
+  reviewedById: request.reviewed_by || null,
+  reviewedByName: reviewer?.full_name || '',
+  reviewedAt: request.reviewed_at || null,
+  createdAt: request.created_at,
+  updatedAt: request.updated_at,
+});
+
+const buildAvailabilityOverview = async (admin, currentUser) => {
+  const [{ data: myRows, error: myError }, { data: pendingRows, error: pendingError }, { data: upcomingRows, error: upcomingError }] =
+    await Promise.all([
+      admin
+        .from('availability_requests')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(100),
+      ['Instructor', 'TO Supervisor'].includes(currentUser.role)
+        ? admin
+            .from('availability_requests')
+            .select('*')
+            .eq('approver_role', currentUser.role)
+            .eq('status', AVAILABILITY_STATUS.PENDING)
+            .order('start_date', { ascending: true })
+            .order('created_at', { ascending: true })
+            .limit(100)
+        : Promise.resolve({ data: [], error: null }),
+      admin
+        .from('availability_requests')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .eq('status', AVAILABILITY_STATUS.APPROVED)
+        .gte('end_date', getTodayDateString())
+        .order('start_date', { ascending: true })
+        .limit(20),
+    ]);
+
+  const myRequests = ensureData(myRows || [], myError, 'Failed to load availability requests.');
+  const pendingApprovals = ensureData(pendingRows || [], pendingError, 'Failed to load pending availability approvals.');
+  const upcomingApproved = ensureData(upcomingRows || [], upcomingError, 'Failed to load approved availability.');
+
+  const profileIds = [...new Set(
+    [...myRequests, ...pendingApprovals, ...upcomingApproved].flatMap((request) =>
+      [request.user_id, request.reviewed_by].filter(Boolean),
+    ),
+  )];
+  const profiles = await listProfilesByIds(admin, profileIds);
+  const profileMap = new Map(profiles.map((profile) => [profile.id, profile]));
+
+  return {
+    myRequests: myRequests.map((request) =>
+      mapAvailabilityRequest(request, profileMap.get(request.user_id), profileMap.get(request.reviewed_by)),
+    ),
+    pendingApprovals: pendingApprovals.map((request) =>
+      mapAvailabilityRequest(request, profileMap.get(request.user_id), profileMap.get(request.reviewed_by)),
+    ),
+    upcomingApproved: upcomingApproved.map((request) =>
+      mapAvailabilityRequest(request, profileMap.get(request.user_id), profileMap.get(request.reviewed_by)),
+    ),
+  };
+};
+
+const getAvailabilityOverviewCacheKey = (currentUser) => `${currentUser.id}:${currentUser.role}`;
+
+const getCachedAvailabilityOverview = async (admin, currentUser, force = false) => {
+  const cacheKey = getAvailabilityOverviewCacheKey(currentUser);
+
+  if (!force) {
+    const cached = availabilityOverviewCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+    if (cached) {
+      availabilityOverviewCache.delete(cacheKey);
+    }
+  }
+
+  const value = await buildAvailabilityOverview(admin, currentUser);
+  availabilityOverviewCache.set(cacheKey, {
+    expiresAt: Date.now() + AVAILABILITY_OVERVIEW_CACHE_TTL_MS,
+    value,
+  });
+  return value;
+};
+
+const createAvailabilityRequest = async (admin, currentUser, body) => {
+  const startDate = String(body.startDate || '').trim();
+  const endDate = String(body.endDate || '').trim();
+  const reason = String(body.reason || '').trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+    throw new HttpError(400, 'Choose a valid start and end date.');
+  }
+
+  if (endDate < startDate) {
+    throw new HttpError(400, 'End date must be the same as or later than the start date.');
+  }
+
+  if (!reason) {
+    throw new HttpError(400, 'Availability reason is required.');
+  }
+
+  if (reason.length > AVAILABILITY_REASON_MAX_LENGTH) {
+    throw new HttpError(400, `Availability reason cannot exceed ${AVAILABILITY_REASON_MAX_LENGTH} characters.`);
+  }
+
+  const { data: overlappingRows, error: overlappingError } = await admin
+    .from('availability_requests')
+    .select('id')
+    .eq('user_id', currentUser.id)
+    .in('status', [AVAILABILITY_STATUS.PENDING, AVAILABILITY_STATUS.APPROVED])
+    .lte('start_date', endDate)
+    .gte('end_date', startDate)
+    .limit(1);
+
+  const overlappingRequests = ensureData(overlappingRows || [], overlappingError, 'Failed to validate availability dates.');
+  if (overlappingRequests.length > 0) {
+    throw new HttpError(409, 'You already have a pending or approved availability request in this date range.');
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await admin.from('availability_requests').insert({
+    user_id: currentUser.id,
+    approver_role: getAvailabilityApproverRole(currentUser.role),
+    start_date: startDate,
+    end_date: endDate,
+    reason,
+    status: AVAILABILITY_STATUS.PENDING,
+    reviewed_by: null,
+    reviewed_at: null,
+    created_at: now,
+    updated_at: now,
+  });
+
+  if (error) {
+    throw new HttpError(500, 'Failed to save availability request.');
+  }
+
+  clearAvailabilityOverviewCache();
+  return getCachedAvailabilityOverview(admin, currentUser, true);
+};
+
+const reviewAvailabilityRequest = async (admin, currentUser, requestId, body) => {
+  if (!['Instructor', 'TO Supervisor'].includes(currentUser.role)) {
+    throw new HttpError(403, 'This role cannot review availability requests.');
+  }
+
+  const status = String(body.status || '').trim();
+  if (![AVAILABILITY_STATUS.APPROVED, AVAILABILITY_STATUS.DECLINED].includes(status)) {
+    throw new HttpError(400, 'Choose a valid availability review status.');
+  }
+
+  const request = await requireSingle(
+    admin.from('availability_requests').select('*').eq('id', requestId),
+    'Availability request not found.',
+    'Failed to load availability request.',
+  );
+
+  if (request.approver_role !== currentUser.role) {
+    throw new HttpError(403, 'You cannot review this availability request.');
+  }
+
+  if (request.status !== AVAILABILITY_STATUS.PENDING) {
+    throw new HttpError(409, 'This availability request has already been reviewed.');
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from('availability_requests')
+    .update({
+      status,
+      reviewed_by: currentUser.id,
+      reviewed_at: now,
+      updated_at: now,
+    })
+    .eq('id', requestId);
+
+  if (error) {
+    throw new HttpError(500, 'Failed to review availability request.');
+  }
+
+  clearAvailabilityOverviewCache();
+  return getCachedAvailabilityOverview(admin, currentUser, true);
 };
 
 const getAnnouncementAudienceForRole = (role) => {
@@ -4833,6 +5089,25 @@ const routeRequest = async (event) => {
     return json(201, {
       statusMessage: 'Chat message sent.',
       ...(await sendChatMessage(admin, currentUser, body)),
+    });
+  }
+
+  if (method === 'GET' && path === '/availability') {
+    return json(200, await getCachedAvailabilityOverview(admin, currentUser));
+  }
+
+  if (method === 'POST' && path === '/availability') {
+    return json(201, {
+      message: 'Availability request saved.',
+      overview: await createAvailabilityRequest(admin, currentUser, body),
+    });
+  }
+
+  const availabilityReviewMatch = path.match(/^\/availability\/([^/]+)\/review$/);
+  if (method === 'POST' && availabilityReviewMatch) {
+    return json(200, {
+      message: 'Availability request reviewed.',
+      overview: await reviewAvailabilityRequest(admin, currentUser, availabilityReviewMatch[1], body),
     });
   }
 

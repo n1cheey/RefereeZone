@@ -266,6 +266,21 @@ create table if not exists public.chat_messages (
   constraint chat_messages_non_empty_body check (length(btrim(body)) > 0)
 );
 
+create table if not exists public.availability_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  approver_role text not null check (approver_role in ('Instructor', 'TO Supervisor')),
+  start_date date not null,
+  end_date date not null,
+  reason text not null default '',
+  status text not null default 'Pending' check (status in ('Pending', 'Approved', 'Declined')),
+  reviewed_by uuid references public.profiles(id) on delete set null,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint availability_requests_valid_range check (start_date <= end_date)
+);
+
 create index if not exists profiles_role_full_name_idx
   on public.profiles (role, full_name);
 
@@ -314,6 +329,12 @@ create index if not exists chat_messages_conversation_created_idx
 create index if not exists chat_messages_sender_created_idx
   on public.chat_messages (sender_id, created_at desc);
 
+create index if not exists availability_requests_user_status_idx
+  on public.availability_requests (user_id, status, start_date desc, end_date desc);
+
+create index if not exists availability_requests_approver_status_idx
+  on public.availability_requests (approver_role, status, start_date asc, created_at asc);
+
 alter table public.allowed_access enable row level security;
 alter table public.profiles enable row level security;
 alter table public.nominations enable row level security;
@@ -331,6 +352,7 @@ alter table public.user_activity enable row level security;
 alter table public.replacement_notices enable row level security;
 alter table public.chat_conversations enable row level security;
 alter table public.chat_messages enable row level security;
+alter table public.availability_requests enable row level security;
 
 alter table public.allowed_access drop constraint if exists allowed_access_allowed_role_check;
 alter table public.allowed_access
@@ -491,6 +513,23 @@ for insert with check (
       and public.is_chat_participant(c.user_a_id, c.user_b_id)
   )
 );
+
+drop policy if exists "availability own read" on public.availability_requests;
+create policy "availability own read" on public.availability_requests
+for select using (user_id = auth.uid());
+
+drop policy if exists "availability approver read" on public.availability_requests;
+create policy "availability approver read" on public.availability_requests
+for select using (approver_role = public.current_user_role());
+
+drop policy if exists "availability own insert" on public.availability_requests;
+create policy "availability own insert" on public.availability_requests
+for insert with check (user_id = auth.uid());
+
+drop policy if exists "availability approver update" on public.availability_requests;
+create policy "availability approver update" on public.availability_requests
+for update using (approver_role = public.current_user_role())
+with check (approver_role = public.current_user_role());
 
 do $$
 begin

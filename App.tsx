@@ -12,6 +12,8 @@ import AccessManager from './components/AccessManager';
 import Activity from './components/Activity';
 import AnnouncementManager from './components/AnnouncementManager';
 import Chat from './components/Chat';
+import CalendarView from './components/CalendarView';
+import Availability from './components/Availability';
 import { I18nProvider, useI18n } from './i18n';
 import {
   getCurrentUserProfile,
@@ -33,6 +35,8 @@ type View =
   | 'news'
   | 'announcement'
   | 'chat'
+  | 'calendar'
+  | 'availability'
   | 'members'
   | 'access'
   | 'activity';
@@ -96,6 +100,8 @@ const normalizeStoredView = (value: unknown): View => {
     case 'news':
     case 'announcement':
     case 'chat':
+    case 'calendar':
+    case 'availability':
     case 'members':
     case 'access':
     case 'activity':
@@ -419,6 +425,10 @@ const AppContent: React.FC = () => {
         return <AnnouncementManager user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'chat':
         return <Chat user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+      case 'calendar':
+        return <CalendarView user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+      case 'availability':
+        return <Availability user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'members':
         return <Members user={currentUser!} onBack={() => setCurrentView('dashboard')} onCurrentUserUpdated={handleUpdateUser} />;
       case 'access':

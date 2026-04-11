@@ -15,6 +15,7 @@ import {
   respondToNomination,
   updateNominationScore,
 } from '../services/nominationService';
+import { consumeNavigationIntent } from '../services/navigationIntent';
 import { readViewCache, writeViewCache } from '../services/viewCache';
 import { getAssignmentStatusLabel, useI18n } from '../i18n';
 
@@ -81,6 +82,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const [videoInputs, setVideoInputs] = useState<Record<string, string>>({});
   const [protocolInputs, setProtocolInputs] = useState<Record<string, string>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  const [highlightedNominationId, setHighlightedNominationId] = useState<string | null>(null);
   const isInstructor = user.role === 'Instructor';
   const isStaff = user.role === 'Staff';
   const isTOSupervisor = user.role === 'TO Supervisor';
@@ -234,6 +236,32 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       window.clearInterval(intervalId);
     };
   }, []);
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    const intent = consumeNavigationIntent('nominations');
+    if (!intent?.targetId) {
+      return;
+    }
+
+    setHighlightedNominationId(intent.targetId);
+    window.setTimeout(() => {
+      document
+        .querySelector(`[data-nomination-id="${intent.targetId}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
+
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedNominationId((previous) => (previous === intent.targetId ? null : previous));
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(clearTimer);
+    };
+  }, [instructorNominations, refereeAssignments, isLoading]);
 
   const instructorSections = useMemo(
     () => splitMatchesByTime(instructorNominations, countdownNow),
@@ -539,7 +567,13 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   };
 
   const renderInstructorNominationCard = (nomination: InstructorNomination) => (
-    <div key={nomination.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+    <div
+      key={nomination.id}
+      data-nomination-id={nomination.id}
+      className={`bg-white rounded-xl shadow-sm border overflow-hidden transition ${
+        highlightedNominationId === nomination.id ? 'border-sky-300 ring-2 ring-sky-100' : 'border-slate-100'
+      }`}
+    >
       <div className="bg-[#581c1c]/5 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
         <span className="text-xs font-bold text-[#581c1c]">Instructor Match</span>
         <span className="text-[10px] text-slate-500 uppercase">{nomination.id}</span>
@@ -718,7 +752,13 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   );
 
   const renderAssignmentCard = (nom: RefereeNomination) => (
-    <div key={nom.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+    <div
+      key={nom.id}
+      data-nomination-id={nom.nominationId}
+      className={`bg-white rounded-xl shadow-sm border overflow-hidden transition ${
+        highlightedNominationId === nom.nominationId ? 'border-sky-300 ring-2 ring-sky-100' : 'border-slate-100'
+      }`}
+    >
       <div className="bg-[#581c1c]/5 px-4 py-2 border-b border-slate-100 flex justify-between items-center">
         <span className="text-xs font-bold text-[#581c1c]">{nom.assignmentLabel}</span>
         <div className="flex items-center gap-2">

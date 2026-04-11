@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AnnouncementItem, ChatConversationItem, User, InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
+import { AnnouncementItem, AvailabilityOverview, ChatConversationItem, User, InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
 import { getNominationSlotLabel, getTOSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import { getMatchTimestamp, isPastMatch } from '../matchTiming';
@@ -9,6 +9,7 @@ import {
   Award,
   Bell,
   Calendar,
+  CalendarDays,
   Camera,
   Clock,
   FileText,
@@ -37,7 +38,9 @@ import {
   respondToNomination,
   updateNominationScore,
 } from '../services/nominationService';
+import { getAvailabilityOverview } from '../services/availabilityService';
 import { getChatBootstrap } from '../services/chatService';
+import { setNavigationIntent } from '../services/navigationIntent';
 import { readViewCache, writeViewCache } from '../services/viewCache';
 import { getAssignmentStatusLabel, getRoleLabel, useI18n } from '../i18n';
 import { supabase } from '../services/supabaseClient';
@@ -55,6 +58,8 @@ interface DashboardProps {
       | 'news'
       | 'announcement'
       | 'chat'
+      | 'calendar'
+      | 'availability'
       | 'members'
       | 'access'
       | 'activity',
@@ -67,6 +72,7 @@ const POLL_INTERVAL_MS = 45000;
 const getDashboardCacheKey = (userId: string, role: User['role']) => `dashboard:${userId}:${role}`;
 const getNominationsCacheKey = (userId: string, role: User['role']) => `nominations:${userId}:${role}`;
 const getChatDashboardCacheKey = (userId: string) => `chat:bootstrap:${userId}`;
+const getAvailabilityCacheKey = (userId: string, role: User['role']) => `availability:${userId}:${role}`;
 const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Baku',
   year: 'numeric',
@@ -135,6 +141,11 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [replacementNotices, setReplacementNotices] = useState<ReplacementNotice[]>([]);
   const [activeAnnouncement, setActiveAnnouncement] = useState<AnnouncementItem | null>(null);
   const [chatConversations, setChatConversations] = useState<ChatConversationItem[]>([]);
+  const [availabilityOverview, setAvailabilityOverview] = useState<AvailabilityOverview>({
+    myRequests: [],
+    pendingApprovals: [],
+    upcomingApproved: [],
+  });
   const [dashboardError, setDashboardError] = useState('');
   const [dashboardMessage, setDashboardMessage] = useState('');
   const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
@@ -171,6 +182,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const dashboardCacheKey = getDashboardCacheKey(user.id, user.role);
   const nominationsCacheKey = getNominationsCacheKey(user.id, user.role);
   const chatDashboardCacheKey = getChatDashboardCacheKey(user.id);
+  const availabilityCacheKey = getAvailabilityCacheKey(user.id, user.role);
 
   useEffect(() => {
     let isMounted = true;
@@ -421,6 +433,58 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       void supabase.removeChannel(channel);
     };
   }, [chatDashboardCacheKey, user.id]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let intervalId: number | null = null;
+
+    const applyCachedAvailability = () => {
+      const cached = readViewCache<AvailabilityOverview>(availabilityCacheKey);
+      if (!cached) {
+        return false;
+      }
+
+      setAvailabilityOverview(cached);
+      return true;
+    };
+
+    const loadAvailability = async () => {
+      try {
+        const response = await getAvailabilityOverview();
+        if (!isMounted) {
+          return;
+        }
+
+        setAvailabilityOverview(response);
+        writeViewCache(availabilityCacheKey, response);
+      } catch (error) {
+        console.error('Failed to load availability overview', error);
+      }
+    };
+
+    const startPolling = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          void loadAvailability();
+        }
+      }, POLL_INTERVAL_MS);
+    };
+
+    applyCachedAvailability();
+    void loadAvailability();
+    startPolling();
+
+    return () => {
+      isMounted = false;
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [availabilityCacheKey]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -727,8 +791,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     () => chatConversations.reduce((sum, conversation) => sum + conversation.unreadCount, 0),
     [chatConversations],
   );
+  const firstUnreadConversation = useMemo(
+    () => chatConversations.find((conversation) => conversation.unreadCount > 0) || null,
+    [chatConversations],
+  );
   const pendingResponseCount = useMemo(
     () => refereeAssignments.filter((assignment) => assignment.status === 'Pending').length,
+    [refereeAssignments],
+  );
+  const firstPendingAssignment = useMemo(
+    () => refereeAssignments.find((assignment) => assignment.status === 'Pending') || null,
     [refereeAssignments],
   );
   const pendingTOCrewCount = useMemo(
@@ -739,16 +811,42 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       ).length,
     [createdNominationSections],
   );
+  const firstPendingTOCrewNomination = useMemo(
+    () =>
+      createdNominationSections.upcoming.find(
+        (nomination) =>
+          nomination.toCrew.length < 4 || nomination.toCrew.some((member) => member.status === 'Declined'),
+      ) || null,
+    [createdNominationSections],
+  );
+  const pendingAvailabilityApprovalsCount = availabilityOverview.pendingApprovals.length;
+  const pendingMyAvailabilityCount = useMemo(
+    () => availabilityOverview.myRequests.filter((request) => request.status === 'Pending').length,
+    [availabilityOverview.myRequests],
+  );
+  const firstPendingAvailabilityApproval = availabilityOverview.pendingApprovals[0] || null;
+  const firstPendingMyAvailability = useMemo(
+    () => availabilityOverview.myRequests.find((request) => request.status === 'Pending') || null,
+    [availabilityOverview.myRequests],
+  );
+  const upcomingApprovedAvailabilityCount = availabilityOverview.upcomingApproved.length;
   const todayGamesCount = useMemo(() => {
     const source =
       isInstructor || isTOSupervisor || isStaff ? createdNominationSections.upcoming : assignmentSections.upcoming;
     return source.filter((item) => isUpcomingMatchDay(item.matchDate, item.matchTime, countdownNow)).length;
   }, [assignmentSections, countdownNow, createdNominationSections, isInstructor, isStaff, isTOSupervisor]);
+  const firstTodayGame = useMemo(() => {
+    const source =
+      isInstructor || isTOSupervisor || isStaff ? createdNominationSections.upcoming : assignmentSections.upcoming;
+    return source.find((item) => isUpcomingMatchDay(item.matchDate, item.matchTime, countdownNow)) || null;
+  }, [assignmentSections, countdownNow, createdNominationSections, isInstructor, isStaff, isTOSupervisor]);
   const pendingActionCount = isInstructor
-    ? declinedAssignments.length
+    ? declinedAssignments.length + pendingAvailabilityApprovalsCount
     : isTOSupervisor
-      ? pendingTOCrewCount
-      : pendingResponseCount + replacementNotices.length;
+      ? pendingTOCrewCount + pendingAvailabilityApprovalsCount
+      : isStaff
+        ? pendingMyAvailabilityCount
+        : pendingResponseCount + replacementNotices.length + pendingMyAvailabilityCount;
   const quickOverviewItems = [
     {
       id: 'unreadMessages',
@@ -772,6 +870,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       icon: Calendar,
     },
   ];
+  const firstDeclinedAssignment = declinedAssignments[0] || null;
+  const firstReplacementNotice = replacementNotices[0] || null;
   const actionCenterItems = [
     ...(totalUnreadChatCount > 0
       ? [
@@ -781,7 +881,47 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             description: t('dashboard.notificationUnreadMessages', { count: totalUnreadChatCount }),
             actionLabel: t('dashboard.openChat'),
             actionView: 'chat' as const,
+            targetId: firstUnreadConversation?.id,
             tone: 'border-cyan-200 bg-cyan-50 text-cyan-800',
+          },
+        ]
+      : []),
+    ...(pendingAvailabilityApprovalsCount > 0
+      ? [
+          {
+            id: 'availabilityApprovals',
+            title: t('dashboard.pendingActions'),
+            description: t('dashboard.notificationAvailabilityPendingApproval', { count: pendingAvailabilityApprovalsCount }),
+            actionLabel: t('dashboard.openAvailability'),
+            actionView: 'availability' as const,
+            targetId: firstPendingAvailabilityApproval?.id,
+            tone: 'border-violet-200 bg-violet-50 text-violet-800',
+          },
+        ]
+      : []),
+    ...(pendingMyAvailabilityCount > 0
+      ? [
+          {
+            id: 'availabilityMine',
+            title: t('dashboard.pendingActions'),
+            description: t('dashboard.notificationAvailabilityPendingMine', { count: pendingMyAvailabilityCount }),
+            actionLabel: t('dashboard.openAvailability'),
+            actionView: 'availability' as const,
+            targetId: firstPendingMyAvailability?.id,
+            tone: 'border-fuchsia-200 bg-fuchsia-50 text-fuchsia-800',
+          },
+        ]
+      : []),
+    ...(upcomingApprovedAvailabilityCount > 0
+      ? [
+          {
+            id: 'availabilityApproved',
+            title: t('dashboard.pendingActions'),
+            description: t('dashboard.notificationAvailabilityApproved', { count: upcomingApprovedAvailabilityCount }),
+            actionLabel: t('dashboard.openAvailability'),
+            actionView: 'availability' as const,
+            targetId: availabilityOverview.upcomingApproved[0]?.id,
+            tone: 'border-emerald-200 bg-emerald-50 text-emerald-800',
           },
         ]
       : []),
@@ -793,6 +933,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             description: t('dashboard.notificationDeclinedAssignments', { count: declinedAssignments.length }),
             actionLabel: t('dashboard.openNominations'),
             actionView: 'nominations' as const,
+            targetId: firstDeclinedAssignment?.nomination.id,
             tone: 'border-amber-200 bg-amber-50 text-amber-800',
           },
         ]
@@ -805,6 +946,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             description: t('dashboard.notificationTOCrewPending', { count: pendingTOCrewCount }),
             actionLabel: t('dashboard.openNominations'),
             actionView: 'nominations' as const,
+            targetId: firstPendingTOCrewNomination?.id,
             tone: 'border-teal-200 bg-teal-50 text-teal-800',
           },
         ]
@@ -817,6 +959,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             description: t('dashboard.notificationPendingAssignments', { count: pendingResponseCount }),
             actionLabel: t('dashboard.openNominations'),
             actionView: 'nominations' as const,
+            targetId: firstPendingAssignment?.nominationId,
             tone: 'border-amber-200 bg-amber-50 text-amber-800',
           },
         ]
@@ -829,6 +972,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             description: t('dashboard.notificationReplacementNotices', { count: replacementNotices.length }),
             actionLabel: t('dashboard.openNominations'),
             actionView: 'nominations' as const,
+            targetId: firstReplacementNotice?.nominationId,
             tone: 'border-red-200 bg-red-50 text-red-800',
           },
         ]
@@ -839,23 +983,40 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             id: 'todayGames',
             title: t('dashboard.todayGames'),
             description: t('dashboard.notificationTodayGames', { count: todayGamesCount }),
-            actionLabel: t('dashboard.openNominations'),
-            actionView: 'nominations' as const,
+            actionLabel: t('dashboard.openCalendar'),
+            actionView: 'calendar' as const,
+            targetDate: firstTodayGame?.matchDate || BAKU_DATE_FORMATTER.format(new Date()),
             tone: 'border-blue-200 bg-blue-50 text-blue-800',
           },
         ]
       : []),
   ];
 
+  const handleActionCenterNavigation = (item: { actionView: 'chat' | 'nominations' | 'availability' | 'calendar'; targetId?: string; targetDate?: string }) => {
+    if (item.targetId || item.targetDate) {
+      setNavigationIntent({
+        view: item.actionView,
+        targetId: item.targetId,
+        targetDate: item.targetDate,
+      });
+    }
+
+    onNavigate(item.actionView);
+  };
+
   const navItems = [
     { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff ? t('nominations.title') : t('nominations.myTitle'), icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
+    { id: 'availability' as const, label: t('dashboard.navAvailability'), icon: CalendarDays, iconColor: 'text-violet-600', color: 'bg-violet-50' },
     ...(isInstructor
       ? [
+          { id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' },
           { id: 'teyinat' as const, label: t('teyinat.title'), icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
           { id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
         ]
       : isTOSupervisor
-      ? []
+      ? [{ id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' }]
+      : isStaff
+      ? [{ id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' }]
       : []),
     ...(isInstructor || isStaff
       ? [
@@ -906,6 +1067,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           },
         ]
       : [
+          {
+            id: 'calendar' as const,
+            label: t('dashboard.navCalendar'),
+            icon: Calendar,
+            iconColor: 'text-sky-600',
+            color: 'bg-sky-50',
+          },
           {
             id: 'ranking' as const,
             label: isInstructor || isStaff ? t('dashboard.navRanking') : t('dashboard.navMyRanking'),
@@ -1494,7 +1662,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                   <div className="text-sm font-bold">{item.title}</div>
                   <div className="mt-1 text-sm opacity-90">{item.description}</div>
                   <button
-                    onClick={() => onNavigate(item.actionView)}
+                    onClick={() => handleActionCenterNavigation(item)}
                     className="mt-3 inline-flex rounded-xl bg-white/80 px-3 py-2 text-xs font-bold text-slate-800 transition hover:bg-white"
                   >
                     {item.actionLabel}
