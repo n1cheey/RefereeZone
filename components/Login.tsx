@@ -127,16 +127,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(232,160,68,0.24),transparent_36%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.08),transparent_34%)]" />
           <div className="relative mx-auto flex max-w-md flex-col items-center text-center">
             <div className="inline-flex rounded-full border border-white/15 bg-white/8 px-5 py-2 text-base font-semibold tracking-[0.12em] text-white/85">
-              Azərbaycan Basketbol Liqası
+              {t('login.leagueName')}
             </div>
             <div className="mt-12 flex max-w-md flex-col items-center text-center">
               <img
                 src="/img/Login.jpg"
-                alt="ABL logo"
+                alt={t('login.logoAlt')}
                 className="w-[320px] max-w-full rounded-[32px] shadow-[0_24px_60px_rgba(0,0,0,0.25)]"
               />
               <h1 className="mt-10 text-5xl font-semibold leading-[0.95] tracking-tight">
-                ABL Hakimlərin platforması
+                {t('login.platformTitle')}
               </h1>
               <p className="mt-5 max-w-sm text-base leading-7 text-white/72">
                 {t('login.securePlatform')}
@@ -167,12 +167,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               <div className="flex justify-center lg:hidden">
                 <img
                   src="/img/Login.jpg"
-                  alt="ABL logo"
+                  alt={t('login.logoAlt')}
                   className="w-[220px] max-w-full rounded-[28px] shadow-[0_18px_40px_rgba(87,19,27,0.18)]"
                 />
               </div>
               <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.3em] text-[#57131b]/55">
-                {isResetPage ? t('login.passwordRecovery') : 'ABL RefZone'}
+                {isResetPage ? t('login.passwordRecovery') : t('login.brandBadge')}
               </div>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[#57131b] sm:text-4xl">
                 {isRecoveryMode
@@ -190,11 +190,11 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   ? t('login.recoveryHelp')
                   : isResetPage
                     ? t('login.resetPageHelp')
-                  : isResetMode
-                    ? t('login.resetHelp')
-                    : isRegister
-                  ? t('login.registerHelp')
-                  : t('login.signInHelp')}
+                    : isResetMode
+                      ? t('login.resetHelp')
+                      : isRegister
+                        ? t('login.registerHelp')
+                        : t('login.signInHelp')}
               </p>
             </div>
 
@@ -326,13 +326,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </form>
 
             {!isRecoveryMode && !isResetPage && (
-              <div className="pt-2 flex flex-col items-center gap-3 text-center">
+              <div className="flex flex-col items-center gap-3 pt-2 text-center">
                 {!isRegister && !isResetMode && (
                   <button
                     type="button"
-                  onClick={openResetMode}
-                  className="block text-sm font-semibold text-[#57131b] transition-colors hover:text-[#f39200]"
-                >
+                    onClick={openResetMode}
+                    className="block text-sm font-semibold text-[#57131b] transition-colors hover:text-[#f39200]"
+                  >
                     {t('login.forgotPassword')}
                   </button>
                 )}
@@ -351,7 +351,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             )}
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-xs leading-6 text-slate-500">
-              Passwords are handled by Supabase Auth and are not readable from the application database.
+              {t('login.passwordSecurityNote')}
             </div>
           </div>
         </section>
