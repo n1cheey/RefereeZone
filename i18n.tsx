@@ -209,7 +209,7 @@ Object.assign(translations.az, {
   'login.resetHelp': 'E-poçt ünvanınızı daxil edin, sizə şifrə sıfırlama linki göndərək.',
   'login.registerHelp': 'Qeydiyyat yalnız instruktor tərəfindən təsdiqlənmiş e-poçt və rollar üçün mümkündür.',
   'login.signInHelp': 'Təyinatlara, reportlara və reytinqə daxil olmaq üçün təsdiqlənmiş ABL hesabınızdan istifadə edin.',
-  'login.securePlatform': 'ABL hakimləri üçün təyinat, report, reytinq və üzv idarəetmə platforması.',
+  'login.securePlatform': 'ABL hakimləri üçün təyinat, report, reytinq və idarəetmə platforması.',
   'login.leagueName': 'Azərbaycan Basketbol Liqası',
   'login.platformTitle': 'ABL Hakimlərin platforması',
   'login.brandBadge': 'ABL RefZone',
