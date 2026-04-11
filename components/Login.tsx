@@ -11,7 +11,6 @@ import {
   requestPasswordReset,
   updatePassword,
 } from '../services/authService';
-import loginLogo from '../img/Login.jpg';
 import { getRoleLabel, useI18n } from '../i18n';
 
 interface LoginProps {
@@ -132,7 +131,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </div>
             <div className="mt-12 flex max-w-md flex-col items-center text-center">
               <img
-                src={loginLogo}
+                src="/img/Login.jpg"
                 alt="ABL logo"
                 className="w-[320px] max-w-full rounded-[32px] shadow-[0_24px_60px_rgba(0,0,0,0.25)]"
               />
@@ -167,7 +166,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             <div>
               <div className="flex justify-center lg:hidden">
                 <img
-                  src={loginLogo}
+                  src="/img/Login.jpg"
                   alt="ABL logo"
                   className="w-[220px] max-w-full rounded-[28px] shadow-[0_18px_40px_rgba(87,19,27,0.18)]"
                 />

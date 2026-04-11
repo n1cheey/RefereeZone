@@ -1,7 +1,6 @@
 
 import React from 'react';
 import { ChevronLeft, LogOut } from 'lucide-react';
-import headerLogo from '../img/Header.jpg';
 import { useI18n } from '../i18n';
 
 interface LayoutProps {
@@ -29,7 +28,7 @@ const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, show
               </button>
             ) : (
               <img
-                src={headerLogo}
+                src="/img/Header.jpg"
                 alt="ABL header logo"
                 className="h-8 w-auto flex-none rounded-lg object-contain shadow-none sm:h-14"
               />
