@@ -34,8 +34,15 @@ const sortMatchesDesc = <T extends { matchDate: string; matchTime: string }>(ite
     return rightTime - leftTime;
   });
 
+const sortMatchesAsc = <T extends { matchDate: string; matchTime: string }>(items: T[]) =>
+  [...items].sort((left, right) => {
+    const leftTime = getMatchTimestamp(left.matchDate, left.matchTime) ?? 0;
+    const rightTime = getMatchTimestamp(right.matchDate, right.matchTime) ?? 0;
+    return leftTime - rightTime;
+  });
+
 const splitMatchesByTime = <T extends { matchDate: string; matchTime: string }>(items: T[], now: number) => ({
-  upcoming: sortMatchesDesc(items.filter((item) => !isPastMatch(item.matchDate, item.matchTime, now))),
+  upcoming: sortMatchesAsc(items.filter((item) => !isPastMatch(item.matchDate, item.matchTime, now))),
   past: sortMatchesDesc(items.filter((item) => isPastMatch(item.matchDate, item.matchTime, now))),
 });
 
