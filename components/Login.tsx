@@ -11,7 +11,7 @@ import {
   requestPasswordReset,
   updatePassword,
 } from '../services/authService';
-import loginLogo from '../img/login.webp';
+import loginLogo from '../img/Login.jpg';
 import { getRoleLabel, useI18n } from '../i18n';
 
 interface LoginProps {

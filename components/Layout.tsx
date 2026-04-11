@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { ChevronLeft, LogOut } from 'lucide-react';
-import headerLogo from '../img/header.jpeg';
+import headerLogo from '../img/Header.jpg';
 import { useI18n } from '../i18n';
 
 interface LayoutProps {
