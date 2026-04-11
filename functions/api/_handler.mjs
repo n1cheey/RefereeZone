@@ -52,6 +52,7 @@ const BAKU_OFFSET = '+04:00';
 let googleGenAiModulePromise = null;
 const CURRENT_USER_CACHE_TTL_MS = 30000;
 const RANKING_STATE_CACHE_TTL_MS = 20000;
+const CHAT_MESSAGE_MAX_LENGTH = 4000;
 const currentUserCache = new Map();
 const currentUserRequestCache = new Map();
 const rankingStateCache = new Map();
@@ -536,6 +537,268 @@ const listProfilesByIds = async (admin, ids) => {
 
   const { data, error } = await admin.from('profiles').select('*').in('id', ids);
   return ensureData(data || [], error, 'Failed to load user profiles.').map(normalizeProfileRow);
+};
+
+const normalizeChatPair = (leftUserId, rightUserId) => {
+  const left = String(leftUserId || '').trim();
+  const right = String(rightUserId || '').trim();
+
+  if (!left || !right || left === right) {
+    throw new HttpError(400, 'Choose another user for chat.');
+  }
+
+  return left < right ? [left, right] : [right, left];
+};
+
+const isChatParticipant = (conversation, userId) =>
+  String(conversation.user_a_id || '') === String(userId || '') ||
+  String(conversation.user_b_id || '') === String(userId || '');
+
+const loadChatConversationById = async (admin, conversationId) =>
+  requireSingle(
+    admin.from('chat_conversations').select('*').eq('id', conversationId),
+    'Chat conversation not found.',
+    'Failed to load chat conversation.',
+  );
+
+const requireChatConversationParticipant = (conversation, currentUserId) => {
+  if (!isChatParticipant(conversation, currentUserId)) {
+    throw new HttpError(403, 'You do not have access to this chat conversation.');
+  }
+};
+
+const mapChatUser = (profile) => mapUser(profile);
+
+const mapChatConversation = (conversation, currentUserId, otherUser) => ({
+  id: conversation.id,
+  otherUser: mapChatUser(otherUser),
+  lastMessageText: String(conversation.last_message_text || ''),
+  lastMessageAt: conversation.last_message_at || null,
+  unreadCount:
+    String(conversation.user_a_id || '') === String(currentUserId || '')
+      ? Number(conversation.user_a_unread_count || 0)
+      : Number(conversation.user_b_unread_count || 0),
+  createdAt: conversation.created_at || null,
+});
+
+const mapChatMessage = (message) => ({
+  id: message.id,
+  conversationId: message.conversation_id,
+  senderId: message.sender_id,
+  body: String(message.body || ''),
+  createdAt: message.created_at || null,
+  updatedAt: message.updated_at || null,
+});
+
+const getChatUsers = async (admin, currentUser) => {
+  const { data, error } = await admin
+    .from('profiles')
+    .select('*')
+    .neq('id', currentUser.id)
+    .order('role', { ascending: true })
+    .order('full_name', { ascending: true });
+
+  return ensureData(data || [], error, 'Failed to load chat users.').map((profile) => mapChatUser(normalizeProfileRow(profile)));
+};
+
+const listChatConversations = async (admin, currentUser) => {
+  const { data, error } = await admin
+    .from('chat_conversations')
+    .select('*')
+    .or(`user_a_id.eq.${currentUser.id},user_b_id.eq.${currentUser.id}`)
+    .order('last_message_at', { ascending: false, nullsFirst: false })
+    .order('updated_at', { ascending: false });
+  const conversations = ensureData(data || [], error, 'Failed to load chat conversations.');
+
+  if (!conversations.length) {
+    return [];
+  }
+
+  const otherUserIds = [
+    ...new Set(
+      conversations.map((conversation) =>
+        String(conversation.user_a_id || '') === String(currentUser.id)
+          ? String(conversation.user_b_id || '')
+          : String(conversation.user_a_id || ''),
+      ),
+    ),
+  ];
+  const otherUsers = await listProfilesByIds(admin, otherUserIds);
+  const otherUserMap = new Map(otherUsers.map((profile) => [profile.id, profile]));
+
+  return conversations
+    .map((conversation) => {
+      const otherUserId =
+        String(conversation.user_a_id || '') === String(currentUser.id)
+          ? String(conversation.user_b_id || '')
+          : String(conversation.user_a_id || '');
+      const otherUser = otherUserMap.get(otherUserId);
+
+      if (!otherUser) {
+        return null;
+      }
+
+      return mapChatConversation(conversation, currentUser.id, otherUser);
+    })
+    .filter(Boolean);
+};
+
+const openChatConversation = async (admin, currentUser, otherUserId) => {
+  const otherUser = await requireProfileById(admin, otherUserId);
+  const [userAId, userBId] = normalizeChatPair(currentUser.id, otherUser.id);
+  const existingConversation = await maybeSingle(
+    admin.from('chat_conversations').select('*').eq('user_a_id', userAId).eq('user_b_id', userBId),
+    'Failed to load chat conversation.',
+  );
+
+  if (existingConversation) {
+    return {
+      conversation: existingConversation,
+      otherUser,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const insertedConversation = await requireSingle(
+    admin
+      .from('chat_conversations')
+      .insert({
+        user_a_id: userAId,
+        user_b_id: userBId,
+        user_a_last_read_at: userAId === currentUser.id ? now : null,
+        user_b_last_read_at: userBId === currentUser.id ? now : null,
+        updated_at: now,
+      })
+      .select('*'),
+    'Failed to create chat conversation.',
+    'Failed to create chat conversation.',
+  );
+
+  return {
+    conversation: insertedConversation,
+    otherUser,
+  };
+};
+
+const getChatBootstrap = async (admin, currentUser) => ({
+  users: await getChatUsers(admin, currentUser),
+  conversations: await listChatConversations(admin, currentUser),
+});
+
+const getChatMessages = async (admin, currentUser, conversationId) => {
+  const conversation = await loadChatConversationById(admin, conversationId);
+  requireChatConversationParticipant(conversation, currentUser.id);
+
+  const { data, error } = await admin
+    .from('chat_messages')
+    .select('*')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true })
+    .limit(300);
+
+  return ensureData(data || [], error, 'Failed to load chat messages.').map(mapChatMessage);
+};
+
+const markChatConversationRead = async (admin, currentUser, conversationId) => {
+  const conversation = await loadChatConversationById(admin, conversationId);
+  requireChatConversationParticipant(conversation, currentUser.id);
+
+  const now = new Date().toISOString();
+  const updatePayload =
+    String(conversation.user_a_id || '') === String(currentUser.id)
+      ? {
+          user_a_last_read_at: now,
+          user_a_unread_count: 0,
+          updated_at: now,
+        }
+      : {
+          user_b_last_read_at: now,
+          user_b_unread_count: 0,
+          updated_at: now,
+        };
+
+  const { error } = await admin.from('chat_conversations').update(updatePayload).eq('id', conversationId);
+
+  if (error) {
+    throw new HttpError(500, 'Failed to mark chat messages as read.');
+  }
+
+  return { conversationId, readAt: now };
+};
+
+const sendChatMessage = async (admin, currentUser, body) => {
+  const messageBody = String(body.body || '').trim();
+  if (!messageBody) {
+    throw new HttpError(400, 'Chat message cannot be empty.');
+  }
+
+  if (messageBody.length > CHAT_MESSAGE_MAX_LENGTH) {
+    throw new HttpError(400, `Chat message cannot exceed ${CHAT_MESSAGE_MAX_LENGTH} characters.`);
+  }
+
+  let conversation;
+  let otherUser;
+
+  if (body.conversationId) {
+    conversation = await loadChatConversationById(admin, String(body.conversationId));
+    requireChatConversationParticipant(conversation, currentUser.id);
+    const otherUserId =
+      String(conversation.user_a_id || '') === String(currentUser.id)
+        ? String(conversation.user_b_id || '')
+        : String(conversation.user_a_id || '');
+    otherUser = await requireProfileById(admin, otherUserId);
+  } else {
+    const openedConversation = await openChatConversation(admin, currentUser, String(body.otherUserId || ''));
+    conversation = openedConversation.conversation;
+    otherUser = openedConversation.otherUser;
+  }
+
+  const now = new Date().toISOString();
+  const insertedMessage = await requireSingle(
+    admin
+      .from('chat_messages')
+      .insert({
+        conversation_id: conversation.id,
+        sender_id: currentUser.id,
+        body: messageBody,
+        updated_at: now,
+      })
+      .select('*'),
+    'Failed to save chat message.',
+    'Failed to save chat message.',
+  );
+
+  const conversationUpdate =
+    String(conversation.user_a_id || '') === String(currentUser.id)
+      ? {
+          user_a_last_read_at: now,
+          user_a_unread_count: 0,
+          user_b_unread_count: Number(conversation.user_b_unread_count || 0) + 1,
+          last_message_at: now,
+          last_message_text: messageBody,
+          last_message_sender_id: currentUser.id,
+          updated_at: now,
+        }
+      : {
+          user_b_last_read_at: now,
+          user_b_unread_count: 0,
+          user_a_unread_count: Number(conversation.user_a_unread_count || 0) + 1,
+          last_message_at: now,
+          last_message_text: messageBody,
+          last_message_sender_id: currentUser.id,
+          updated_at: now,
+        };
+
+  const updatedConversation = await requireSingle(
+    admin.from('chat_conversations').update(conversationUpdate).eq('id', conversation.id).select('*'),
+    'Failed to update chat conversation.',
+    'Failed to update chat conversation.',
+  );
+
+  return {
+    chatMessage: mapChatMessage(insertedMessage),
+    conversation: mapChatConversation(updatedConversation, currentUser.id, otherUser),
+  };
 };
 
 const getAnnouncementAudienceForRole = (role) => {
@@ -2035,6 +2298,20 @@ const buildRankingState = async (
     performanceResponse.error,
     'Failed to load ranking performance entries.',
   );
+  const nominationsResponse = await admin
+    .from('nominations')
+    .select('game_code, match_date, teams');
+  const nominationRows = ensureData(
+    nominationsResponse.data || [],
+    nominationsResponse.error,
+    'Failed to load ranking game teams.',
+  );
+  const nominationTeamsMap = new Map(
+    nominationRows.map((nomination) => [
+      `${String(nomination.game_code || '')}|${String(nomination.match_date || '')}`,
+      String(nomination.teams || ''),
+    ]),
+  );
 
   const refereeNameMap = new Map(referees.map((referee) => [referee.id, referee.full_name]));
   const evaluations = evaluationRows.map((evaluation) => ({
@@ -2053,6 +2330,7 @@ const buildRankingState = async (
       refereeId: row[subjectIdColumn],
       refereeName: refereeNameMap.get(row[subjectIdColumn]) || `Unknown ${subjectRole}`,
       gameCode: row.game_code,
+      teams: nominationTeamsMap.get(`${String(row.game_code || '')}|${String(row.evaluation_date || '')}`) || '',
       evaluationDate: row.evaluation_date,
       note: row.note || '',
       physicalFitness: Number(row.physical_fitness || 0),
@@ -4508,6 +4786,39 @@ const routeRequest = async (event) => {
     await recordUserActivity(admin, currentUser, event);
     return json(200, {
       user: mapUser(currentUser),
+    });
+  }
+
+  if (method === 'GET' && path === '/chat/bootstrap') {
+    return json(200, await getChatBootstrap(admin, currentUser));
+  }
+
+  if (method === 'POST' && path === '/chat/conversations') {
+    const openedConversation = await openChatConversation(admin, currentUser, String(body.otherUserId || ''));
+    return json(200, {
+      conversation: mapChatConversation(openedConversation.conversation, currentUser.id, openedConversation.otherUser),
+    });
+  }
+
+  const chatMessagesMatch = path.match(/^\/chat\/conversations\/([^/]+)\/messages$/);
+  if (method === 'GET' && chatMessagesMatch) {
+    return json(200, {
+      messages: await getChatMessages(admin, currentUser, chatMessagesMatch[1]),
+    });
+  }
+
+  const chatReadMatch = path.match(/^\/chat\/conversations\/([^/]+)\/read$/);
+  if (method === 'POST' && chatReadMatch) {
+    return json(200, {
+      message: 'Chat marked as read.',
+      result: await markChatConversationRead(admin, currentUser, chatReadMatch[1]),
+    });
+  }
+
+  if (method === 'POST' && path === '/chat/messages') {
+    return json(201, {
+      statusMessage: 'Chat message sent.',
+      ...(await sendChatMessage(admin, currentUser, body)),
     });
   }
 

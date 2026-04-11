@@ -11,6 +11,7 @@ import Members from './components/Members';
 import AccessManager from './components/AccessManager';
 import Activity from './components/Activity';
 import AnnouncementManager from './components/AnnouncementManager';
+import Chat from './components/Chat';
 import { I18nProvider, useI18n } from './i18n';
 import {
   getCurrentUserProfile,
@@ -31,6 +32,7 @@ type View =
   | 'toReports'
   | 'news'
   | 'announcement'
+  | 'chat'
   | 'members'
   | 'access'
   | 'activity';
@@ -93,6 +95,7 @@ const normalizeStoredView = (value: unknown): View => {
     case 'toReports':
     case 'news':
     case 'announcement':
+    case 'chat':
     case 'members':
     case 'access':
     case 'activity':
@@ -414,6 +417,8 @@ const AppContent: React.FC = () => {
         return <News user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'announcement':
         return <AnnouncementManager user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+      case 'chat':
+        return <Chat user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'members':
         return <Members user={currentUser!} onBack={() => setCurrentView('dashboard')} onCurrentUserUpdated={handleUpdateUser} />;
       case 'access':

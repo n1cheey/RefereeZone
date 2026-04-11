@@ -210,6 +210,7 @@ export interface RankingPerformanceEntry {
   refereeId: string;
   refereeName: string;
   gameCode: string;
+  teams: string;
   evaluationDate: string;
   note: string;
   physicalFitness: number;
@@ -286,4 +287,22 @@ export interface ActivityEntry {
   email: string;
   role: UserRole;
   lastSeenAt: string;
+}
+
+export interface ChatConversationItem {
+  id: string;
+  otherUser: User;
+  lastMessageText: string;
+  lastMessageAt: string | null;
+  unreadCount: number;
+  createdAt: string | null;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  body: string;
+  createdAt: string | null;
+  updatedAt: string | null;
 }

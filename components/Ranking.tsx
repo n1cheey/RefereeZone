@@ -120,6 +120,46 @@ const getMatchAverageChartDomain = (points: Array<{ matchAverage: number }>) => 
 const shouldShowScoreLegend = (role: User['role']) =>
   role === 'Referee' || role === 'Staff' || role === 'TO' || role === 'TO Supervisor';
 
+const truncateChartTeams = (value: string, maxLength = 20) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
+};
+
+const RankingChartTick = ({
+  x,
+  y,
+  payload,
+}: {
+  x?: number;
+  y?: number;
+  payload?: { value?: string; payload?: { teams?: string } };
+}) => {
+  if (typeof x !== 'number' || typeof y !== 'number' || !payload) {
+    return null;
+  }
+
+  const teamsLabel = truncateChartTeams(payload.payload?.teams || '');
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text textAnchor="middle" fill="#64748b" fontSize="12">
+        <tspan x={0} dy="0.71em">
+          {payload.value || ''}
+        </tspan>
+        {teamsLabel ? (
+          <tspan x={0} dy="1.15em" fontSize="10" fill="#94a3b8">
+            {teamsLabel}
+          </tspan>
+        ) : null}
+      </text>
+    </g>
+  );
+};
+
 interface RankingAdminState {
   performanceEntries: RankingPerformanceEntry[];
   performanceProfiles: RankingPerformanceProfile[];
@@ -275,6 +315,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
         .map((entry) => ({
           date: entry.evaluationDate,
           gameCode: entry.gameCode,
+          teams: entry.teams,
           matchAverage: Number(entry.matchAverage ?? 0),
         })),
     [selectedEntries],
@@ -574,15 +615,17 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={selectedMatchAverageHistory}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="gameCode" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                  <XAxis dataKey="gameCode" axisLine={false} tickLine={false} interval={0} height={56} tick={<RankingChartTick />} />
                   <YAxis domain={selectedMatchAverageDomain} hide />
                   <Tooltip
                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                     labelStyle={{ fontWeight: 'bold' }}
                     formatter={(value: number) => [formatAverage(value), t('ranking.matchAverageLabel')]}
                     labelFormatter={(label: string, payload) => {
-                      const point = payload?.[0]?.payload as { date?: string; gameCode?: string } | undefined;
-                      return point ? `${point.gameCode || label} • ${point.date || ''}` : label;
+                      const point = payload?.[0]?.payload as { date?: string; gameCode?: string; teams?: string } | undefined;
+                      return point
+                        ? `${point.gameCode || label}${point.teams ? ` • ${point.teams}` : ''} • ${point.date || ''}`
+                        : label;
                     }}
                   />
                   <Line
@@ -675,15 +718,17 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={selectedMatchAverageHistory}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="gameCode" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                    <XAxis dataKey="gameCode" axisLine={false} tickLine={false} interval={0} height={56} tick={<RankingChartTick />} />
                     <YAxis domain={selectedMatchAverageDomain} hide />
                     <Tooltip
                       contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                       labelStyle={{ fontWeight: 'bold' }}
                       formatter={(value: number) => [formatAverage(value), t('ranking.matchAverageLabel')]}
                       labelFormatter={(label: string, payload) => {
-                        const point = payload?.[0]?.payload as { date?: string; gameCode?: string } | undefined;
-                        return point ? `${point.gameCode || label} • ${point.date || ''}` : label;
+                        const point = payload?.[0]?.payload as { date?: string; gameCode?: string; teams?: string } | undefined;
+                        return point
+                          ? `${point.gameCode || label}${point.teams ? ` • ${point.teams}` : ''} • ${point.date || ''}`
+                          : label;
                       }}
                     />
                     <Line

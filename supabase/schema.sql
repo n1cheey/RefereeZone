@@ -238,6 +238,34 @@ create table if not exists public.replacement_notices (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.chat_conversations (
+  id uuid primary key default gen_random_uuid(),
+  user_a_id uuid not null references public.profiles(id) on delete cascade,
+  user_b_id uuid not null references public.profiles(id) on delete cascade,
+  user_a_last_read_at timestamptz,
+  user_b_last_read_at timestamptz,
+  user_a_unread_count integer not null default 0,
+  user_b_unread_count integer not null default 0,
+  last_message_at timestamptz,
+  last_message_text text not null default '',
+  last_message_sender_id uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint chat_conversations_distinct_users check (user_a_id <> user_b_id),
+  constraint chat_conversations_sorted_pair check (user_a_id::text < user_b_id::text),
+  unique (user_a_id, user_b_id)
+);
+
+create table if not exists public.chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.chat_conversations(id) on delete cascade,
+  sender_id uuid not null references public.profiles(id) on delete cascade,
+  body text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint chat_messages_non_empty_body check (length(btrim(body)) > 0)
+);
+
 create index if not exists profiles_role_full_name_idx
   on public.profiles (role, full_name);
 
@@ -274,6 +302,18 @@ create index if not exists user_activity_last_seen_idx
 create index if not exists replacement_notices_referee_created_idx
   on public.replacement_notices (replaced_referee_id, created_at desc);
 
+create index if not exists chat_conversations_user_a_last_message_idx
+  on public.chat_conversations (user_a_id, last_message_at desc, updated_at desc);
+
+create index if not exists chat_conversations_user_b_last_message_idx
+  on public.chat_conversations (user_b_id, last_message_at desc, updated_at desc);
+
+create index if not exists chat_messages_conversation_created_idx
+  on public.chat_messages (conversation_id, created_at asc);
+
+create index if not exists chat_messages_sender_created_idx
+  on public.chat_messages (sender_id, created_at desc);
+
 alter table public.allowed_access enable row level security;
 alter table public.profiles enable row level security;
 alter table public.nominations enable row level security;
@@ -289,6 +329,8 @@ alter table public.news_posts enable row level security;
 alter table public.announcements enable row level security;
 alter table public.user_activity enable row level security;
 alter table public.replacement_notices enable row level security;
+alter table public.chat_conversations enable row level security;
+alter table public.chat_messages enable row level security;
 
 alter table public.allowed_access drop constraint if exists allowed_access_allowed_role_check;
 alter table public.allowed_access
@@ -398,3 +440,70 @@ for select using (public.current_user_role() in ('Instructor', 'Staff', 'Stuff')
 drop policy if exists "replacement notices owner read" on public.replacement_notices;
 create policy "replacement notices owner read" on public.replacement_notices
 for select using (replaced_referee_id = auth.uid());
+
+create or replace function public.is_chat_participant(conversation_user_a_id uuid, conversation_user_b_id uuid)
+returns boolean
+language sql
+stable
+as $$
+  select auth.uid() is not null
+    and auth.uid() in (conversation_user_a_id, conversation_user_b_id)
+$$;
+
+drop policy if exists "chat conversations participant read" on public.chat_conversations;
+create policy "chat conversations participant read" on public.chat_conversations
+for select using (public.is_chat_participant(user_a_id, user_b_id));
+
+drop policy if exists "chat conversations participant insert" on public.chat_conversations;
+create policy "chat conversations participant insert" on public.chat_conversations
+for insert with check (
+  public.is_chat_participant(user_a_id, user_b_id)
+  and user_a_id::text < user_b_id::text
+);
+
+drop policy if exists "chat conversations participant update" on public.chat_conversations;
+create policy "chat conversations participant update" on public.chat_conversations
+for update using (public.is_chat_participant(user_a_id, user_b_id))
+with check (
+  public.is_chat_participant(user_a_id, user_b_id)
+  and user_a_id::text < user_b_id::text
+);
+
+drop policy if exists "chat messages participant read" on public.chat_messages;
+create policy "chat messages participant read" on public.chat_messages
+for select using (
+  exists (
+    select 1
+    from public.chat_conversations c
+    where c.id = chat_messages.conversation_id
+      and public.is_chat_participant(c.user_a_id, c.user_b_id)
+  )
+);
+
+drop policy if exists "chat messages sender insert" on public.chat_messages;
+create policy "chat messages sender insert" on public.chat_messages
+for insert with check (
+  sender_id = auth.uid()
+  and exists (
+    select 1
+    from public.chat_conversations c
+    where c.id = chat_messages.conversation_id
+      and public.is_chat_participant(c.user_a_id, c.user_b_id)
+  )
+);
+
+do $$
+begin
+  begin
+    execute 'alter publication supabase_realtime add table public.chat_conversations';
+  exception
+    when duplicate_object then null;
+  end;
+
+  begin
+    execute 'alter publication supabase_realtime add table public.chat_messages';
+  exception
+    when duplicate_object then null;
+  end;
+end
+$$;

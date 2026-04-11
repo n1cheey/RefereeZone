@@ -14,6 +14,7 @@ import {
   FileText,
   History,
   MapPin,
+  MessageSquare,
   Newspaper,
   Pencil,
   Plus,
@@ -51,6 +52,7 @@ interface DashboardProps {
       | 'toReports'
       | 'news'
       | 'announcement'
+      | 'chat'
       | 'members'
       | 'access'
       | 'activity',
@@ -663,6 +665,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             color: 'bg-purple-50',
           },
         ]),
+    { id: 'chat' as const, label: t('dashboard.navChat'), icon: MessageSquare, iconColor: 'text-cyan-600', color: 'bg-cyan-50' },
     { id: 'news' as const, label: t('news.title'), icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
   ];
 
