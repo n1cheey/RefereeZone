@@ -53,6 +53,7 @@ let googleGenAiModulePromise = null;
 const CURRENT_USER_CACHE_TTL_MS = 30000;
 const RANKING_STATE_CACHE_TTL_MS = 20000;
 const CHAT_MESSAGE_MAX_LENGTH = 4000;
+const RESTRICTED_CHAT_INITIATOR_EMAIL = 'nikolas.osadchey@gmail.com';
 const currentUserCache = new Map();
 const currentUserRequestCache = new Map();
 const rankingStateCache = new Map();
@@ -550,6 +551,12 @@ const normalizeChatPair = (leftUserId, rightUserId) => {
   return left < right ? [left, right] : [right, left];
 };
 
+const isRestrictedChatStarterProfile = (profile) =>
+  normalizeEmail(profile?.email) === RESTRICTED_CHAT_INITIATOR_EMAIL;
+
+const canInitiateDirectChat = (currentUser, otherUser) =>
+  !isRestrictedChatStarterProfile(otherUser) || isRestrictedChatStarterProfile(currentUser);
+
 const isChatParticipant = (conversation, userId) =>
   String(conversation.user_a_id || '') === String(userId || '') ||
   String(conversation.user_b_id || '') === String(userId || '');
@@ -598,7 +605,10 @@ const getChatUsers = async (admin, currentUser) => {
     .order('role', { ascending: true })
     .order('full_name', { ascending: true });
 
-  return ensureData(data || [], error, 'Failed to load chat users.').map((profile) => mapChatUser(normalizeProfileRow(profile)));
+  return ensureData(data || [], error, 'Failed to load chat users.')
+    .map(normalizeProfileRow)
+    .filter((profile) => canInitiateDirectChat(currentUser, profile))
+    .map((profile) => mapChatUser(profile));
 };
 
 const listChatConversations = async (admin, currentUser) => {
@@ -656,6 +666,10 @@ const openChatConversation = async (admin, currentUser, otherUserId) => {
       conversation: existingConversation,
       otherUser,
     };
+  }
+
+  if (!canInitiateDirectChat(currentUser, otherUser)) {
+    throw new HttpError(403, 'This user can only start chats from their account.');
   }
 
   const now = new Date().toISOString();
