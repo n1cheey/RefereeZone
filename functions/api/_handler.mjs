@@ -1738,6 +1738,17 @@ const ensureDistinctTOs = (toIds) => {
 
   return normalized;
 };
+const normalizeTOSlotSelections = (toIds) => {
+  const normalized = Array.from({ length: 4 }, (_, index) => String(toIds?.[index] || '').trim());
+  const filled = normalized.filter(Boolean);
+  const unique = new Set(filled);
+
+  if (unique.size !== filled.length) {
+    throw new HttpError(400, 'Select different TO users for each filled slot.');
+  }
+
+  return normalized;
+};
 
 const getNextLicenseNumber = async (admin, role) => {
   const { count, error } = await admin
@@ -3466,31 +3477,73 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
   );
 
   const matchDateTime = createMatchDateTime(nomination.match_date, nomination.match_time);
-  if (!matchDateTime || Date.now() >= matchDateTime.getTime()) {
-    throw new HttpError(409, 'TO crew can be assigned only before the match starts.');
-  }
+  const isPastMatch = !matchDateTime || Date.now() >= matchDateTime.getTime();
+  const existingAssignments = await listTOAssignmentsByNominationIds(admin, [nominationId]);
+  const existingAssignmentsBySlot = new Map(existingAssignments.map((assignment) => [Number(assignment.slot_number), assignment]));
 
-  const normalizedTOIds = ensureDistinctTOs(toIds);
-  await requireTOUsers(admin, normalizedTOIds);
+  if (isPastMatch) {
+    const normalizedTOSelections = normalizeTOSlotSelections(toIds);
 
-  const { error: deleteError } = await admin.from('nomination_tos').delete().eq('nomination_id', nominationId);
-  if (deleteError) {
-    throw new HttpError(500, 'Failed to reset TO crew.');
-  }
+    existingAssignmentsBySlot.forEach((assignment, slotNumber) => {
+      const selectedToId = normalizedTOSelections[slotNumber - 1];
+      if (selectedToId !== assignment.to_id) {
+        throw new HttpError(409, 'Assigned TO officials cannot be changed after the match starts.');
+      }
+    });
 
-  const { error: insertError } = await admin.from('nomination_tos').insert(
-    normalizedTOIds.map((toId, index) => ({
-      nomination_id: nominationId,
-      to_id: toId,
-      slot_number: index + 1,
-      assigned_by: currentUser.id,
-      status: ASSIGNMENT_STATUS.PENDING,
-      responded_at: null,
-    })),
-  );
+    const additions = normalizedTOSelections
+      .map((toId, index) => ({
+        toId,
+        slotNumber: index + 1,
+      }))
+      .filter((item) => item.toId && !existingAssignmentsBySlot.has(item.slotNumber));
 
-  if (insertError) {
-    throw new HttpError(500, 'Failed to assign TO crew.');
+    if (!additions.length) {
+      throw new HttpError(400, 'Choose at least one TO user for an empty slot.');
+    }
+
+    await requireTOUsers(
+      admin,
+      additions.map((item) => item.toId),
+    );
+
+    const { error: insertError } = await admin.from('nomination_tos').insert(
+      additions.map((item) => ({
+        nomination_id: nominationId,
+        to_id: item.toId,
+        slot_number: item.slotNumber,
+        assigned_by: currentUser.id,
+        status: ASSIGNMENT_STATUS.PENDING,
+        responded_at: null,
+      })),
+    );
+
+    if (insertError) {
+      throw new HttpError(500, 'Failed to assign TO crew.');
+    }
+  } else {
+    const normalizedTOIds = ensureDistinctTOs(toIds);
+    await requireTOUsers(admin, normalizedTOIds);
+
+    const { error: deleteError } = await admin.from('nomination_tos').delete().eq('nomination_id', nominationId);
+    if (deleteError) {
+      throw new HttpError(500, 'Failed to reset TO crew.');
+    }
+
+    const { error: insertError } = await admin.from('nomination_tos').insert(
+      normalizedTOIds.map((toId, index) => ({
+        nomination_id: nominationId,
+        to_id: toId,
+        slot_number: index + 1,
+        assigned_by: currentUser.id,
+        status: ASSIGNMENT_STATUS.PENDING,
+        responded_at: null,
+      })),
+    );
+
+    if (insertError) {
+      throw new HttpError(500, 'Failed to assign TO crew.');
+    }
   }
 
   const nominations = await getInstructorNominationsData(admin, currentUser.id);

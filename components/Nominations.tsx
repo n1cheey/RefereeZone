@@ -430,7 +430,28 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     }
 
     const selectedTOs = getTONominationSelection(nomination);
-    if (new Set(selectedTOs.filter(Boolean)).size !== 4 || selectedTOs.some((item) => !item)) {
+    const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
+    const existingTOIds = [1, 2, 3, 4].map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
+    const filledTOs = selectedTOs.filter(Boolean);
+
+    if (new Set(filledTOs).size !== filledTOs.length) {
+      setErrorMessage('Choose different TO users.');
+      return;
+    }
+
+    if (isPastNomination) {
+      const changedAssignedSlot = existingTOIds.some((toId, index) => toId && selectedTOs[index] !== toId);
+      if (changedAssignedSlot) {
+        setErrorMessage('Assigned TO officials cannot be changed after the match starts.');
+        return;
+      }
+
+      const hasNewTOForEmptySlot = existingTOIds.some((toId, index) => !toId && selectedTOs[index]);
+      if (!hasNewTOForEmptySlot) {
+        setErrorMessage(t('dashboard.toCrewPastSelectAtLeastOne'));
+        return;
+      }
+    } else if (filledTOs.length !== 4) {
       setErrorMessage('Choose 4 different TO users.');
       return;
     }
@@ -737,13 +758,14 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             </div>
           ))}
         </div>
-        <div className="mt-4 rounded-xl bg-slate-50 p-3">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.toCrew')}</div>
-          <div className="mt-3 grid gap-3 md:grid-cols-4">
-            {[1, 2, 3, 4].map((slotNumber) => {
-              const existingAssignment = nomination.toCrew.find((item) => item.slotNumber === slotNumber);
-              const currentSelection = getTONominationSelection(nomination)[slotNumber - 1] || '';
-              const canAssignTOCrew = isTOSupervisor && !isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
+          <div className="mt-4 rounded-xl bg-slate-50 p-3">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.toCrew')}</div>
+            <div className="mt-3 grid gap-3 md:grid-cols-4">
+              {[1, 2, 3, 4].map((slotNumber) => {
+                const existingAssignment = nomination.toCrew.find((item) => item.slotNumber === slotNumber);
+                const currentSelection = getTONominationSelection(nomination)[slotNumber - 1] || '';
+              const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
+              const canAssignTOCrew = isTOSupervisor && (!isPastNomination || !existingAssignment);
               return (
                 <div key={`${nomination.id}-to-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
                   <div className="text-xs font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber, language)}</div>
@@ -785,12 +807,22 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
               );
             })}
           </div>
-          {isTOSupervisor && isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) ? (
+          {isTOSupervisor &&
+          isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
+          nomination.toCrew.length === 4 ? (
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-              TO crew can no longer be assigned after the match starts.
+              {t('dashboard.toCrewLocked')}
             </div>
           ) : null}
-          {isTOSupervisor && !isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) && (
+          {isTOSupervisor &&
+          isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
+          nomination.toCrew.length < 4 ? (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              {t('dashboard.toCrewPastFillOnly')}
+            </div>
+          ) : null}
+          {isTOSupervisor &&
+          (!isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) || nomination.toCrew.length < 4) && (
             <div className="mt-4 flex justify-end">
               <button
                 onClick={() => handleSaveTOCrew(nomination.id)}

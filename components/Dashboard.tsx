@@ -69,6 +69,7 @@ interface DashboardProps {
 }
 
 const POLL_INTERVAL_MS = 45000;
+const MONTHLY_EARNINGS_ANIMATION_MS = 1400;
 const getDashboardCacheKey = (userId: string, role: User['role']) => `dashboard:${userId}:${role}`;
 const getNominationsCacheKey = (userId: string, role: User['role']) => `nominations:${userId}:${role}`;
 const getChatDashboardCacheKey = (userId: string) => `chat:bootstrap:${userId}`;
@@ -171,8 +172,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [protocolInputs, setProtocolInputs] = useState<Record<string, string>>({});
   const [refereeFeeInputs, setRefereeFeeInputs] = useState<Record<string, string>>({});
   const [toFeeInputs, setTOFeeInputs] = useState<Record<string, string>>({});
+  const [displayedMonthlyEarnings, setDisplayedMonthlyEarnings] = useState(0);
+  const [isMonthlyEarningsAnimating, setIsMonthlyEarningsAnimating] = useState(false);
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const dashboardLoadPromiseRef = useRef<Promise<void> | null>(null);
+  const monthlyEarningsAnimationFrameRef = useRef<number | null>(null);
+  const animatedMonthlyEarningsRef = useRef(0);
   const [form, setForm] = useState({
     gameCode: '',
     teams: '',
@@ -755,7 +760,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     }
 
     const selectedTOs = getTONominationSelection(nomination);
-    if (new Set(selectedTOs.filter(Boolean)).size !== 4 || selectedTOs.some((item) => !item)) {
+    const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
+    const existingTOIds = [1, 2, 3, 4].map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
+    const filledTOs = selectedTOs.filter(Boolean);
+
+    if (new Set(filledTOs).size !== filledTOs.length) {
+      setDashboardError('Choose different TO users.');
+      return;
+    }
+
+    if (isPastNomination) {
+      const changedAssignedSlot = existingTOIds.some((toId, index) => toId && selectedTOs[index] !== toId);
+      if (changedAssignedSlot) {
+        setDashboardError('Assigned TO officials cannot be changed after the match starts.');
+        return;
+      }
+
+      const hasNewTOForEmptySlot = existingTOIds.some((toId, index) => !toId && selectedTOs[index]);
+      if (!hasNewTOForEmptySlot) {
+        setDashboardError(t('dashboard.toCrewPastSelectAtLeastOne'));
+        return;
+      }
+    } else if (filledTOs.length !== 4) {
       setDashboardError('Choose 4 different TO users.');
       return;
     }
@@ -860,6 +886,62 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       monthlyWorkedAssignments.reduce((sum, assignment) => sum + (assignment.refereeFee || 0), 0),
     [monthlyWorkedAssignments],
   );
+
+  useEffect(() => {
+    if (monthlyEarningsAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(monthlyEarningsAnimationFrameRef.current);
+      monthlyEarningsAnimationFrameRef.current = null;
+    }
+
+    if (user.role !== 'Referee') {
+      animatedMonthlyEarningsRef.current = 0;
+      setDisplayedMonthlyEarnings(0);
+      setIsMonthlyEarningsAnimating(false);
+      return;
+    }
+
+    const startValue = animatedMonthlyEarningsRef.current;
+    const targetValue = monthlyEarningsTotal;
+
+    if (Math.abs(targetValue - startValue) < 0.01) {
+      animatedMonthlyEarningsRef.current = targetValue;
+      setDisplayedMonthlyEarnings(targetValue);
+      setIsMonthlyEarningsAnimating(false);
+      return;
+    }
+
+    setIsMonthlyEarningsAnimating(true);
+    const animationStartedAt = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = now - animationStartedAt;
+      const progress = Math.min(elapsed / MONTHLY_EARNINGS_ANIMATION_MS, 1);
+      const easedProgress = 1 - Math.pow(1 - progress, 3);
+      const nextValue = startValue + (targetValue - startValue) * easedProgress;
+
+      animatedMonthlyEarningsRef.current = nextValue;
+      setDisplayedMonthlyEarnings(nextValue);
+
+      if (progress < 1) {
+        monthlyEarningsAnimationFrameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      animatedMonthlyEarningsRef.current = targetValue;
+      setDisplayedMonthlyEarnings(targetValue);
+      setIsMonthlyEarningsAnimating(false);
+      monthlyEarningsAnimationFrameRef.current = null;
+    };
+
+    monthlyEarningsAnimationFrameRef.current = window.requestAnimationFrame(tick);
+
+    return () => {
+      if (monthlyEarningsAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(monthlyEarningsAnimationFrameRef.current);
+        monthlyEarningsAnimationFrameRef.current = null;
+      }
+    };
+  }, [monthlyEarningsTotal, user.role]);
   const pendingAvailabilityApprovalsCount = canUseAvailability ? availabilityOverview.pendingApprovals.length : 0;
   const pendingMyAvailabilityCount = useMemo(
     () =>
@@ -1483,7 +1565,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           {[1, 2, 3, 4].map((slotNumber) => {
             const existingAssignment = nomination.toCrew.find((item) => item.slotNumber === slotNumber);
             const currentSelection = getTONominationSelection(nomination)[slotNumber - 1] || '';
-            const canAssignTOCrew = isTOSupervisor && !isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
+            const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
+            const canAssignTOCrew = isTOSupervisor && (!isPastNomination || !existingAssignment);
             return (
               <div key={`${nomination.id}-to-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber, language)}</div>
@@ -1505,8 +1588,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                         {option.fullName}
                       </option>
                     ))}
-                  </select>
-                ) : (
+                    </select>
+                  ) : (
                   <>
                     <div className="mt-1 font-semibold text-slate-900">{existingAssignment?.toName || t('common.notAssigned')}</div>
                     {existingAssignment ? (
@@ -1525,12 +1608,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             );
           })}
         </div>
-        {isTOSupervisor && isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) ? (
+        {isTOSupervisor &&
+        isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
+        nomination.toCrew.length === 4 ? (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
             {t('dashboard.toCrewLocked')}
           </div>
         ) : null}
-        {isTOSupervisor && !isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) && (
+        {isTOSupervisor &&
+        isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
+        nomination.toCrew.length < 4 ? (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+            {t('dashboard.toCrewPastFillOnly')}
+          </div>
+        ) : null}
+        {isTOSupervisor &&
+        (!isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) || nomination.toCrew.length < 4) && (
           <div className="mt-4 flex justify-end">
             <button
               onClick={() => handleSaveTOCrew(nomination.id)}
@@ -1746,7 +1839,15 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                 <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
                   {t('dashboard.thisMonth')}
                 </div>
-                <div className="mt-1 text-xl font-black leading-none text-slate-900">{formatFee(monthlyEarningsTotal)}</div>
+                <div
+                  className={`mt-1 text-xl font-black leading-none transition-all duration-300 ${
+                    isMonthlyEarningsAnimating
+                      ? 'scale-[1.03] text-emerald-700 drop-shadow-[0_0_10px_rgba(16,185,129,0.18)]'
+                      : 'text-slate-900'
+                  }`}
+                >
+                  {formatFee(displayedMonthlyEarnings)}
+                </div>
                 <div className="mt-1 text-xs font-medium text-slate-600">{t('dashboard.monthlyEarnings')}</div>
               </div>
             </div>
