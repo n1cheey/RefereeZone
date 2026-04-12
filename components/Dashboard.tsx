@@ -1720,48 +1720,50 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   return (
       <Layout title={dashboardTitle} showBack={false} onLogout={onLogout}>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
-        <div className="flex items-center gap-4">
-          <div className="relative cursor-pointer group" onClick={handlePhotoClick}>
-            <img
-              src={user.photoUrl}
-              alt={user.fullName}
-              className="w-20 h-20 rounded-2xl object-cover shadow-md ring-2 ring-[#f97316]/20 group-hover:opacity-80 transition-opacity"
-            />
-            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-              <Camera size={24} className="text-white drop-shadow-md" />
-            </div>
-            <div className="absolute -bottom-2 -right-2 bg-[#f97316] p-1.5 rounded-lg shadow-sm">
-              <Award size={16} className="text-white" />
-            </div>
-            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-slate-800">{user.fullName}</h2>
-            <p className="text-sm text-slate-500 flex items-center gap-1">
-              <UserIcon size={14} /> {t('common.license')}: {user.licenseNumber}
-            </p>
-            <div className="mt-1 inline-block px-2 py-0.5 bg-[#581c1c] text-white text-[10px] uppercase font-bold rounded">
-              {getRoleLabel(user.role, language)}
-            </div>
-            {user.role === 'Referee' ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700">
-                    {t('dashboard.thisMonth')}
-                  </div>
-                  <div className="mt-2 text-2xl font-black text-slate-900">{monthlyMatchesWorkedCount}</div>
-                  <div className="text-sm font-medium text-slate-600">{t('dashboard.monthlyMatchesWorked')}</div>
-                </div>
-                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-700">
-                    {t('dashboard.thisMonth')}
-                  </div>
-                  <div className="mt-2 text-2xl font-black text-slate-900">{formatFee(monthlyEarningsTotal)}</div>
-                  <div className="text-sm font-medium text-slate-600">{t('dashboard.monthlyEarnings')}</div>
-                </div>
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="relative cursor-pointer group" onClick={handlePhotoClick}>
+              <img
+                src={user.photoUrl}
+                alt={user.fullName}
+                className="w-20 h-20 rounded-2xl object-cover shadow-md ring-2 ring-[#f97316]/20 group-hover:opacity-80 transition-opacity"
+              />
+              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <Camera size={24} className="text-white drop-shadow-md" />
               </div>
-            ) : null}
+              <div className="absolute -bottom-2 -right-2 bg-[#f97316] p-1.5 rounded-lg shadow-sm">
+                <Award size={16} className="text-white" />
+              </div>
+              <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-800">{user.fullName}</h2>
+              <p className="text-sm text-slate-500 flex items-center gap-1">
+                <UserIcon size={14} /> {t('common.license')}: {user.licenseNumber}
+              </p>
+              <div className="mt-1 inline-block px-2 py-0.5 bg-[#581c1c] text-white text-[10px] uppercase font-bold rounded">
+                {getRoleLabel(user.role, language)}
+              </div>
+            </div>
           </div>
+          {user.role === 'Referee' ? (
+            <div className="grid gap-2 sm:grid-cols-2 md:min-w-[300px] md:max-w-[360px]">
+              <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5">
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">
+                  {t('dashboard.thisMonth')}
+                </div>
+                <div className="mt-1 text-xl font-black leading-none text-slate-900">{monthlyMatchesWorkedCount}</div>
+                <div className="mt-1 text-xs font-medium text-slate-600">{t('dashboard.monthlyMatchesWorked')}</div>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5">
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
+                  {t('dashboard.thisMonth')}
+                </div>
+                <div className="mt-1 text-xl font-black leading-none text-slate-900">{formatFee(monthlyEarningsTotal)}</div>
+                <div className="mt-1 text-xs font-medium text-slate-600">{t('dashboard.monthlyEarnings')}</div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
