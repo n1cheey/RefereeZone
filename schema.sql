@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS "public"."allowed_access" (
     "display_name" "text" DEFAULT ''::"text",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "license_number" "text" DEFAULT 'Pending'::"text" NOT NULL,
-    CONSTRAINT "allowed_access_allowed_role_check" CHECK (("allowed_role" = ANY (ARRAY['Instructor'::"text", 'TO Supervisor'::"text", 'TO'::"text", 'Table'::"text", 'Referee'::"text", 'Staff'::"text", 'Stuff'::"text"])))
+    CONSTRAINT "allowed_access_allowed_role_check" CHECK (("allowed_role" = ANY (ARRAY['Instructor'::"text", 'TO Supervisor'::"text", 'TO'::"text", 'Table'::"text", 'Referee'::"text", 'Staff'::"text", 'Stuff'::"text", 'Financialist'::"text"])))
 );
 
 
@@ -179,7 +179,7 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "license_number" "text" NOT NULL,
     "allowed_access_id" "uuid",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    CONSTRAINT "profiles_role_check" CHECK (("role" = ANY (ARRAY['Instructor'::"text", 'TO Supervisor'::"text", 'TO'::"text", 'Table'::"text", 'Referee'::"text", 'Staff'::"text", 'Stuff'::"text"])))
+    CONSTRAINT "profiles_role_check" CHECK (("role" = ANY (ARRAY['Instructor'::"text", 'TO Supervisor'::"text", 'TO'::"text", 'Table'::"text", 'Referee'::"text", 'Staff'::"text", 'Stuff'::"text", 'Financialist'::"text"])))
 );
 
 
@@ -1086,7 +1086,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
-
 
 
 

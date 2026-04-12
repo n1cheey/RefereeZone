@@ -3,7 +3,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.allowed_access (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
-  allowed_role text not null check (allowed_role in ('Instructor', 'TO Supervisor', 'TO', 'Table', 'Referee', 'Staff', 'Stuff')),
+  allowed_role text not null check (allowed_role in ('Instructor', 'TO Supervisor', 'TO', 'Table', 'Referee', 'Staff', 'Stuff', 'Financialist')),
   license_number text not null default 'Pending',
   display_name text default '',
   created_at timestamptz not null default now()
@@ -16,7 +16,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null unique,
   full_name text not null,
-  role text not null check (role in ('Instructor', 'TO Supervisor', 'TO', 'Table', 'Referee', 'Staff', 'Stuff')),
+  role text not null check (role in ('Instructor', 'TO Supervisor', 'TO', 'Table', 'Referee', 'Staff', 'Stuff', 'Financialist')),
   photo_url text not null default 'https://picsum.photos/seed/referee/300/300',
   license_number text not null,
   allowed_access_id uuid references public.allowed_access(id),
@@ -365,12 +365,12 @@ alter table public.availability_requests enable row level security;
 alter table public.allowed_access drop constraint if exists allowed_access_allowed_role_check;
 alter table public.allowed_access
   add constraint allowed_access_allowed_role_check
-  check (allowed_role in ('Instructor', 'TO Supervisor', 'TO', 'Table', 'Referee', 'Staff', 'Stuff'));
+  check (allowed_role in ('Instructor', 'TO Supervisor', 'TO', 'Table', 'Referee', 'Staff', 'Stuff', 'Financialist'));
 
 alter table public.profiles drop constraint if exists profiles_role_check;
 alter table public.profiles
   add constraint profiles_role_check
-  check (role in ('Instructor', 'TO Supervisor', 'TO', 'Table', 'Referee', 'Staff', 'Stuff'));
+  check (role in ('Instructor', 'TO Supervisor', 'TO', 'Table', 'Referee', 'Staff', 'Stuff', 'Financialist'));
 
 update public.allowed_access
 set allowed_role = 'TO'
