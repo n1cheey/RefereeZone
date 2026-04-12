@@ -176,24 +176,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [toFeeInputs, setTOFeeInputs] = useState<Record<string, string>>({});
   const [displayedMonthlyEarnings, setDisplayedMonthlyEarnings] = useState(0);
   const [isMonthlyEarningsAnimating, setIsMonthlyEarningsAnimating] = useState(false);
-  const [calculationRange, setCalculationRange] = useState(() => {
-    const today = getCurrentBakuDateString();
-    return {
-      startDate: `${today.slice(0, 8)}01`,
-      endDate: today,
-    };
-  });
-  const [calculatedMatchesCount, setCalculatedMatchesCount] = useState(0);
-  const [calculatedEarningsTotal, setCalculatedEarningsTotal] = useState(0);
-  const [displayedCalculatedEarnings, setDisplayedCalculatedEarnings] = useState(0);
-  const [isCalculatedEarningsAnimating, setIsCalculatedEarningsAnimating] = useState(false);
-  const [calculationError, setCalculationError] = useState('');
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const dashboardLoadPromiseRef = useRef<Promise<void> | null>(null);
   const monthlyEarningsAnimationFrameRef = useRef<number | null>(null);
   const animatedMonthlyEarningsRef = useRef(0);
-  const calculatedEarningsAnimationFrameRef = useRef<number | null>(null);
-  const animatedCalculatedEarningsRef = useRef(0);
   const [form, setForm] = useState({
     gameCode: '',
     teams: '',
@@ -884,24 +870,28 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const { year: currentBakuYear, month: currentBakuMonth } = getBakuDateParts(countdownNow);
   const currentMonthKey = `${currentBakuYear}-${currentBakuMonth}`;
   const workedAssignmentStatuses = new Set(['Accepted', 'Assigned']);
+  const monthlyAssignmentGroup = user.role === 'TO' ? 'TO' : 'Referee';
   const monthlyWorkedAssignments = useMemo(
     () =>
-      user.role !== 'Referee'
+      !canUseEarningsCalculator
         ? []
         : refereeAssignments.filter(
             (assignment) =>
-              assignment.assignmentGroup === 'Referee' &&
+              assignment.assignmentGroup === monthlyAssignmentGroup &&
               assignment.matchDate.slice(0, 7) === currentMonthKey &&
               workedAssignmentStatuses.has(assignment.status) &&
               isPastMatch(assignment.matchDate, assignment.matchTime, countdownNow),
           ),
-    [countdownNow, currentMonthKey, refereeAssignments, user.role],
+    [canUseEarningsCalculator, countdownNow, currentMonthKey, monthlyAssignmentGroup, refereeAssignments],
   );
   const monthlyMatchesWorkedCount = monthlyWorkedAssignments.length;
   const monthlyEarningsTotal = useMemo(
     () =>
-      monthlyWorkedAssignments.reduce((sum, assignment) => sum + (assignment.refereeFee || 0), 0),
-    [monthlyWorkedAssignments],
+      monthlyWorkedAssignments.reduce(
+        (sum, assignment) => sum + (user.role === 'TO' ? assignment.toFee || 0 : assignment.refereeFee || 0),
+        0,
+      ),
+    [monthlyWorkedAssignments, user.role],
   );
 
   useEffect(() => {
@@ -910,7 +900,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       monthlyEarningsAnimationFrameRef.current = null;
     }
 
-    if (user.role !== 'Referee') {
+    if (!canUseEarningsCalculator) {
       animatedMonthlyEarningsRef.current = 0;
       setDisplayedMonthlyEarnings(0);
       setIsMonthlyEarningsAnimating(false);
@@ -958,63 +948,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         monthlyEarningsAnimationFrameRef.current = null;
       }
     };
-  }, [monthlyEarningsTotal, user.role]);
-
-  useEffect(() => {
-    if (calculatedEarningsAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(calculatedEarningsAnimationFrameRef.current);
-      calculatedEarningsAnimationFrameRef.current = null;
-    }
-
-    if (!canUseEarningsCalculator) {
-      animatedCalculatedEarningsRef.current = 0;
-      setDisplayedCalculatedEarnings(0);
-      setIsCalculatedEarningsAnimating(false);
-      return;
-    }
-
-    const startValue = animatedCalculatedEarningsRef.current;
-    const targetValue = calculatedEarningsTotal;
-
-    if (Math.abs(targetValue - startValue) < 0.01) {
-      animatedCalculatedEarningsRef.current = targetValue;
-      setDisplayedCalculatedEarnings(targetValue);
-      setIsCalculatedEarningsAnimating(false);
-      return;
-    }
-
-    setIsCalculatedEarningsAnimating(true);
-    const animationStartedAt = performance.now();
-
-    const tick = (now: number) => {
-      const elapsed = now - animationStartedAt;
-      const progress = Math.min(elapsed / MONTHLY_EARNINGS_ANIMATION_MS, 1);
-      const easedProgress = 1 - Math.pow(1 - progress, 3);
-      const nextValue = startValue + (targetValue - startValue) * easedProgress;
-
-      animatedCalculatedEarningsRef.current = nextValue;
-      setDisplayedCalculatedEarnings(nextValue);
-
-      if (progress < 1) {
-        calculatedEarningsAnimationFrameRef.current = window.requestAnimationFrame(tick);
-        return;
-      }
-
-      animatedCalculatedEarningsRef.current = targetValue;
-      setDisplayedCalculatedEarnings(targetValue);
-      setIsCalculatedEarningsAnimating(false);
-      calculatedEarningsAnimationFrameRef.current = null;
-    };
-
-    calculatedEarningsAnimationFrameRef.current = window.requestAnimationFrame(tick);
-
-    return () => {
-      if (calculatedEarningsAnimationFrameRef.current !== null) {
-        window.cancelAnimationFrame(calculatedEarningsAnimationFrameRef.current);
-        calculatedEarningsAnimationFrameRef.current = null;
-      }
-    };
-  }, [calculatedEarningsTotal, canUseEarningsCalculator]);
+  }, [canUseEarningsCalculator, monthlyEarningsTotal]);
   const pendingAvailabilityApprovalsCount = canUseAvailability ? availabilityOverview.pendingApprovals.length : 0;
   const pendingMyAvailabilityCount = useMemo(
     () =>
@@ -1208,6 +1142,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
   const navItems = [
     { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff ? t('nominations.title') : t('nominations.myTitle'), icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
+    ...(canUseEarningsCalculator
+      ? [{ id: 'calculation' as const, label: t('dashboard.calculation'), icon: Calculator, iconColor: 'text-emerald-600', color: 'bg-emerald-50' }]
+      : []),
     ...(canUseAvailability
       ? [{ id: 'availability' as const, label: t('dashboard.navAvailability'), icon: CalendarDays, iconColor: 'text-violet-600', color: 'bg-violet-50' }]
       : []),
@@ -1870,46 +1807,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       </div>
     ) : null;
 
-  const handleCalculateEarnings = () => {
-    if (!canUseEarningsCalculator) {
-      return;
-    }
-
-    const { startDate, endDate } = calculationRange;
-    if (!startDate || !endDate) {
-      setCalculationError(t('dashboard.calculationSelectDates'));
-      return;
-    }
-
-    if (startDate > endDate) {
-      setCalculationError(t('dashboard.calculationInvalidRange'));
-      return;
-    }
-
-    const relevantAssignments = refereeAssignments.filter((assignment) => {
-      const matchesRole = user.role === 'TO' ? assignment.assignmentGroup === 'TO' : assignment.assignmentGroup === 'Referee';
-      const fee = user.role === 'TO' ? assignment.toFee : assignment.refereeFee;
-
-      return (
-        matchesRole &&
-        fee !== null &&
-        workedAssignmentStatuses.has(assignment.status) &&
-        isPastMatch(assignment.matchDate, assignment.matchTime, countdownNow) &&
-        assignment.matchDate >= startDate &&
-        assignment.matchDate <= endDate
-      );
-    });
-
-    setCalculationError('');
-    setCalculatedMatchesCount(relevantAssignments.length);
-    setCalculatedEarningsTotal(
-      relevantAssignments.reduce(
-        (sum, assignment) => sum + (user.role === 'TO' ? assignment.toFee || 0 : assignment.refereeFee || 0),
-        0,
-      ),
-    );
-  };
-
   return (
       <Layout title={dashboardTitle} showBack={false} onLogout={onLogout}>
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 mb-6">
@@ -1940,94 +1837,29 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             </div>
           </div>
           {canUseEarningsCalculator ? (
-            <div className="w-full max-w-[420px] space-y-2 md:ml-4">
-              {user.role === 'Referee' ? (
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">
-                      {t('dashboard.thisMonth')}
-                    </div>
-                    <div className="mt-1 text-xl font-black leading-none text-slate-900">{monthlyMatchesWorkedCount}</div>
-                    <div className="mt-1 text-xs font-medium text-slate-600">{t('dashboard.monthlyMatchesWorked')}</div>
+            <div className="w-full max-w-[320px] md:ml-4">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-700">
+                    {t('dashboard.thisMonth')}
                   </div>
-                  <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
-                      {t('dashboard.thisMonth')}
-                    </div>
-                    <div
-                      className={`mt-1 text-xl font-black leading-none transition-all duration-300 ${
-                        isMonthlyEarningsAnimating
-                          ? 'scale-[1.03] text-emerald-700 drop-shadow-[0_0_10px_rgba(16,185,129,0.18)]'
-                          : 'text-slate-900'
-                      }`}
-                    >
-                      {formatFee(displayedMonthlyEarnings)}
-                    </div>
-                    <div className="mt-1 text-xs font-medium text-slate-600">{t('dashboard.monthlyEarnings')}</div>
-                  </div>
+                  <div className="mt-1 text-xl font-black leading-none text-slate-900">{monthlyMatchesWorkedCount}</div>
+                  <div className="mt-1 text-xs font-medium text-slate-600">{t('dashboard.monthlyMatchesWorked')}</div>
                 </div>
-              ) : null}
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                  {t('dashboard.calculation')}
-                </div>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <input
-                    type="date"
-                    value={calculationRange.startDate}
-                    onChange={(event) =>
-                      setCalculationRange((prev) => ({
-                        ...prev,
-                        startDate: event.target.value,
-                      }))
-                    }
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                  />
-                  <input
-                    type="date"
-                    value={calculationRange.endDate}
-                    onChange={(event) =>
-                      setCalculationRange((prev) => ({
-                        ...prev,
-                        endDate: event.target.value,
-                      }))
-                    }
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCalculateEarnings}
-                  className="mt-2 w-full rounded-xl bg-[#581c1c] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#6b2222]"
-                >
-                  {t('dashboard.calculate')}
-                </button>
-                {calculationError ? (
-                  <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
-                    {calculationError}
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
+                    {t('dashboard.thisMonth')}
                   </div>
-                ) : null}
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-                      {t('dashboard.calculationMatches')}
-                    </div>
-                    <div className="mt-1 text-lg font-black leading-none text-slate-900">{calculatedMatchesCount}</div>
+                  <div
+                    className={`mt-1 text-xl font-black leading-none transition-all duration-300 ${
+                      isMonthlyEarningsAnimating
+                        ? 'scale-[1.03] text-emerald-700 drop-shadow-[0_0_10px_rgba(16,185,129,0.18)]'
+                        : 'text-slate-900'
+                    }`}
+                  >
+                    {formatFee(displayedMonthlyEarnings)}
                   </div>
-                  <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2.5">
-                    <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-700">
-                      {t('dashboard.calculationEarnings')}
-                    </div>
-                    <div
-                      className={`mt-1 text-lg font-black leading-none transition-all duration-300 ${
-                        isCalculatedEarningsAnimating
-                          ? 'scale-[1.03] text-emerald-700 drop-shadow-[0_0_10px_rgba(16,185,129,0.18)]'
-                          : 'text-slate-900'
-                      }`}
-                    >
-                      {formatFee(displayedCalculatedEarnings)}
-                    </div>
-                  </div>
+                  <div className="mt-1 text-xs font-medium text-slate-600">{t('dashboard.monthlyEarnings')}</div>
                 </div>
               </div>
             </div>
