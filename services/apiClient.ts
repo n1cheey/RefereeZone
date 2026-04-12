@@ -3,6 +3,8 @@ import { supabase } from './supabaseClient';
 const API_TIMEOUT_MS = 45000;
 const API_RETRY_DELAY_MS = 800;
 const GET_CACHE_TTL_MS = 20000;
+const AUTH_SESSION_WAIT_MS = 2500;
+const AUTH_SESSION_POLL_MS = 125;
 
 const responseCache = new Map<string, { expiresAt: number; data: unknown }>();
 const inflightGetRequests = new Map<string, Promise<unknown>>();
@@ -19,6 +21,29 @@ export class ApiRequestError extends Error {
 
 const getCacheKey = (method: string, url: string, token: string | undefined) => `${method}:${url}:${token || 'anon'}`;
 
+const wait = (delayMs: number) =>
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, delayMs);
+  });
+
+const waitForSessionAccessToken = async () => {
+  const deadline = Date.now() + AUTH_SESSION_WAIT_MS;
+
+  while (true) {
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token;
+    if (accessToken) {
+      return accessToken;
+    }
+
+    if (Date.now() >= deadline) {
+      return undefined;
+    }
+
+    await wait(AUTH_SESSION_POLL_MS);
+  }
+};
+
 export async function apiRequest<T>(url: string, options: RequestInit = {}, auth = true): Promise<T> {
   const headers = new Headers(options.headers || {});
   const method = String(options.method || 'GET').toUpperCase();
@@ -26,8 +51,7 @@ export async function apiRequest<T>(url: string, options: RequestInit = {}, auth
   let token: string | undefined;
 
   if (auth) {
-    const { data } = await supabase.auth.getSession();
-    token = data.session?.access_token;
+    token = await waitForSessionAccessToken();
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
