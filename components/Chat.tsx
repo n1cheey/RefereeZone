@@ -293,7 +293,6 @@ const Chat: React.FC<ChatProps> = ({ user, onBack }) => {
       users: User[];
       conversations: ChatConversationItem[];
     }>(bootstrapCacheKey);
-    const hasFreshCache = isViewCacheFresh(bootstrapCacheKey, CHAT_BOOTSTRAP_CACHE_MAX_AGE_MS);
 
     if (cached) {
       setUsers(cached.users || []);
@@ -301,9 +300,9 @@ const Chat: React.FC<ChatProps> = ({ user, onBack }) => {
       setIsLoadingBootstrap(false);
     }
 
-    if (!hasFreshCache) {
-      void loadBootstrap(!cached);
-    }
+    // Always refresh chat participants in the background so a stale empty cache
+    // does not hide users for newly added roles or recently registered members.
+    void loadBootstrap(!cached && !isViewCacheFresh(bootstrapCacheKey, CHAT_BOOTSTRAP_CACHE_MAX_AGE_MS));
   }, [bootstrapCacheKey]);
 
   useEffect(() => {

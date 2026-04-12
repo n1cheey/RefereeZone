@@ -1142,106 +1142,138 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     onNavigate(item.actionView);
   };
 
-  const navItems = [
-    { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff || isFinancialist ? t('nominations.title') : t('nominations.myTitle'), icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
-    ...(canOpenCalculation
-      ? [{ id: 'calculation' as const, label: t('dashboard.calculation'), icon: Calculator, iconColor: 'text-emerald-600', color: 'bg-emerald-50' }]
-      : []),
-    ...(canUseAvailability
-      ? [{ id: 'availability' as const, label: t('dashboard.navAvailability'), icon: CalendarDays, iconColor: 'text-violet-600', color: 'bg-violet-50' }]
-      : []),
-    ...(isInstructor
-      ? [
-          { id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' },
-          { id: 'teyinat' as const, label: t('teyinat.title'), icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
-          { id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
-        ]
-      : isTOSupervisor
-      ? [{ id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' }]
-      : isStaff
-      ? [{ id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' }]
-      : []),
-    ...(isInstructor || isStaff
-      ? [
-          {
-            id: 'ranking' as const,
-            label: t('ranking.refereeTitle'),
-            icon: TrendingUp,
-            iconColor: 'text-green-500',
-            color: 'bg-green-50',
-          },
-          {
-            id: 'reports' as const,
-            label: t('reports.refereeTitle'),
-            icon: FileText,
-            iconColor: 'text-purple-500',
-            color: 'bg-purple-50',
-          },
-          {
-            id: 'toRanking' as const,
-            label: t('dashboard.navTORanking'),
-            icon: TrendingUp,
-            iconColor: 'text-teal-600',
-            color: 'bg-teal-50',
-          },
-          {
-            id: 'toReports' as const,
-            label: t('reports.toTitle'),
-            icon: FileText,
-            iconColor: 'text-fuchsia-600',
-            color: 'bg-fuchsia-50',
-          },
-        ]
-      : isTO || isTOSupervisor
-      ? [
-          {
-            id: 'toRanking' as const,
-            label: isTOSupervisor ? t('dashboard.navTORanking') : t('ranking.myTORankingTitle'),
-            icon: TrendingUp,
-            iconColor: 'text-teal-600',
-            color: 'bg-teal-50',
-          },
-          {
-            id: 'toReports' as const,
-            label: isTO ? t('reports.myTitle') : t('reports.toTitle'),
-            icon: FileText,
-            iconColor: 'text-fuchsia-600',
-            color: 'bg-fuchsia-50',
-          },
-        ]
-      : [
-          {
-            id: 'calendar' as const,
-            label: t('dashboard.navCalendar'),
-            icon: Calendar,
-            iconColor: 'text-sky-600',
-            color: 'bg-sky-50',
-          },
-          {
-            id: 'ranking' as const,
-            label: isInstructor || isStaff ? t('dashboard.navRanking') : t('dashboard.navMyRanking'),
-            icon: TrendingUp,
-            iconColor: 'text-green-500',
-            color: 'bg-green-50',
-          },
-          {
-            id: 'reports' as const,
-            label: t('reports.myTitle'),
-            icon: FileText,
-            iconColor: 'text-purple-500',
-            color: 'bg-purple-50',
-          },
-        ]),
-    {
-      id: 'chat' as const,
-      label: t('dashboard.navChat'),
-      icon: MessageSquare,
-      iconColor: 'text-cyan-600',
-      color: 'bg-cyan-50',
-      badgeCount: totalUnreadChatCount,
-    },
-    { id: 'news' as const, label: t('news.title'), icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
-  ];
+  const navItems = isFinancialist
+    ? [
+        {
+          id: 'nominations' as const,
+          label: t('nominations.title'),
+          icon: Calendar,
+          iconColor: 'text-blue-500',
+          color: 'bg-blue-50',
+        },
+        {
+          id: 'calculation' as const,
+          label: t('dashboard.calculation'),
+          icon: Calculator,
+          iconColor: 'text-emerald-600',
+          color: 'bg-emerald-50',
+        },
+        {
+          id: 'chat' as const,
+          label: t('dashboard.navChat'),
+          icon: MessageSquare,
+          iconColor: 'text-cyan-600',
+          color: 'bg-cyan-50',
+          badgeCount: totalUnreadChatCount,
+        },
+        {
+          id: 'news' as const,
+          label: t('news.title'),
+          icon: Newspaper,
+          iconColor: 'text-orange-500',
+          color: 'bg-orange-50',
+        },
+      ]
+    : [
+        { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff ? t('nominations.title') : t('nominations.myTitle'), icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
+        ...(canOpenCalculation
+          ? [{ id: 'calculation' as const, label: t('dashboard.calculation'), icon: Calculator, iconColor: 'text-emerald-600', color: 'bg-emerald-50' }]
+          : []),
+        ...(canUseAvailability
+          ? [{ id: 'availability' as const, label: t('dashboard.navAvailability'), icon: CalendarDays, iconColor: 'text-violet-600', color: 'bg-violet-50' }]
+          : []),
+        ...(isInstructor
+          ? [
+              { id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' },
+              { id: 'teyinat' as const, label: t('teyinat.title'), icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
+              { id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
+            ]
+          : isTOSupervisor
+          ? [{ id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' }]
+          : isStaff
+          ? [{ id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' }]
+          : []),
+        ...(isInstructor || isStaff
+          ? [
+              {
+                id: 'ranking' as const,
+                label: t('ranking.refereeTitle'),
+                icon: TrendingUp,
+                iconColor: 'text-green-500',
+                color: 'bg-green-50',
+              },
+              {
+                id: 'reports' as const,
+                label: t('reports.refereeTitle'),
+                icon: FileText,
+                iconColor: 'text-purple-500',
+                color: 'bg-purple-50',
+              },
+              {
+                id: 'toRanking' as const,
+                label: t('dashboard.navTORanking'),
+                icon: TrendingUp,
+                iconColor: 'text-teal-600',
+                color: 'bg-teal-50',
+              },
+              {
+                id: 'toReports' as const,
+                label: t('reports.toTitle'),
+                icon: FileText,
+                iconColor: 'text-fuchsia-600',
+                color: 'bg-fuchsia-50',
+              },
+            ]
+          : isTO || isTOSupervisor
+          ? [
+              {
+                id: 'toRanking' as const,
+                label: isTOSupervisor ? t('dashboard.navTORanking') : t('ranking.myTORankingTitle'),
+                icon: TrendingUp,
+                iconColor: 'text-teal-600',
+                color: 'bg-teal-50',
+              },
+              {
+                id: 'toReports' as const,
+                label: isTO ? t('reports.myTitle') : t('reports.toTitle'),
+                icon: FileText,
+                iconColor: 'text-fuchsia-600',
+                color: 'bg-fuchsia-50',
+              },
+            ]
+          : [
+              {
+                id: 'calendar' as const,
+                label: t('dashboard.navCalendar'),
+                icon: Calendar,
+                iconColor: 'text-sky-600',
+                color: 'bg-sky-50',
+              },
+              {
+                id: 'ranking' as const,
+                label: isInstructor || isStaff ? t('dashboard.navRanking') : t('dashboard.navMyRanking'),
+                icon: TrendingUp,
+                iconColor: 'text-green-500',
+                color: 'bg-green-50',
+              },
+              {
+                id: 'reports' as const,
+                label: t('reports.myTitle'),
+                icon: FileText,
+                iconColor: 'text-purple-500',
+                color: 'bg-purple-50',
+              },
+            ]),
+        {
+          id: 'chat' as const,
+          label: t('dashboard.navChat'),
+          icon: MessageSquare,
+          iconColor: 'text-cyan-600',
+          color: 'bg-cyan-50',
+          badgeCount: totalUnreadChatCount,
+        },
+        { id: 'news' as const, label: t('news.title'), icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
+      ];
 
   const handleSaveScore = async (nomination: InstructorNomination) => {
     const finalScore = (scoreInputs[nomination.id] ?? nomination.finalScore ?? '').trim();
