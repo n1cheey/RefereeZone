@@ -111,6 +111,39 @@ const queryAll = (sql, params = []) => {
 
 const queryOne = (sql, params = []) => queryAll(sql, params)[0] ?? null;
 
+const hasMatchStarted = (matchDate, matchTime) => {
+  const matchDateTime = new Date(`${matchDate}T${matchTime}:00`);
+  return Number.isFinite(matchDateTime.getTime()) && Date.now() >= matchDateTime.getTime();
+};
+
+const autoAcceptPastRefereeAssignments = () => {
+  const pastNominationIds = queryAll(
+    `
+      SELECT id, match_date, match_time
+      FROM nominations
+    `,
+  )
+    .filter((nomination) => hasMatchStarted(nomination.match_date, nomination.match_time))
+    .map((nomination) => Number(nomination.id))
+    .filter(Number.isFinite);
+
+  if (!pastNominationIds.length) {
+    return;
+  }
+
+  const placeholders = pastNominationIds.map(() => '?').join(', ');
+  dbInstance.run(
+    `
+      UPDATE nomination_referees
+      SET status = ?, responded_at = COALESCE(responded_at, CURRENT_TIMESTAMP)
+      WHERE status = ?
+        AND nomination_id IN (${placeholders})
+    `,
+    [ASSIGNMENT_STATUS.ACCEPTED, ASSIGNMENT_STATUS.PENDING, ...pastNominationIds],
+  );
+  persistDatabase();
+};
+
 const tableHasColumn = (tableName, columnName) =>
   queryAll(`PRAGMA table_info(${tableName})`).some((row) => row.name === columnName);
 
@@ -1290,6 +1323,7 @@ export const createNomination = ({ instructorId, gameCode, teams, matchDate, mat
 
 export const getInstructorNominations = (instructorId) => {
   requireRole(instructorId, 'Instructor');
+  autoAcceptPastRefereeAssignments();
 
   const rows = queryAll(
     `
@@ -1393,6 +1427,7 @@ export const replaceNominationReferee = ({ nominationId, slotNumber, instructorI
 
 export const getRefereeAssignments = (refereeId) => {
   requireRole(refereeId, 'Referee');
+  autoAcceptPastRefereeAssignments();
 
   return queryAll(
     `
@@ -1531,6 +1566,7 @@ export const updateNominationScore = ({ nominationId, instructorId, finalScore, 
 
 export const listReportItems = (userId, mode = REPORT_MODE.STANDARD) => {
   const user = requireUser(userId);
+  autoAcceptPastRefereeAssignments();
 
   if (mode === REPORT_MODE.TEST_TO) {
     if (user.role === 'Instructor') {

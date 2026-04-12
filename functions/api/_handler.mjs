@@ -1220,10 +1220,56 @@ const listNominationsByIds = async (admin, ids) => {
   return ensureData(data || [], error, 'Failed to load nominations.');
 };
 
+const autoAcceptPastAssignments = async (admin, nominationIds) => {
+  const uniqueNominationIds = [...new Set((nominationIds || []).map(Number).filter(Number.isFinite))];
+  if (!uniqueNominationIds.length) {
+    return;
+  }
+
+  const nominations = await listNominationsByIds(admin, uniqueNominationIds);
+  const pastNominationIds = nominations
+    .filter((nomination) => hasMatchStarted(nomination.match_date, nomination.match_time))
+    .map((nomination) => nomination.id);
+
+  if (!pastNominationIds.length) {
+    return;
+  }
+
+  const respondedAt = new Date().toISOString();
+  const [refereeUpdate, toUpdate] = await Promise.all([
+    admin
+      .from('nomination_referees')
+      .update({
+        status: ASSIGNMENT_STATUS.ACCEPTED,
+        responded_at: respondedAt,
+      })
+      .in('nomination_id', pastNominationIds)
+      .eq('status', ASSIGNMENT_STATUS.PENDING),
+    admin
+      .from('nomination_tos')
+      .update({
+        status: ASSIGNMENT_STATUS.ACCEPTED,
+        responded_at: respondedAt,
+      })
+      .in('nomination_id', pastNominationIds)
+      .eq('status', ASSIGNMENT_STATUS.PENDING),
+  ]);
+
+  if (refereeUpdate.error) {
+    throw new HttpError(500, 'Failed to update past referee assignments.');
+  }
+
+  if (toUpdate.error) {
+    throw new HttpError(500, 'Failed to update past TO assignments.');
+  }
+};
+
 const listAssignmentsByNominationIds = async (admin, nominationIds) => {
   if (!nominationIds.length) {
     return [];
   }
+
+  await autoAcceptPastAssignments(admin, nominationIds);
 
   const { data, error } = await admin
     .from('nomination_referees')
@@ -1239,6 +1285,8 @@ const listTOAssignmentsByNominationIds = async (admin, nominationIds) => {
     return [];
   }
 
+  await autoAcceptPastAssignments(admin, nominationIds);
+
   const { data, error } = await admin
     .from('nomination_tos')
     .select('*')
@@ -1249,6 +1297,16 @@ const listTOAssignmentsByNominationIds = async (admin, nominationIds) => {
 };
 
 const listTOAssignmentsByUserId = async (admin, toId) => {
+  const initialResponse = await admin
+    .from('nomination_tos')
+    .select('*')
+    .eq('to_id', toId)
+    .order('created_at', { ascending: false });
+  const initialAssignments = ensureData(initialResponse.data || [], initialResponse.error, 'Failed to load TO assignments.');
+  await autoAcceptPastAssignments(
+    admin,
+    initialAssignments.map((assignment) => assignment.nomination_id),
+  );
   const { data, error } = await admin
     .from('nomination_tos')
     .select('*')
@@ -2313,6 +2371,10 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
   const { data, error } = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
   const assignments = ensureData(data || [], error, 'Failed to load referee nominations.');
   await expirePendingAssignments(admin, [...new Set(assignments.map((assignment) => assignment.nomination_id))]);
+  await autoAcceptPastAssignments(
+    admin,
+    assignments.map((assignment) => assignment.nomination_id),
+  );
   const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
   const refreshedAssignments = ensureData(
     refreshedAssignmentsResponse.data || [],
@@ -3777,7 +3839,15 @@ const listTOReportItems = async (admin, currentUser) => {
   }
 
   const { data, error } = await assignmentsQuery;
-  const assignments = ensureData(data || [], error, 'Failed to load TO reports.').filter(
+  const initialAssignments = ensureData(data || [], error, 'Failed to load TO reports.');
+  await autoAcceptPastAssignments(
+    admin,
+    initialAssignments.map((assignment) => assignment.nomination_id),
+  );
+  const assignments = (await listTOAssignmentsByNominationIds(
+    admin,
+    [...new Set(initialAssignments.map((assignment) => assignment.nomination_id))],
+  )).filter(
     (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
   );
 
@@ -3854,6 +3924,10 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
     await expirePendingAssignments(
       admin,
       [...new Set(initialAssignments.map((assignment) => assignment.nomination_id))],
+    );
+    await autoAcceptPastAssignments(
+      admin,
+      initialAssignments.map((assignment) => assignment.nomination_id),
     );
     const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', currentUser.id);
     const assignments = ensureData(refreshedAssignmentsResponse.data || [], refreshedAssignmentsResponse.error, 'Failed to load reports.')
@@ -3999,6 +4073,10 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
     await expirePendingAssignments(
       admin,
       [...new Set(initialAssignments.map((assignment) => assignment.nomination_id))],
+    );
+    await autoAcceptPastAssignments(
+      admin,
+      initialAssignments.map((assignment) => assignment.nomination_id),
     );
     const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*');
     const assignments = ensureData(refreshedAssignmentsResponse.data || [], refreshedAssignmentsResponse.error, 'Failed to load reports.')
