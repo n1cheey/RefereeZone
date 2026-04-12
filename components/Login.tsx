@@ -17,7 +17,7 @@ interface LoginProps {
   onLogin: (user: User) => void;
 }
 
-const roles: UserRole[] = ['Instructor', 'TO Supervisor', 'TO', 'Referee', 'Staff'];
+const roles: UserRole[] = ['Instructor', 'TO Supervisor', 'TO', 'Referee', 'Staff', 'Financialist'];
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const { language, setLanguage, t } = useI18n();
