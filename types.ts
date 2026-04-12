@@ -62,6 +62,8 @@ export interface InstructorNomination {
   finalScore: string | null;
   matchVideoUrl: string | null;
   matchProtocolUrl: string | null;
+  refereeFee: number | null;
+  toFee: number | null;
   createdAt: string;
   createdById: string;
   createdByName: string;
@@ -80,6 +82,8 @@ export interface RefereeNomination {
   finalScore: string | null;
   matchVideoUrl: string | null;
   matchProtocolUrl: string | null;
+  refereeFee: number | null;
+  toFee: number | null;
   slotNumber: number;
   status: AssignmentStatus;
   respondedAt: string | null;

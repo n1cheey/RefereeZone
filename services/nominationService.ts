@@ -133,6 +133,8 @@ export function updateNominationScore(payload: {
   finalScore: string;
   matchVideoUrl: string;
   matchProtocolUrl: string;
+  refereeFee: string;
+  toFee: string;
 }) {
   return apiRequest<{ message: string; nomination: InstructorNomination }>(
     `/api/nominations/${encodeURIComponent(payload.nominationId)}/score`,
@@ -144,6 +146,8 @@ export function updateNominationScore(payload: {
         finalScore: payload.finalScore,
         matchVideoUrl: payload.matchVideoUrl,
         matchProtocolUrl: payload.matchProtocolUrl,
+        refereeFee: payload.refereeFee,
+        toFee: payload.toFee,
       }),
     },
   );

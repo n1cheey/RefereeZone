@@ -139,6 +139,19 @@ const clampScore = (score) => {
 
   return Math.max(0, Math.min(100, numeric));
 };
+const normalizeMatchFee = (value, label) => {
+  const normalized = String(value ?? '').trim().replace(',', '.');
+  if (!normalized) {
+    return null;
+  }
+
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    throw new HttpError(400, `${label} must be a valid non-negative number.`);
+  }
+
+  return Math.round(numeric * 100) / 100;
+};
 
 const isStrongEnoughPassword = (password) =>
   password.length >= 10 && /[A-Za-z]/.test(password) && /\d/.test(password);
@@ -2181,6 +2194,8 @@ const getInstructorNominationsData = async (admin, instructorId) => {
       finalScore: nomination.final_score || null,
       matchVideoUrl: nomination.match_video_url || null,
       matchProtocolUrl: nomination.match_protocol_url || null,
+      refereeFee: nomination.referee_fee ?? null,
+      toFee: nomination.to_fee ?? null,
       createdAt: nomination.created_at,
       createdById: nomination.created_by,
       createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
@@ -2260,6 +2275,8 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
             finalScore: nomination.final_score || null,
             matchVideoUrl: nomination.match_video_url || null,
             matchProtocolUrl: nomination.match_protocol_url || null,
+            refereeFee: nomination.referee_fee ?? null,
+            toFee: nomination.to_fee ?? null,
             slotNumber: Number(assignment.slot_number),
             status: assignment.status || ASSIGNMENT_STATUS.PENDING,
             respondedAt: assignment.responded_at || null,
@@ -2347,6 +2364,8 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
           finalScore: nomination.final_score || null,
           matchVideoUrl: nomination.match_video_url || null,
           matchProtocolUrl: nomination.match_protocol_url || null,
+          refereeFee: nomination.referee_fee ?? null,
+          toFee: nomination.to_fee ?? null,
           slotNumber: Number(assignment.slot_number),
           status: assignment.status,
           respondedAt: assignment.responded_at || null,
@@ -2429,6 +2448,8 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     finalScore: nomination.final_score || null,
     matchVideoUrl: nomination.match_video_url || null,
     matchProtocolUrl: nomination.match_protocol_url || null,
+    refereeFee: nomination.referee_fee ?? null,
+    toFee: nomination.to_fee ?? null,
     createdAt: nomination.created_at,
     createdById: nomination.created_by,
     createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
@@ -2454,6 +2475,8 @@ const getInstructorDashboardData = async (admin, instructorId) => {
         finalScore: nomination.final_score || null,
         matchVideoUrl: nomination.match_video_url || null,
         matchProtocolUrl: nomination.match_protocol_url || null,
+        refereeFee: nomination.referee_fee ?? null,
+        toFee: nomination.to_fee ?? null,
         slotNumber: Number(assignment.slot_number),
         status: assignment.status,
         respondedAt: assignment.responded_at || null,
@@ -3474,15 +3497,17 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
   return nominations.find((item) => item.id === nominationId);
 };
 
-const updateNominationScore = async (admin, currentUser, nominationId, finalScore, matchVideoUrl, matchProtocolUrl) => {
+const updateNominationScore = async (admin, currentUser, nominationId, finalScore, matchVideoUrl, matchProtocolUrl, refereeFee, toFee) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
   const normalizedFinalScore = String(finalScore || '').trim();
   const normalizedMatchVideoUrl = String(matchVideoUrl || '').trim();
   const normalizedMatchProtocolUrl = String(matchProtocolUrl || '').trim();
+  const normalizedRefereeFee = normalizeMatchFee(refereeFee, 'Referee fee');
+  const normalizedTOFee = normalizeMatchFee(toFee, 'TO fee');
 
-  if (!normalizedFinalScore && !normalizedMatchVideoUrl && !normalizedMatchProtocolUrl) {
-    throw new HttpError(400, 'Add a final score, a YouTube link, or a Google Drive protocol link first.');
+  if (!normalizedFinalScore && !normalizedMatchVideoUrl && !normalizedMatchProtocolUrl && normalizedRefereeFee === null && normalizedTOFee === null) {
+    throw new HttpError(400, 'Add a final score, a YouTube link, a Google Drive protocol link, or match fees first.');
   }
 
   if (normalizedFinalScore && normalizedFinalScore.length > 32) {
@@ -3508,6 +3533,8 @@ const updateNominationScore = async (admin, currentUser, nominationId, finalScor
       final_score: normalizedFinalScore || null,
       match_video_url: normalizedMatchVideoUrl || null,
       match_protocol_url: normalizedMatchProtocolUrl || null,
+      referee_fee: normalizedRefereeFee,
+      to_fee: normalizedTOFee,
     })
     .eq('id', nominationId);
 
@@ -5243,6 +5270,8 @@ const routeRequest = async (event) => {
       body.finalScore,
       body.matchVideoUrl,
       body.matchProtocolUrl,
+      body.refereeFee,
+      body.toFee,
     );
     return json(200, { message: 'Match details updated.', nomination });
   }

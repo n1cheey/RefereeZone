@@ -81,6 +81,8 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({});
   const [videoInputs, setVideoInputs] = useState<Record<string, string>>({});
   const [protocolInputs, setProtocolInputs] = useState<Record<string, string>>({});
+  const [refereeFeeInputs, setRefereeFeeInputs] = useState<Record<string, string>>({});
+  const [toFeeInputs, setTOFeeInputs] = useState<Record<string, string>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const [highlightedNominationId, setHighlightedNominationId] = useState<string | null>(null);
   const isInstructor = user.role === 'Instructor';
@@ -311,8 +313,10 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     const finalScore = (scoreInputs[nomination.id] ?? nomination.finalScore ?? '').trim();
     const matchVideoUrl = (videoInputs[nomination.id] ?? nomination.matchVideoUrl ?? '').trim();
     const matchProtocolUrl = (protocolInputs[nomination.id] ?? nomination.matchProtocolUrl ?? '').trim();
-    if (!finalScore && !matchVideoUrl && !matchProtocolUrl) {
-      setErrorMessage('Enter the final score, a YouTube link, or a Game Scoresheet link first.');
+    const refereeFee = (refereeFeeInputs[nomination.id] ?? (nomination.refereeFee === null ? '' : String(nomination.refereeFee))).trim();
+    const toFee = (toFeeInputs[nomination.id] ?? (nomination.toFee === null ? '' : String(nomination.toFee))).trim();
+    if (!finalScore && !matchVideoUrl && !matchProtocolUrl && !refereeFee && !toFee) {
+      setErrorMessage('Enter the final score, a YouTube link, a Game Scoresheet link, or match fees first.');
       return;
     }
 
@@ -324,6 +328,8 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         finalScore,
         matchVideoUrl,
         matchProtocolUrl,
+        refereeFee,
+        toFee,
       });
 
       const response = await getInstructorDashboard(user.id);
@@ -342,6 +348,14 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       setProtocolInputs((prev) => ({
         ...prev,
         [nomination.id]: matchProtocolUrl,
+      }));
+      setRefereeFeeInputs((prev) => ({
+        ...prev,
+        [nomination.id]: refereeFee,
+      }));
+      setTOFeeInputs((prev) => ({
+        ...prev,
+        [nomination.id]: toFee,
       }));
       setErrorMessage('');
     } catch (error) {
@@ -473,6 +487,50 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       </div>
     ) : null;
 
+  const formatFee = (value: number) =>
+    new Intl.NumberFormat('en-AZ', {
+      style: 'currency',
+      currency: 'AZN',
+      minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+
+  const renderNominationFees = (refereeFee: number | null, toFee: number | null) => {
+    if (refereeFee === null && toFee === null) {
+      return null;
+    }
+
+    return (
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {refereeFee !== null ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+            {t('common.refereeFee')}: {formatFee(refereeFee)}
+          </div>
+        ) : null}
+        {toFee !== null ? (
+          <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-900">
+            {t('common.toFee')}: {formatFee(toFee)}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderAssignmentFee = (nomination: RefereeNomination) => {
+    const fee = nomination.assignmentGroup === 'TO' ? nomination.toFee : nomination.refereeFee;
+    const feeLabel = nomination.assignmentGroup === 'TO' ? t('common.toFee') : t('common.refereeFee');
+
+    if (fee === null) {
+      return null;
+    }
+
+    return (
+      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+        {feeLabel}: {formatFee(fee)}
+      </div>
+    );
+  };
+
   const renderMatchLinks = (matchVideoUrl: string | null, matchProtocolUrl: string | null) => {
     if (!matchVideoUrl && !matchProtocolUrl) {
       return null;
@@ -554,12 +612,40 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             placeholder="https://drive.google.com/... (game scoresheet)"
             className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
           />
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={refereeFeeInputs[nomination.id] ?? (nomination.refereeFee === null ? '' : String(nomination.refereeFee))}
+            onChange={(event) =>
+              setRefereeFeeInputs((prev) => ({
+                ...prev,
+                [nomination.id]: event.target.value,
+              }))
+            }
+            placeholder={`${t('common.refereeFee')} (AZN)`}
+            className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+          />
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={toFeeInputs[nomination.id] ?? (nomination.toFee === null ? '' : String(nomination.toFee))}
+            onChange={(event) =>
+              setTOFeeInputs((prev) => ({
+                ...prev,
+                [nomination.id]: event.target.value,
+              }))
+            }
+            placeholder={`${t('common.toFee')} (AZN)`}
+            className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+          />
           <button
             onClick={() => handleSaveScore(nomination)}
             disabled={scoreActionId === nomination.id}
             className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
           >
-            {scoreActionId === nomination.id ? 'Saving...' : 'Save match details'}
+            {scoreActionId === nomination.id ? t('common.saving') : t('common.saveMatchDetails')}
           </button>
         </div>
       </div>
@@ -622,6 +708,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         </div>
         {renderFinalScore(nomination.finalScore)}
         {renderMatchLinks(nomination.matchVideoUrl, nomination.matchProtocolUrl)}
+        {renderNominationFees(nomination.refereeFee, nomination.toFee)}
         {renderInstructorScoreEditor(nomination)}
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           {nomination.referees.map((referee) => (
@@ -796,6 +883,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         </div>
         {renderFinalScore(nom.finalScore)}
         {renderMatchLinks(nom.matchVideoUrl, nom.matchProtocolUrl)}
+        {renderAssignmentFee(nom)}
         {renderCrew(nom.crew)}
         {user.role === 'Referee' && nom.toCrew.length === 0 ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">

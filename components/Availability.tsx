@@ -50,6 +50,16 @@ const Availability: React.FC<AvailabilityProps> = ({ user, onBack }) => {
   });
   const isApprover = user.role === 'Instructor' || user.role === 'TO Supervisor';
 
+  useEffect(() => {
+    if (user.role === 'Staff') {
+      onBack();
+    }
+  }, [onBack, user.role]);
+
+  if (user.role === 'Staff') {
+    return null;
+  }
+
   const applyOverview = (nextOverview: AvailabilityOverview) => {
     setOverview(nextOverview);
     writeViewCache(cacheKey, nextOverview);

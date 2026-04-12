@@ -428,7 +428,16 @@ const AppContent: React.FC = () => {
       case 'calendar':
         return <CalendarView user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'availability':
-        return <Availability user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+        return currentUser!.role === 'Staff'
+          ? (
+              <Dashboard
+                user={currentUser!}
+                onNavigate={(view: View) => setCurrentView(view)}
+                onLogout={handleLogout}
+                onUpdateUser={handleUpdateUser}
+              />
+            )
+          : <Availability user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'members':
         return <Members user={currentUser!} onBack={() => setCurrentView('dashboard')} onCurrentUserUpdated={handleUpdateUser} />;
       case 'access':

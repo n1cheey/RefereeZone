@@ -152,6 +152,8 @@ const createTables = () => {
       final_score TEXT,
       match_video_url TEXT,
       match_protocol_url TEXT,
+      referee_fee REAL,
+      to_fee REAL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (created_by) REFERENCES users(id)
     );
@@ -272,6 +274,14 @@ const migrateTables = () => {
 
   if (!tableHasColumn('nominations', 'match_protocol_url')) {
     dbInstance.run('ALTER TABLE nominations ADD COLUMN match_protocol_url TEXT');
+  }
+
+  if (!tableHasColumn('nominations', 'referee_fee')) {
+    dbInstance.run('ALTER TABLE nominations ADD COLUMN referee_fee REAL');
+  }
+
+  if (!tableHasColumn('nominations', 'to_fee')) {
+    dbInstance.run('ALTER TABLE nominations ADD COLUMN to_fee REAL');
   }
 };
 
@@ -707,6 +717,8 @@ const groupInstructorNominations = (rows) => {
         finalScore: row.final_score || null,
         matchVideoUrl: row.match_video_url || null,
         matchProtocolUrl: row.match_protocol_url || null,
+        refereeFee: row.referee_fee ?? null,
+        toFee: row.to_fee ?? null,
         createdAt: row.created_at,
         referees: [],
       });
@@ -1288,6 +1300,8 @@ export const getInstructorNominations = (instructorId) => {
         n.final_score,
         n.match_video_url,
         n.match_protocol_url,
+        n.referee_fee,
+        n.to_fee,
         n.created_at,
         nr.slot_number,
         nr.status,
@@ -1371,6 +1385,8 @@ export const getRefereeAssignments = (refereeId) => {
         n.final_score,
         n.match_video_url,
         n.match_protocol_url,
+        n.referee_fee,
+        n.to_fee,
         nr.slot_number,
         nr.status,
         nr.responded_at,
@@ -1393,6 +1409,8 @@ export const getRefereeAssignments = (refereeId) => {
     finalScore: row.final_score || null,
     matchVideoUrl: row.match_video_url || null,
     matchProtocolUrl: row.match_protocol_url || null,
+    refereeFee: row.referee_fee ?? null,
+    toFee: row.to_fee ?? null,
     slotNumber: Number(row.slot_number),
     status: row.status,
     respondedAt: row.responded_at || null,
@@ -1434,37 +1452,55 @@ export const respondToNomination = ({ nominationId, refereeId, response }) => {
   return getRefereeAssignments(refereeId).find((item) => item.nominationId === String(nominationId));
 };
 
-export const updateNominationScore = ({ nominationId, instructorId, finalScore, matchVideoUrl, matchProtocolUrl }) => {
+export const updateNominationScore = ({ nominationId, instructorId, finalScore, matchVideoUrl, matchProtocolUrl, refereeFee, toFee }) => {
   requireRole(instructorId, 'Instructor');
   requireNominationOwner(nominationId, instructorId);
 
   const normalizedFinalScore = (finalScore || '').trim();
   const normalizedMatchVideoUrl = (matchVideoUrl || '').trim();
   const normalizedMatchProtocolUrl = (matchProtocolUrl || '').trim();
+  const normalizedRefereeFee =
+    refereeFee === '' || refereeFee === null || refereeFee === undefined ? null : Number(String(refereeFee).replace(',', '.'));
+  const normalizedTOFee = toFee === '' || toFee === null || toFee === undefined ? null : Number(String(toFee).replace(',', '.'));
 
-  if (!normalizedFinalScore && !normalizedMatchVideoUrl && !normalizedMatchProtocolUrl) {
-    throw new HttpError(400, 'Add a final score, a YouTube link, or a Google Drive protocol link first.');
+  if (!normalizedFinalScore && !normalizedMatchVideoUrl && !normalizedMatchProtocolUrl && normalizedRefereeFee === null && normalizedTOFee === null) {
+    throw new HttpError(400, 'Add a final score, a YouTube link, a Google Drive protocol link, or match fees first.');
   }
 
   if (normalizedFinalScore && normalizedFinalScore.length > 32) {
     throw new HttpError(400, 'Final score is too long.');
   }
 
-  if (!isYoutubeUrl(normalizedMatchVideoUrl)) {
+  if (normalizedMatchVideoUrl && !isYoutubeUrl(normalizedMatchVideoUrl)) {
     throw new HttpError(400, 'Enter a valid YouTube link.');
   }
 
-  if (!isGoogleDriveUrl(normalizedMatchProtocolUrl)) {
+  if (normalizedMatchProtocolUrl && !isGoogleDriveUrl(normalizedMatchProtocolUrl)) {
     throw new HttpError(400, 'Enter a valid Google Drive link.');
+  }
+
+  if (normalizedRefereeFee !== null && (!Number.isFinite(normalizedRefereeFee) || normalizedRefereeFee < 0)) {
+    throw new HttpError(400, 'Referee fee must be a valid non-negative number.');
+  }
+
+  if (normalizedTOFee !== null && (!Number.isFinite(normalizedTOFee) || normalizedTOFee < 0)) {
+    throw new HttpError(400, 'TO fee must be a valid non-negative number.');
   }
 
   dbInstance.run(
     `
       UPDATE nominations
-      SET final_score = ?, match_video_url = ?, match_protocol_url = ?
+      SET final_score = ?, match_video_url = ?, match_protocol_url = ?, referee_fee = ?, to_fee = ?
       WHERE id = ?
     `,
-    [normalizedFinalScore || null, normalizedMatchVideoUrl || null, normalizedMatchProtocolUrl || null, Number(nominationId)],
+    [
+      normalizedFinalScore || null,
+      normalizedMatchVideoUrl || null,
+      normalizedMatchProtocolUrl || null,
+      normalizedRefereeFee,
+      normalizedTOFee,
+      Number(nominationId),
+    ],
   );
 
   persistDatabase();

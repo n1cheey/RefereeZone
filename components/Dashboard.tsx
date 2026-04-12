@@ -79,6 +79,11 @@ const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   month: '2-digit',
   day: '2-digit',
 });
+const BAKU_MONTH_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Baku',
+  year: 'numeric',
+  month: '2-digit',
+});
 
 const sortMatchesDesc = <T extends { matchDate: string; matchTime: string }>(items: T[]) =>
   [...items].sort((left, right) => {
@@ -162,6 +167,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({});
   const [videoInputs, setVideoInputs] = useState<Record<string, string>>({});
   const [protocolInputs, setProtocolInputs] = useState<Record<string, string>>({});
+  const [refereeFeeInputs, setRefereeFeeInputs] = useState<Record<string, string>>({});
+  const [toFeeInputs, setTOFeeInputs] = useState<Record<string, string>>({});
   const [countdownNow, setCountdownNow] = useState(() => Date.now());
   const dashboardLoadPromiseRef = useRef<Promise<void> | null>(null);
   const [form, setForm] = useState({
@@ -179,12 +186,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const isStaff = user.role === 'Staff';
   const isTOSupervisor = user.role === 'TO Supervisor';
   const isTO = user.role === 'TO';
+  const canUseAvailability = user.role !== 'Staff';
   const dashboardCacheKey = getDashboardCacheKey(user.id, user.role);
   const nominationsCacheKey = getNominationsCacheKey(user.id, user.role);
   const chatDashboardCacheKey = getChatDashboardCacheKey(user.id);
   const availabilityCacheKey = getAvailabilityCacheKey(user.id, user.role);
 
   useEffect(() => {
+    if (!canUseAvailability) {
+      setAvailabilityOverview({
+        myRequests: [],
+        pendingApprovals: [],
+        upcomingApproved: [],
+      });
+      return;
+    }
+
     let isMounted = true;
     let intervalId: number | null = null;
 
@@ -484,7 +501,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         window.clearInterval(intervalId);
       }
     };
-  }, [availabilityCacheKey]);
+  }, [availabilityCacheKey, canUseAvailability]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -819,17 +836,44 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       ) || null,
     [createdNominationSections],
   );
-  const pendingAvailabilityApprovalsCount = availabilityOverview.pendingApprovals.length;
+  const currentMonthKey = BAKU_MONTH_FORMATTER.format(new Date(countdownNow));
+  const workedAssignmentStatuses = new Set(['Accepted', 'Assigned']);
+  const monthlyWorkedAssignments = useMemo(
+    () =>
+      user.role !== 'Referee'
+        ? []
+        : refereeAssignments.filter(
+            (assignment) =>
+              assignment.assignmentGroup === 'Referee' &&
+              assignment.matchDate.slice(0, 7) === currentMonthKey &&
+              workedAssignmentStatuses.has(assignment.status) &&
+              isPastMatch(assignment.matchDate, assignment.matchTime, countdownNow),
+          ),
+    [countdownNow, currentMonthKey, refereeAssignments, user.role],
+  );
+  const monthlyMatchesWorkedCount = monthlyWorkedAssignments.length;
+  const monthlyEarningsTotal = useMemo(
+    () =>
+      monthlyWorkedAssignments.reduce((sum, assignment) => sum + (assignment.refereeFee || 0), 0),
+    [monthlyWorkedAssignments],
+  );
+  const pendingAvailabilityApprovalsCount = canUseAvailability ? availabilityOverview.pendingApprovals.length : 0;
   const pendingMyAvailabilityCount = useMemo(
-    () => availabilityOverview.myRequests.filter((request) => request.status === 'Pending').length,
-    [availabilityOverview.myRequests],
+    () =>
+      canUseAvailability
+        ? availabilityOverview.myRequests.filter((request) => request.status === 'Pending').length
+        : 0,
+    [availabilityOverview.myRequests, canUseAvailability],
   );
-  const firstPendingAvailabilityApproval = availabilityOverview.pendingApprovals[0] || null;
+  const firstPendingAvailabilityApproval = canUseAvailability ? availabilityOverview.pendingApprovals[0] || null : null;
   const firstPendingMyAvailability = useMemo(
-    () => availabilityOverview.myRequests.find((request) => request.status === 'Pending') || null,
-    [availabilityOverview.myRequests],
+    () =>
+      canUseAvailability
+        ? availabilityOverview.myRequests.find((request) => request.status === 'Pending') || null
+        : null,
+    [availabilityOverview.myRequests, canUseAvailability],
   );
-  const upcomingApprovedAvailabilityCount = availabilityOverview.upcomingApproved.length;
+  const upcomingApprovedAvailabilityCount = canUseAvailability ? availabilityOverview.upcomingApproved.length : 0;
   const todayGamesCount = useMemo(() => {
     const source =
       isInstructor || isTOSupervisor || isStaff ? createdNominationSections.upcoming : assignmentSections.upcoming;
@@ -844,9 +888,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     ? declinedAssignments.length + pendingAvailabilityApprovalsCount
     : isTOSupervisor
       ? pendingTOCrewCount + pendingAvailabilityApprovalsCount
-      : isStaff
-        ? pendingMyAvailabilityCount
-        : pendingResponseCount + replacementNotices.length + pendingMyAvailabilityCount;
+        : isStaff
+          ? 0
+          : pendingResponseCount + replacementNotices.length + pendingMyAvailabilityCount;
   const quickOverviewItems = [
     {
       id: 'unreadMessages',
@@ -1006,7 +1050,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
   const navItems = [
     { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff ? t('nominations.title') : t('nominations.myTitle'), icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
-    { id: 'availability' as const, label: t('dashboard.navAvailability'), icon: CalendarDays, iconColor: 'text-violet-600', color: 'bg-violet-50' },
+    ...(canUseAvailability
+      ? [{ id: 'availability' as const, label: t('dashboard.navAvailability'), icon: CalendarDays, iconColor: 'text-violet-600', color: 'bg-violet-50' }]
+      : []),
     ...(isInstructor
       ? [
           { id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' },
@@ -1104,8 +1150,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     const finalScore = (scoreInputs[nomination.id] ?? nomination.finalScore ?? '').trim();
     const matchVideoUrl = (videoInputs[nomination.id] ?? nomination.matchVideoUrl ?? '').trim();
     const matchProtocolUrl = (protocolInputs[nomination.id] ?? nomination.matchProtocolUrl ?? '').trim();
-    if (!finalScore && !matchVideoUrl && !matchProtocolUrl) {
-      setDashboardError('Enter the final score, a YouTube link, or a Game Scoresheet link first.');
+    const refereeFee = (refereeFeeInputs[nomination.id] ?? (nomination.refereeFee === null ? '' : String(nomination.refereeFee))).trim();
+    const toFee = (toFeeInputs[nomination.id] ?? (nomination.toFee === null ? '' : String(nomination.toFee))).trim();
+    if (!finalScore && !matchVideoUrl && !matchProtocolUrl && !refereeFee && !toFee) {
+      setDashboardError('Enter the final score, a YouTube link, a Game Scoresheet link, or match fees first.');
       return;
     }
 
@@ -1120,6 +1168,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         finalScore,
         matchVideoUrl,
         matchProtocolUrl,
+        refereeFee,
+        toFee,
       });
       await refreshInstructorData();
       setScoreInputs((prev) => ({
@@ -1133,6 +1183,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       setProtocolInputs((prev) => ({
         ...prev,
         [nomination.id]: matchProtocolUrl,
+      }));
+      setRefereeFeeInputs((prev) => ({
+        ...prev,
+        [nomination.id]: refereeFee,
+      }));
+      setTOFeeInputs((prev) => ({
+        ...prev,
+        [nomination.id]: toFee,
       }));
       setDashboardMessage('Match details saved.');
     } catch (error) {
@@ -1148,6 +1206,50 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         {t('common.finalScore', { score: finalScore })}
       </div>
     ) : null;
+
+  const formatFee = (value: number) =>
+    new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: 'AZN',
+      minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(value);
+
+  const renderNominationFees = (refereeFee: number | null, toFee: number | null) => {
+    if (refereeFee === null && toFee === null) {
+      return null;
+    }
+
+    return (
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {refereeFee !== null ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+            {t('common.refereeFee')}: {formatFee(refereeFee)}
+          </div>
+        ) : null}
+        {toFee !== null ? (
+          <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-900">
+            {t('common.toFee')}: {formatFee(toFee)}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderAssignmentFee = (assignment: RefereeNomination) => {
+    const fee = assignment.assignmentGroup === 'TO' ? assignment.toFee : assignment.refereeFee;
+    const feeLabel = assignment.assignmentGroup === 'TO' ? t('common.toFee') : t('common.refereeFee');
+
+    if (fee === null) {
+      return null;
+    }
+
+    return (
+      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+        {feeLabel}: {formatFee(fee)}
+      </div>
+    );
+  };
 
   const renderMatchLinks = (matchVideoUrl: string | null, matchProtocolUrl: string | null) => {
     if (!matchVideoUrl && !matchProtocolUrl) {
@@ -1230,6 +1332,34 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             placeholder="https://drive.google.com/... (game scoresheet)"
             className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
           />
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={refereeFeeInputs[nomination.id] ?? (nomination.refereeFee === null ? '' : String(nomination.refereeFee))}
+            onChange={(event) =>
+              setRefereeFeeInputs((prev) => ({
+                ...prev,
+                [nomination.id]: event.target.value,
+              }))
+            }
+            placeholder={`${t('common.refereeFee')} (AZN)`}
+            className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+          />
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={toFeeInputs[nomination.id] ?? (nomination.toFee === null ? '' : String(nomination.toFee))}
+            onChange={(event) =>
+              setTOFeeInputs((prev) => ({
+                ...prev,
+                [nomination.id]: event.target.value,
+              }))
+            }
+            placeholder={`${t('common.toFee')} (AZN)`}
+            className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+          />
           <button
             onClick={() => handleSaveScore(nomination)}
             disabled={scoreActionId === nomination.id}
@@ -1287,6 +1417,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       </div>
       {renderFinalScore(nomination.finalScore)}
       {renderMatchLinks(nomination.matchVideoUrl, nomination.matchProtocolUrl)}
+      {renderNominationFees(nomination.refereeFee, nomination.toFee)}
       {renderInstructorScoreEditor(nomination)}
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         {nomination.referees.map((referee) => {
@@ -1487,6 +1618,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       </div>
       {renderFinalScore(assignment.finalScore)}
       {renderMatchLinks(assignment.matchVideoUrl, assignment.matchProtocolUrl)}
+      {renderAssignmentFee(assignment)}
       <div className="mt-4 rounded-xl bg-slate-50 p-3">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
           {assignment.assignmentGroup === 'TO' ? 'Referee Crew' : t('common.crew')}
@@ -1611,6 +1743,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             <div className="mt-1 inline-block px-2 py-0.5 bg-[#581c1c] text-white text-[10px] uppercase font-bold rounded">
               {getRoleLabel(user.role, language)}
             </div>
+            {user.role === 'Referee' ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-amber-700">
+                    {t('dashboard.thisMonth')}
+                  </div>
+                  <div className="mt-2 text-2xl font-black text-slate-900">{monthlyMatchesWorkedCount}</div>
+                  <div className="text-sm font-medium text-slate-600">{t('dashboard.monthlyMatchesWorked')}</div>
+                </div>
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-700">
+                    {t('dashboard.thisMonth')}
+                  </div>
+                  <div className="mt-2 text-2xl font-black text-slate-900">{formatFee(monthlyEarningsTotal)}</div>
+                  <div className="text-sm font-medium text-slate-600">{t('dashboard.monthlyEarnings')}</div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

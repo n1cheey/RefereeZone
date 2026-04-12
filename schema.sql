@@ -161,7 +161,9 @@ CREATE TABLE IF NOT EXISTS "public"."nominations" (
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "final_score" "text",
     "match_video_url" "text",
-    "match_protocol_url" "text"
+    "match_protocol_url" "text",
+    "referee_fee" numeric(10,2),
+    "to_fee" numeric(10,2)
 );
 
 
@@ -1084,7 +1086,6 @@ ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TAB
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "anon";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "authenticated";
 ALTER DEFAULT PRIVILEGES FOR ROLE "postgres" IN SCHEMA "public" GRANT ALL ON TABLES TO "service_role";
-
 
 
 

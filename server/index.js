@@ -242,6 +242,8 @@ app.patch('/api/nominations/:nominationId/score', (request, response) => {
       finalScore: request.body.finalScore,
       matchVideoUrl: request.body.matchVideoUrl,
       matchProtocolUrl: request.body.matchProtocolUrl,
+      refereeFee: request.body.refereeFee,
+      toFee: request.body.toFee,
     });
 
     response.json({
