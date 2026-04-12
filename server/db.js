@@ -1259,6 +1259,9 @@ export const createNomination = ({ instructorId, gameCode, teams, matchDate, mat
 
   const normalizedRefereeIds = ensureDistinctReferees(refereeIds || []);
   requireReferees(normalizedRefereeIds);
+  const shouldAutoAcceptAssignments =
+    Number.isFinite(new Date(`${matchDate}T${matchTime}:00`).getTime()) &&
+    Date.now() >= new Date(`${matchDate}T${matchTime}:00`).getTime();
 
   dbInstance.run(
     `
@@ -1273,10 +1276,10 @@ export const createNomination = ({ instructorId, gameCode, teams, matchDate, mat
   normalizedRefereeIds.forEach((refereeId, index) => {
     dbInstance.run(
       `
-        INSERT INTO nomination_referees (nomination_id, referee_id, slot_number, status)
-        VALUES (?, ?, ?, ?)
+      INSERT INTO nomination_referees (nomination_id, referee_id, slot_number, status)
+      VALUES (?, ?, ?, ?)
       `,
-      [nominationId, refereeId, index + 1, ASSIGNMENT_STATUS.PENDING],
+      [nominationId, refereeId, index + 1, shouldAutoAcceptAssignments ? ASSIGNMENT_STATUS.ACCEPTED : ASSIGNMENT_STATUS.PENDING],
     );
   });
 
@@ -1355,13 +1358,32 @@ export const replaceNominationReferee = ({ nominationId, slotNumber, instructorI
     throw new HttpError(409, 'This referee is already assigned to the game.');
   }
 
+  const nomination = queryOne(
+    `
+      SELECT match_date, match_time
+      FROM nominations
+      WHERE id = ?
+    `,
+    [Number(nominationId)],
+  );
+  const shouldAutoAcceptAssignment =
+    nomination &&
+    Number.isFinite(new Date(`${nomination.match_date}T${nomination.match_time}:00`).getTime()) &&
+    Date.now() >= new Date(`${nomination.match_date}T${nomination.match_time}:00`).getTime();
+
   dbInstance.run(
     `
       UPDATE nomination_referees
-      SET referee_id = ?, status = ?, responded_at = NULL
+      SET referee_id = ?, status = ?, responded_at = ?
       WHERE nomination_id = ? AND slot_number = ?
     `,
-    [Number(refereeId), ASSIGNMENT_STATUS.PENDING, Number(nominationId), Number(slotNumber)],
+    [
+      Number(refereeId),
+      shouldAutoAcceptAssignment ? ASSIGNMENT_STATUS.ACCEPTED : ASSIGNMENT_STATUS.PENDING,
+      shouldAutoAcceptAssignment ? new Date().toISOString() : null,
+      Number(nominationId),
+      Number(slotNumber),
+    ],
   );
 
   persistDatabase();

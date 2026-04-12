@@ -298,6 +298,10 @@ const createMatchDateTime = (matchDate, matchTime) => {
   const candidate = new Date(`${matchDate}T${normalizeMatchTime(matchTime)}${BAKU_OFFSET}`);
   return Number.isNaN(candidate.getTime()) ? null : candidate;
 };
+const hasMatchStarted = (matchDate, matchTime) => {
+  const matchDateTime = createMatchDateTime(matchDate, matchTime);
+  return !matchDateTime || Date.now() >= matchDateTime.getTime();
+};
 
 const createDeadlineDate = (matchDate, matchTime) => {
   const deadline = new Date(`${matchDate}T${normalizeMatchTime(matchTime)}${BAKU_OFFSET}`);
@@ -3307,6 +3311,7 @@ const createNomination = async (admin, currentUser, body) => {
   const officialMap = new Map(assignableOfficials.map((official) => [official.id, official]));
   const respondedAt = new Date().toISOString();
   const reportDeadlineAt = createDeadlineDate(matchDate, matchTime)?.toISOString() || null;
+  const shouldAutoAcceptAssignments = hasMatchStarted(matchDate, matchTime);
 
   const { data: inserted, error } = await admin
     .from('nominations')
@@ -3329,14 +3334,15 @@ const createNomination = async (admin, currentUser, body) => {
     refereeIds.map((refereeId, index) => {
       const assignedOfficial = officialMap.get(refereeId);
       const isSelfAssignedInstructor = assignedOfficial?.id === currentUser.id && assignedOfficial.role === 'Instructor';
+      const shouldAcceptImmediately = shouldAutoAcceptAssignments || isSelfAssignedInstructor;
 
       return {
         nomination_id: inserted.id,
         referee_id: refereeId,
         slot_number: index + 1,
-        status: isSelfAssignedInstructor ? ASSIGNMENT_STATUS.ACCEPTED : ASSIGNMENT_STATUS.PENDING,
+        status: shouldAcceptImmediately ? ASSIGNMENT_STATUS.ACCEPTED : ASSIGNMENT_STATUS.PENDING,
         report_deadline_at: reportDeadlineAt,
-        responded_at: isSelfAssignedInstructor ? respondedAt : null,
+        responded_at: shouldAcceptImmediately ? respondedAt : null,
       };
     }),
   );
@@ -3384,6 +3390,7 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
 
   const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
   const reportDeadlineAt = createDeadlineDate(nomination.match_date, nomination.match_time)?.toISOString() || null;
+  const shouldAutoAcceptAssignment = hasMatchStarted(nomination.match_date, nomination.match_time);
   await removeReportsForRefereeChange(admin, nominationId, slot.referee_id, refereeId);
   await createReplacementNotice(admin, nominationId, slotNumber, slot.referee_id, refereeId, currentUser.id);
 
@@ -3391,9 +3398,9 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
     .from('nomination_referees')
     .update({
       referee_id: refereeId,
-      status: isSelfAssignedInstructor ? ASSIGNMENT_STATUS.ACCEPTED : ASSIGNMENT_STATUS.PENDING,
+      status: shouldAutoAcceptAssignment || isSelfAssignedInstructor ? ASSIGNMENT_STATUS.ACCEPTED : ASSIGNMENT_STATUS.PENDING,
       report_deadline_at: reportDeadlineAt,
-      responded_at: isSelfAssignedInstructor ? new Date().toISOString() : null,
+      responded_at: shouldAutoAcceptAssignment || isSelfAssignedInstructor ? new Date().toISOString() : null,
     })
     .eq('nomination_id', nominationId)
     .eq('slot_number', slotNumber);
@@ -3421,6 +3428,7 @@ const editNominationOfficials = async (admin, currentUser, nominationId, referee
   const slotMap = new Map(currentSlots.map((slot) => [Number(slot.slot_number), slot]));
   const reportDeadlineAt = createDeadlineDate(nomination.match_date, nomination.match_time)?.toISOString() || null;
   const respondedAt = new Date().toISOString();
+  const shouldAutoAcceptAssignments = hasMatchStarted(nomination.match_date, nomination.match_time);
 
   for (const [index, refereeId] of normalizedRefereeIds.entries()) {
     const slotNumber = index + 1;
@@ -3438,13 +3446,13 @@ const editNominationOfficials = async (admin, currentUser, nominationId, referee
 
     const nextStatus = isSameOfficial
       ? existingSlot.status
-      : isSelfAssignedInstructor
+      : shouldAutoAcceptAssignments || isSelfAssignedInstructor
         ? ASSIGNMENT_STATUS.ACCEPTED
         : ASSIGNMENT_STATUS.PENDING;
 
     const nextRespondedAt = isSameOfficial
       ? existingSlot.responded_at || null
-      : isSelfAssignedInstructor
+      : shouldAutoAcceptAssignments || isSelfAssignedInstructor
         ? respondedAt
         : null;
 
@@ -3476,8 +3484,7 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
     'Failed to load nomination.',
   );
 
-  const matchDateTime = createMatchDateTime(nomination.match_date, nomination.match_time);
-  const isPastMatch = !matchDateTime || Date.now() >= matchDateTime.getTime();
+  const isPastMatch = hasMatchStarted(nomination.match_date, nomination.match_time);
   const existingAssignments = await listTOAssignmentsByNominationIds(admin, [nominationId]);
   const existingAssignmentsBySlot = new Map(existingAssignments.map((assignment) => [Number(assignment.slot_number), assignment]));
 
@@ -3513,8 +3520,8 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
         to_id: item.toId,
         slot_number: item.slotNumber,
         assigned_by: currentUser.id,
-        status: ASSIGNMENT_STATUS.PENDING,
-        responded_at: null,
+        status: ASSIGNMENT_STATUS.ACCEPTED,
+        responded_at: new Date().toISOString(),
       })),
     );
 
