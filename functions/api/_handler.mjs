@@ -1331,21 +1331,38 @@ const groupRowsByNominationId = (rows = []) => {
   return grouped;
 };
 
-const buildRefereeCrewFromAssignments = (assignments = [], officialMap) =>
-  assignments.map((assignment) => ({
+const getAssignmentStatusForMatch = (status, matchDate, matchTime) => {
+  const normalizedStatus = status || ASSIGNMENT_STATUS.PENDING;
+  if (normalizedStatus === ASSIGNMENT_STATUS.PENDING && hasMatchStarted(matchDate, matchTime)) {
+    return ASSIGNMENT_STATUS.ACCEPTED;
+  }
+
+  return normalizedStatus;
+};
+
+const buildRefereeCrewFromAssignments = (assignments = [], officialMap, options = {}) => {
+  const { matchDate = null, matchTime = null } = options;
+
+  return assignments.map((assignment) => ({
     slotNumber: Number(assignment.slot_number),
     refereeId: assignment.referee_id,
     refereeName: officialMap.get(assignment.referee_id)?.full_name || officialMap.get(assignment.referee_id)?.fullName || 'Unknown referee',
-    status: assignment.status,
+    status: getAssignmentStatusForMatch(assignment.status, matchDate, matchTime),
     respondedAt: assignment.responded_at || null,
   }));
+};
 
 const buildTOCrewFromAssignments = (assignments = [], toMap, options = {}) => {
-  const { acceptedOnly = false, requireFullAcceptedCrew = false } = options;
+  const { acceptedOnly = false, requireFullAcceptedCrew = false, matchDate = null, matchTime = null } = options;
+
+  const normalizedAssignments = assignments.map((assignment) => ({
+    ...assignment,
+    status: getAssignmentStatusForMatch(assignment.status, matchDate, matchTime),
+  }));
 
   const filteredAssignments = acceptedOnly
-    ? assignments.filter((assignment) => assignment.status === ASSIGNMENT_STATUS.ACCEPTED)
-    : assignments;
+    ? normalizedAssignments.filter((assignment) => assignment.status === ASSIGNMENT_STATUS.ACCEPTED)
+    : normalizedAssignments;
 
   if (requireFullAcceptedCrew && filteredAssignments.length !== 4) {
     return [];
@@ -2272,8 +2289,14 @@ const getInstructorNominationsData = async (admin, instructorId) => {
       createdAt: nomination.created_at,
       createdById: nomination.created_by,
       createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
-      referees: buildRefereeCrewFromAssignments(assignmentsByNominationId.get(nomination.id) || [], refereeMap),
-      toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap),
+      referees: buildRefereeCrewFromAssignments(assignmentsByNominationId.get(nomination.id) || [], refereeMap, {
+        matchDate: nomination.match_date,
+        matchTime: nomination.match_time,
+      }),
+      toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap, {
+        matchDate: nomination.match_date,
+        matchTime: nomination.match_time,
+      }),
     }))
     .sort(sortByMatchDesc);
 };
@@ -2351,14 +2374,20 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
             refereeFee: nomination.referee_fee ?? null,
             toFee: nomination.to_fee ?? null,
             slotNumber: Number(assignment.slot_number),
-            status: assignment.status || ASSIGNMENT_STATUS.PENDING,
+            status: getAssignmentStatusForMatch(assignment.status, nomination.match_date, nomination.match_time),
             respondedAt: assignment.responded_at || null,
             autoDeclineAt: null,
             instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
             assignmentGroup: 'TO',
             assignmentLabel: getTOAssignmentLabel(Number(assignment.slot_number)),
-            crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], refereeCrewMap),
-            toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toCrewMap),
+            crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], refereeCrewMap, {
+              matchDate: nomination.match_date,
+              matchTime: nomination.match_time,
+            }),
+            toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toCrewMap, {
+              matchDate: nomination.match_date,
+              matchTime: nomination.match_time,
+            }),
           };
         })
         .filter(Boolean)
@@ -2444,16 +2473,21 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
           refereeFee: nomination.referee_fee ?? null,
           toFee: nomination.to_fee ?? null,
           slotNumber: Number(assignment.slot_number),
-          status: assignment.status,
+          status: getAssignmentStatusForMatch(assignment.status, nomination.match_date, nomination.match_time),
           respondedAt: assignment.responded_at || null,
           autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
           instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
           assignmentGroup: 'Referee',
           assignmentLabel: getNominationSlotLabel(Number(assignment.slot_number)),
-          crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap),
+          crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap, {
+            matchDate: nomination.match_date,
+            matchTime: nomination.match_time,
+          }),
           toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap, {
             acceptedOnly: user.role === 'Referee',
             requireFullAcceptedCrew: user.role === 'Referee',
+            matchDate: nomination.match_date,
+            matchTime: nomination.match_time,
           }),
         };
       })
@@ -2530,8 +2564,14 @@ const getInstructorDashboardData = async (admin, instructorId) => {
     createdAt: nomination.created_at,
     createdById: nomination.created_by,
     createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
-    referees: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap),
-    toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap),
+    referees: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap, {
+      matchDate: nomination.match_date,
+      matchTime: nomination.match_time,
+    }),
+    toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap, {
+      matchDate: nomination.match_date,
+      matchTime: nomination.match_time,
+    }),
   }));
 
   const assignments = ownVisibleAssignments
@@ -2555,14 +2595,20 @@ const getInstructorDashboardData = async (admin, instructorId) => {
         refereeFee: nomination.referee_fee ?? null,
         toFee: nomination.to_fee ?? null,
         slotNumber: Number(assignment.slot_number),
-        status: assignment.status,
+        status: getAssignmentStatusForMatch(assignment.status, nomination.match_date, nomination.match_time),
         respondedAt: assignment.responded_at || null,
         autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
         instructorName: officialMap.get(nomination.created_by)?.fullName || currentUser.full_name,
         assignmentGroup: 'Referee',
         assignmentLabel: getNominationSlotLabel(Number(assignment.slot_number)),
-        crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap),
-        toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap),
+        crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap, {
+          matchDate: nomination.match_date,
+          matchTime: nomination.match_time,
+        }),
+        toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap, {
+          matchDate: nomination.match_date,
+          matchTime: nomination.match_time,
+        }),
       };
     })
     .filter(Boolean)
