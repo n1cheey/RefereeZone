@@ -10,7 +10,7 @@ interface AccessManagerProps {
   onBack: () => void;
 }
 
-const roleOptions: UserRole[] = ['Instructor', 'TO Supervisor', 'TO', 'Referee', 'Staff'];
+const roleOptions: UserRole[] = ['Instructor', 'TO Supervisor', 'TO', 'Referee', 'Staff', 'Financialist'];
 const ACCESS_REFRESH_INTERVAL_MS = 10000;
 
 const AccessManager: React.FC<AccessManagerProps> = ({ user, onBack }) => {

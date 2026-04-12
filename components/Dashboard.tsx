@@ -193,10 +193,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isInstructor = user.role === 'Instructor';
   const isStaff = user.role === 'Staff';
+  const isFinancialist = user.role === 'Financialist';
   const isTOSupervisor = user.role === 'TO Supervisor';
   const isTO = user.role === 'TO';
   const canUseEarningsCalculator = user.role === 'Referee' || user.role === 'TO';
-  const canUseAvailability = user.role !== 'Staff';
+  const canOpenCalculation = canUseEarningsCalculator || isFinancialist;
+  const canUseAvailability = user.role !== 'Staff' && user.role !== 'Financialist';
   const dashboardCacheKey = getDashboardCacheKey(user.id, user.role);
   const nominationsCacheKey = getNominationsCacheKey(user.id, user.role);
   const chatDashboardCacheKey = getChatDashboardCacheKey(user.id);
@@ -1141,8 +1143,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   };
 
   const navItems = [
-    { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff ? t('nominations.title') : t('nominations.myTitle'), icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
-    ...(canUseEarningsCalculator
+    { id: 'nominations' as const, label: isInstructor || isTOSupervisor || isStaff || isFinancialist ? t('nominations.title') : t('nominations.myTitle'), icon: Calendar, iconColor: 'text-blue-500', color: 'bg-blue-50' },
+    ...(canOpenCalculation
       ? [{ id: 'calculation' as const, label: t('dashboard.calculation'), icon: Calculator, iconColor: 'text-emerald-600', color: 'bg-emerald-50' }]
       : []),
     ...(canUseAvailability
@@ -1776,6 +1778,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       ? t('dashboard.toSupervisorPanel')
       : isStaff
         ? t('dashboard.staffPanel')
+        : isFinancialist
+          ? t('dashboard.financialistPanel')
         : isTO
           ? t('dashboard.toDashboard')
           : t('dashboard.refZoneDashboard');
@@ -1879,7 +1883,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       )}
 
-      <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,1.25fr),minmax(0,1fr)]">
+      {!isFinancialist ? (
+        <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,1.25fr),minmax(0,1fr)]">
         <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <TrendingUp size={18} className="text-[#581c1c]" />
@@ -1924,7 +1929,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             </div>
           )}
         </div>
-      </div>
+        </div>
+      ) : null}
 
       {isInstructor && (
         <div className="space-y-5 mb-8">

@@ -3,6 +3,7 @@ import { User } from './types';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import EarningsCalculation from './components/EarningsCalculation';
+import FinancialCalculations from './components/FinancialCalculations';
 import Nominations from './components/Nominations';
 import Teyinat from './components/Teyinat';
 import Ranking from './components/Ranking';
@@ -431,9 +432,11 @@ const AppContent: React.FC = () => {
       case 'calendar':
         return <CalendarView user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'calculation':
-        return currentUser!.role === 'Referee' || currentUser!.role === 'TO'
-          ? <EarningsCalculation user={currentUser!} onBack={() => setCurrentView('dashboard')} />
-          : (
+        return currentUser!.role === 'Financialist'
+          ? <FinancialCalculations user={currentUser!} onBack={() => setCurrentView('dashboard')} />
+          : currentUser!.role === 'Referee' || currentUser!.role === 'TO'
+            ? <EarningsCalculation user={currentUser!} onBack={() => setCurrentView('dashboard')} />
+            : (
               <Dashboard
                 user={currentUser!}
                 onNavigate={(view: View) => setCurrentView(view)}

@@ -13,7 +13,7 @@ const sqlJsDistPath = path.join(__dirname, '..', 'node_modules', 'sql.js', 'dist
 
 const DEFAULT_PHOTO_URL = 'https://picsum.photos/seed/referee/300/300';
 const REPORT_DEADLINE_BASE_MS = 48 * 60 * 60 * 1000;
-export const ROLE_OPTIONS = ['Instructor', 'Table', 'Referee', 'Stuff'];
+export const ROLE_OPTIONS = ['Instructor', 'Table', 'Referee', 'Stuff', 'Financialist'];
 export const ASSIGNMENT_STATUS = {
   PENDING: 'Pending',
   ACCEPTED: 'Accepted',
@@ -34,6 +34,7 @@ const DEFAULT_ALLOWED_EMAILS = [
   { email: 'table@abl.az', displayName: 'ABL Table Official', role: 'Table' },
   { email: 'referee@abl.az', displayName: 'ABL Referee', role: 'Referee' },
   { email: 'stuff@abl.az', displayName: 'ABL Stuff', role: 'Stuff' },
+  { email: 'finance@abl.az', displayName: 'ABL Financialist', role: 'Financialist' },
 ];
 
 let dbInstance;
@@ -79,6 +80,7 @@ const buildLicenseNumber = (role, id) => {
     Table: 'TAB',
     Referee: 'REF',
     Stuff: 'STF',
+    Financialist: 'FIN',
   }[role];
 
   return `ABL-${prefix}-${String(id).padStart(4, '0')}`;
@@ -1322,7 +1324,10 @@ export const createNomination = ({ instructorId, gameCode, teams, matchDate, mat
 };
 
 export const getInstructorNominations = (instructorId) => {
-  requireRole(instructorId, 'Instructor');
+  const currentUser = requireUser(instructorId);
+  if (!['Instructor', 'Financialist'].includes(currentUser.role)) {
+    throw new HttpError(403, 'Only Instructor and Financialist accounts can load nominations.');
+  }
   autoAcceptPastRefereeAssignments();
 
   const rows = queryAll(
@@ -1348,10 +1353,10 @@ export const getInstructorNominations = (instructorId) => {
       FROM nominations n
       JOIN nomination_referees nr ON nr.nomination_id = n.id
       JOIN users u ON u.id = nr.referee_id
-      WHERE n.created_by = ?
+      ${currentUser.role === 'Instructor' ? 'WHERE n.created_by = ?' : ''}
       ORDER BY n.match_date ASC, n.match_time ASC, nr.slot_number ASC
     `,
-    [Number(instructorId)],
+    currentUser.role === 'Instructor' ? [Number(instructorId)] : [],
   );
 
   return groupInstructorNominations(rows);

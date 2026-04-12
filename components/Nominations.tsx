@@ -87,6 +87,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const [highlightedNominationId, setHighlightedNominationId] = useState<string | null>(null);
   const isInstructor = user.role === 'Instructor';
   const isStaff = user.role === 'Staff';
+  const isFinancialist = user.role === 'Financialist';
   const isTOSupervisor = user.role === 'TO Supervisor';
   const isTO = user.role === 'TO';
 
@@ -145,7 +146,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
               activeAnnouncement: dashboardResponse.activeAnnouncement || null,
             });
           }
-        } else if (user.role === 'Staff') {
+        } else if (user.role === 'Staff' || user.role === 'Financialist') {
           const response = await getInstructorNominations(user.id);
           if (isMounted) {
             setInstructorNominations(response.nominations);
@@ -988,7 +989,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   );
 
   return (
-    <Layout title={isInstructor || isStaff || isTOSupervisor ? t('nominations.title') : t('nominations.myTitle')} onBack={onBack}>
+    <Layout title={isInstructor || isStaff || isFinancialist || isTOSupervisor ? t('nominations.title') : t('nominations.myTitle')} onBack={onBack}>
       {errorMessage && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
@@ -997,7 +998,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
 
       {isLoading ? (
         <p className="text-sm text-slate-500">{t('nominations.loading')}</p>
-      ) : isInstructor || isStaff || isTOSupervisor ? (
+      ) : isInstructor || isStaff || isFinancialist || isTOSupervisor ? (
         <div className="space-y-8">
           {renderInstructorSection(
             'Upcoming Games',

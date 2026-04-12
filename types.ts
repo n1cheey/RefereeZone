@@ -1,5 +1,5 @@
 
-export type UserRole = 'Instructor' | 'TO' | 'TO Supervisor' | 'Referee' | 'Staff';
+export type UserRole = 'Instructor' | 'TO' | 'TO Supervisor' | 'Referee' | 'Staff' | 'Financialist';
 export type AssignmentStatus = 'Pending' | 'Accepted' | 'Declined' | 'Assigned';
 export type ReportStatus = 'Draft' | 'Submitted' | 'Reviewed';
 export type ReportMode = 'standard' | 'to' | 'test_to';

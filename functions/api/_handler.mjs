@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const DEFAULT_PHOTO_URL = 'https://picsum.photos/seed/referee/300/300';
-const ROLE_OPTIONS = ['Instructor', 'TO Supervisor', 'TO', 'Referee', 'Staff'];
+const ROLE_OPTIONS = ['Instructor', 'TO Supervisor', 'TO', 'Referee', 'Staff', 'Financialist'];
 const LEGACY_ROLE_ALIASES = {
   Stuff: 'Staff',
   Table: 'TO',
@@ -46,6 +46,7 @@ const ROLE_PREFIX = {
   TO: 'TO',
   Referee: 'REF',
   Staff: 'STF',
+  Financialist: 'FIN',
 };
 const BAKU_TIMEZONE = 'Asia/Baku';
 const BAKU_OFFSET = '+04:00';
@@ -2236,8 +2237,8 @@ const generateAiLogo = async () => {
 
 const getInstructorNominationsData = async (admin, instructorId) => {
   const currentUser = await requireProfileById(admin, instructorId);
-  if (!['Instructor', 'Staff', 'TO Supervisor'].includes(currentUser.role)) {
-    throw new HttpError(403, 'Only Instructor, TO Supervisor and Staff accounts can load nominations.');
+  if (!['Instructor', 'Staff', 'TO Supervisor', 'Financialist'].includes(currentUser.role)) {
+    throw new HttpError(403, 'Only Instructor, TO Supervisor, Staff and Financialist accounts can load nominations.');
   }
 
   const { data, error } = await admin
