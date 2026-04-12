@@ -79,11 +79,13 @@ const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   month: '2-digit',
   day: '2-digit',
 });
-const BAKU_MONTH_FORMATTER = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Baku',
-  year: 'numeric',
-  month: '2-digit',
-});
+const getBakuDateParts = (value: number | Date) => {
+  const parts = BAKU_DATE_FORMATTER.formatToParts(new Date(value));
+  const year = parts.find((part) => part.type === 'year')?.value || '0000';
+  const month = parts.find((part) => part.type === 'month')?.value || '00';
+  const day = parts.find((part) => part.type === 'day')?.value || '00';
+  return { year, month, day };
+};
 
 const sortMatchesDesc = <T extends { matchDate: string; matchTime: string }>(items: T[]) =>
   [...items].sort((left, right) => {
@@ -836,7 +838,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       ) || null,
     [createdNominationSections],
   );
-  const currentMonthKey = BAKU_MONTH_FORMATTER.format(new Date(countdownNow));
+  const { year: currentBakuYear, month: currentBakuMonth } = getBakuDateParts(countdownNow);
+  const currentMonthKey = `${currentBakuYear}-${currentBakuMonth}`;
   const workedAssignmentStatuses = new Set(['Accepted', 'Assigned']);
   const monthlyWorkedAssignments = useMemo(
     () =>
@@ -1236,21 +1239,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     );
   };
 
-  const renderAssignmentFee = (assignment: RefereeNomination) => {
-    const fee = assignment.assignmentGroup === 'TO' ? assignment.toFee : assignment.refereeFee;
-    const feeLabel = assignment.assignmentGroup === 'TO' ? t('common.toFee') : t('common.refereeFee');
-
-    if (fee === null) {
-      return null;
-    }
-
-    return (
-      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-        {feeLabel}: {formatFee(fee)}
-      </div>
-    );
-  };
-
   const renderMatchLinks = (matchVideoUrl: string | null, matchProtocolUrl: string | null) => {
     if (!matchVideoUrl && !matchProtocolUrl) {
       return null;
@@ -1618,7 +1606,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       </div>
       {renderFinalScore(assignment.finalScore)}
       {renderMatchLinks(assignment.matchVideoUrl, assignment.matchProtocolUrl)}
-      {renderAssignmentFee(assignment)}
       <div className="mt-4 rounded-xl bg-slate-50 p-3">
         <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
           {assignment.assignmentGroup === 'TO' ? 'Referee Crew' : t('common.crew')}

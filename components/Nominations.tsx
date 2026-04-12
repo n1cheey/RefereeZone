@@ -516,21 +516,6 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     );
   };
 
-  const renderAssignmentFee = (nomination: RefereeNomination) => {
-    const fee = nomination.assignmentGroup === 'TO' ? nomination.toFee : nomination.refereeFee;
-    const feeLabel = nomination.assignmentGroup === 'TO' ? t('common.toFee') : t('common.refereeFee');
-
-    if (fee === null) {
-      return null;
-    }
-
-    return (
-      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-        {feeLabel}: {formatFee(fee)}
-      </div>
-    );
-  };
-
   const renderMatchLinks = (matchVideoUrl: string | null, matchProtocolUrl: string | null) => {
     if (!matchVideoUrl && !matchProtocolUrl) {
       return null;
@@ -883,7 +868,6 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         </div>
         {renderFinalScore(nom.finalScore)}
         {renderMatchLinks(nom.matchVideoUrl, nom.matchProtocolUrl)}
-        {renderAssignmentFee(nom)}
         {renderCrew(nom.crew)}
         {user.role === 'Referee' && nom.toCrew.length === 0 ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
