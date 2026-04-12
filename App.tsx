@@ -2,6 +2,7 @@ import React, { startTransition, useEffect, useRef, useState } from 'react';
 import { User } from './types';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
+import EarningsCalculation from './components/EarningsCalculation';
 import Nominations from './components/Nominations';
 import Teyinat from './components/Teyinat';
 import Ranking from './components/Ranking';
@@ -36,6 +37,7 @@ type View =
   | 'announcement'
   | 'chat'
   | 'calendar'
+  | 'calculation'
   | 'availability'
   | 'members'
   | 'access'
@@ -101,6 +103,7 @@ const normalizeStoredView = (value: unknown): View => {
     case 'announcement':
     case 'chat':
     case 'calendar':
+    case 'calculation':
     case 'availability':
     case 'members':
     case 'access':
@@ -427,6 +430,17 @@ const AppContent: React.FC = () => {
         return <Chat user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'calendar':
         return <CalendarView user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+      case 'calculation':
+        return currentUser!.role === 'Referee' || currentUser!.role === 'TO'
+          ? <EarningsCalculation user={currentUser!} onBack={() => setCurrentView('dashboard')} />
+          : (
+              <Dashboard
+                user={currentUser!}
+                onNavigate={(view: View) => setCurrentView(view)}
+                onLogout={handleLogout}
+                onUpdateUser={handleUpdateUser}
+              />
+            );
       case 'availability':
         return currentUser!.role === 'Staff'
           ? (

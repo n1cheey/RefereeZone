@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   Award,
   Bell,
+  Calculator,
   Calendar,
   CalendarDays,
   Camera,
@@ -59,6 +60,7 @@ interface DashboardProps {
       | 'announcement'
       | 'chat'
       | 'calendar'
+      | 'calculation'
       | 'availability'
       | 'members'
       | 'access'
@@ -86,10 +88,6 @@ const getBakuDateParts = (value: number | Date) => {
   const month = parts.find((part) => part.type === 'month')?.value || '00';
   const day = parts.find((part) => part.type === 'day')?.value || '00';
   return { year, month, day };
-};
-const getCurrentBakuDateString = () => {
-  const { year, month, day } = getBakuDateParts(Date.now());
-  return `${year}-${month}-${day}`;
 };
 
 const sortMatchesDesc = <T extends { matchDate: string; matchTime: string }>(items: T[]) =>
