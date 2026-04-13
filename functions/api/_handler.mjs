@@ -3599,15 +3599,18 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
 
   if (isPastMatch) {
     const normalizedTOSelections = normalizeTOSlotSelections(toIds);
+    const mergedTOSelections = [1, 2, 3, 4].map(
+      (_, index) => existingAssignmentsBySlot.get(index + 1)?.to_id || normalizedTOSelections[index] || '',
+    );
 
     existingAssignmentsBySlot.forEach((assignment, slotNumber) => {
-      const selectedToId = normalizedTOSelections[slotNumber - 1];
+      const selectedToId = mergedTOSelections[slotNumber - 1];
       if (selectedToId !== assignment.to_id) {
         throw new HttpError(409, 'Assigned TO officials cannot be changed after the match starts.');
       }
     });
 
-    const additions = normalizedTOSelections
+    const additions = mergedTOSelections
       .map((toId, index) => ({
         toId,
         slotNumber: index + 1,

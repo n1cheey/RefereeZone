@@ -430,10 +430,13 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       return;
     }
 
+    const existingTOIds = [1, 2, 3, 4].map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
     const selectedTOs = getTONominationSelection(nomination);
     const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
-    const existingTOIds = [1, 2, 3, 4].map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
-    const filledTOs = selectedTOs.filter(Boolean);
+    const payloadTOs = isPastNomination
+      ? existingTOIds.map((toId, index) => toId || selectedTOs[index] || '')
+      : selectedTOs;
+    const filledTOs = payloadTOs.filter(Boolean);
 
     if (new Set(filledTOs).size !== filledTOs.length) {
       setErrorMessage('Choose different TO users.');
@@ -441,13 +444,13 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     }
 
     if (isPastNomination) {
-      const changedAssignedSlot = existingTOIds.some((toId, index) => toId && selectedTOs[index] !== toId);
+      const changedAssignedSlot = existingTOIds.some((toId, index) => toId && selectedTOs[index] && selectedTOs[index] !== toId);
       if (changedAssignedSlot) {
         setErrorMessage('Assigned TO officials cannot be changed after the match starts.');
         return;
       }
 
-      const hasNewTOForEmptySlot = existingTOIds.some((toId, index) => !toId && selectedTOs[index]);
+      const hasNewTOForEmptySlot = existingTOIds.some((toId, index) => !toId && payloadTOs[index]);
       if (!hasNewTOForEmptySlot) {
         setErrorMessage(t('dashboard.toCrewPastSelectAtLeastOne'));
         return;
@@ -463,7 +466,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       await assignNominationTOs({
         nominationId,
         toSupervisorId: user.id,
-        toIds: selectedTOs,
+        toIds: payloadTOs,
       });
 
       const response = await getInstructorDashboard(user.id);

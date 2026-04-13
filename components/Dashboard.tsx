@@ -764,10 +764,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       return;
     }
 
+    const existingTOIds = [1, 2, 3, 4].map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
     const selectedTOs = getTONominationSelection(nomination);
     const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
-    const existingTOIds = [1, 2, 3, 4].map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
-    const filledTOs = selectedTOs.filter(Boolean);
+    const payloadTOs = isPastNomination
+      ? existingTOIds.map((toId, index) => toId || selectedTOs[index] || '')
+      : selectedTOs;
+    const filledTOs = payloadTOs.filter(Boolean);
 
     if (new Set(filledTOs).size !== filledTOs.length) {
       setDashboardError('Choose different TO users.');
@@ -775,13 +778,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     }
 
     if (isPastNomination) {
-      const changedAssignedSlot = existingTOIds.some((toId, index) => toId && selectedTOs[index] !== toId);
+      const changedAssignedSlot = existingTOIds.some((toId, index) => toId && selectedTOs[index] && selectedTOs[index] !== toId);
       if (changedAssignedSlot) {
         setDashboardError('Assigned TO officials cannot be changed after the match starts.');
         return;
       }
 
-      const hasNewTOForEmptySlot = existingTOIds.some((toId, index) => !toId && selectedTOs[index]);
+      const hasNewTOForEmptySlot = existingTOIds.some((toId, index) => !toId && payloadTOs[index]);
       if (!hasNewTOForEmptySlot) {
         setDashboardError(t('dashboard.toCrewPastSelectAtLeastOne'));
         return;
@@ -799,7 +802,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       await assignNominationTOs({
         nominationId,
         toSupervisorId: user.id,
-        toIds: selectedTOs,
+        toIds: payloadTOs,
       });
       await refreshInstructorData();
       setDashboardMessage('TO crew updated.');
