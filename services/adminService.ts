@@ -9,6 +9,10 @@ export function getMembers(instructorId: string) {
   return apiRequest<{ members: User[] }>(`/api/members?instructorId=${encodeURIComponent(instructorId)}`);
 }
 
+export function getMember(memberId: string) {
+  return apiRequest<{ member: User }>(`/api/members/${encodeURIComponent(memberId)}`);
+}
+
 export function updateMemberProfile(payload: {
   instructorId: string;
   memberId: string;

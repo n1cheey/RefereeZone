@@ -3085,11 +3085,16 @@ const listMembers = async (admin, currentUser) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const { data, error } = await admin
     .from('profiles')
-    .select('*')
+    .select('id, email, full_name, license_number, role, photo_url')
     .order('role', { ascending: true })
     .order('full_name', { ascending: true });
 
   return ensureData(data || [], error, 'Failed to load members.').map(mapUser);
+};
+
+const getMemberProfile = async (admin, currentUser, memberId) => {
+  await requireRole(admin, currentUser.id, 'Instructor');
+  return mapUser(await requireProfileById(admin, memberId));
 };
 
 const updateMemberProfile = async (admin, currentUser, memberId, email, fullName, licenseNumber, photoUrl) => {
@@ -5362,6 +5367,10 @@ const routeRequest = async (event) => {
   }
 
   const memberMatch = path.match(/^\/members\/([^/]+)$/);
+  if (method === 'GET' && memberMatch) {
+    return json(200, { member: await getMemberProfile(admin, currentUser, memberMatch[1]) });
+  }
+
   if (method === 'PATCH' && memberMatch) {
     const member = await updateMemberProfile(
       admin,

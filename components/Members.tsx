@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Layout from './Layout';
 import { User } from '../types';
-import { deleteMember, getMembers, updateMemberProfile } from '../services/adminService';
+import { deleteMember, getMember, getMembers, updateMemberProfile } from '../services/adminService';
 import { Camera, Shield, Trash2 } from 'lucide-react';
 import { getRoleLabel, useI18n } from '../i18n';
 
@@ -22,12 +22,55 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMember, setIsLoadingMember] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const memberRequestIdRef = useRef(0);
+  const isMountedRef = useRef(true);
+
+  const applySelectedMember = (member: User | null) => {
+    setSelectedMember(member);
+    setEmail(member?.email ?? '');
+    setFullName(member?.fullName ?? '');
+    setLicenseNumber(member?.licenseNumber ?? '');
+    setPhotoUrl(member?.photoUrl ?? '');
+  };
+
+  const loadMemberDetails = async (member: User | null) => {
+    if (!member) {
+      applySelectedMember(null);
+      return;
+    }
+
+    const requestId = memberRequestIdRef.current + 1;
+    memberRequestIdRef.current = requestId;
+    applySelectedMember(member);
+    setIsLoadingMember(true);
+
+    try {
+      const response = await getMember(member.id);
+      if (!isMountedRef.current || memberRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setMembers((prev) => prev.map((item) => (item.id === response.member.id ? { ...item, ...response.member } : item)));
+      applySelectedMember(response.member);
+      setErrorMessage('');
+    } catch (error) {
+      if (isMountedRef.current && memberRequestIdRef.current === requestId) {
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to load member.');
+      }
+    } finally {
+      if (isMountedRef.current && memberRequestIdRef.current === requestId) {
+        setIsLoadingMember(false);
+      }
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
+    isMountedRef.current = true;
 
     const load = async () => {
       setIsLoading(true);
@@ -39,12 +82,9 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
 
         setMembers(response.members);
         const initialSelected = response.members[0] ?? null;
-        setSelectedMember(initialSelected);
-        setEmail(initialSelected?.email ?? '');
-        setFullName(initialSelected?.fullName ?? '');
-        setLicenseNumber(initialSelected?.licenseNumber ?? '');
-        setPhotoUrl(initialSelected?.photoUrl ?? '');
+        applySelectedMember(initialSelected);
         setErrorMessage('');
+        void loadMemberDetails(initialSelected);
       } catch (error) {
         if (isMounted) {
           setErrorMessage(error instanceof Error ? error.message : 'Failed to load members.');
@@ -60,17 +100,14 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
 
     return () => {
       isMounted = false;
+      isMountedRef.current = false;
     };
   }, [user.id]);
 
   const handleSelectMember = (member: User) => {
-    setSelectedMember(member);
-    setEmail(member.email);
-    setFullName(member.fullName);
-    setLicenseNumber(member.licenseNumber);
-    setPhotoUrl(member.photoUrl);
     setErrorMessage('');
     setSuccessMessage('');
+    void loadMemberDetails(member);
   };
 
   const handlePhotoPick = () => {
@@ -190,8 +227,8 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
                     selectedMember?.id === member.id ? 'border-[#581c1c] bg-[#581c1c]/5' : 'border-slate-200 bg-slate-50'
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <img src={member.photoUrl} alt={member.fullName} className="h-14 w-14 rounded-xl object-cover" />
+                    <div className="flex items-center gap-3">
+                    <img src={member.photoUrl} alt={member.fullName} loading="lazy" className="h-14 w-14 rounded-xl object-cover" />
                     <div className="min-w-0">
                       <div className="font-semibold text-slate-900 truncate">{member.fullName}</div>
                       <div className="text-sm text-slate-500">{getRoleLabel(member.role, language)}</div>
@@ -210,9 +247,14 @@ const Members: React.FC<MembersProps> = ({ user, onBack, onCurrentUserUpdated })
             <p className="text-sm text-slate-500">{t('members.selectToEdit')}</p>
           ) : (
             <form onSubmit={handleSave} className="space-y-4">
+              {isLoadingMember ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  {t('members.loading')}
+                </div>
+              ) : null}
               <div className="flex flex-col items-center">
                 <button type="button" onClick={handlePhotoPick} className="relative">
-                  <img src={photoUrl || selectedMember.photoUrl} alt={selectedMember.fullName} className="h-32 w-32 rounded-2xl object-cover shadow-md" />
+                  <img src={photoUrl || selectedMember.photoUrl} alt={selectedMember.fullName} loading="lazy" className="h-32 w-32 rounded-2xl object-cover shadow-md" />
                   <span className="absolute bottom-2 right-2 rounded-full bg-[#581c1c] p-2 text-white">
                     <Camera size={16} />
                   </span>
