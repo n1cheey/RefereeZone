@@ -59,6 +59,7 @@ const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
 let googleGenAiModulePromise = null;
 const CURRENT_USER_CACHE_TTL_MS = 30000;
 const RANKING_STATE_CACHE_TTL_MS = 20000;
+const HEAVY_VIEW_CACHE_TTL_MS = 10000;
 const CHAT_MESSAGE_MAX_LENGTH = 4000;
 const AVAILABILITY_REASON_MAX_LENGTH = 1200;
 const AVAILABILITY_STATUS = {
@@ -72,6 +73,10 @@ const currentUserCache = new Map();
 const currentUserRequestCache = new Map();
 const rankingStateCache = new Map();
 const availabilityOverviewCache = new Map();
+const instructorDashboardCache = new Map();
+const instructorNominationsCache = new Map();
+const refereeAssignmentsCache = new Map();
+const chatBootstrapCache = new Map();
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -569,7 +574,10 @@ const listProfilesByIds = async (admin, ids) => {
     return [];
   }
 
-  const { data, error } = await admin.from('profiles').select('*').in('id', ids);
+  const { data, error } = await admin
+    .from('profiles')
+    .select('id, email, full_name, photo_url, license_number, role')
+    .in('id', ids);
   return ensureData(data || [], error, 'Failed to load user profiles.').map(normalizeProfileRow);
 };
 
@@ -652,7 +660,7 @@ const mapChatMessage = (message) => ({
 const getChatUsers = async (admin, currentUser) => {
   const { data, error } = await admin
     .from('profiles')
-    .select('*')
+    .select('id, email, full_name, photo_url, license_number, role')
     .neq('id', currentUser.id)
     .order('role', { ascending: true })
     .order('full_name', { ascending: true });
@@ -727,6 +735,7 @@ const openChatConversation = async (admin, currentUser, otherUserId) => {
   );
 
   if (existingConversation) {
+    clearChatBootstrapCache();
     return {
       conversation: existingConversation,
       otherUser: {
@@ -756,6 +765,7 @@ const openChatConversation = async (admin, currentUser, otherUserId) => {
     'Failed to create chat conversation.',
   );
 
+  clearChatBootstrapCache();
   return {
     conversation: insertedConversation,
     otherUser: {
@@ -765,10 +775,11 @@ const openChatConversation = async (admin, currentUser, otherUserId) => {
   };
 };
 
-const getChatBootstrap = async (admin, currentUser) => ({
-  users: await getChatUsers(admin, currentUser),
-  conversations: await listChatConversations(admin, currentUser),
-});
+const getChatBootstrap = async (admin, currentUser, force = false) =>
+  getTimedCacheValue(chatBootstrapCache, currentUser.id, HEAVY_VIEW_CACHE_TTL_MS, async () => ({
+    users: await getChatUsers(admin, currentUser),
+    conversations: await listChatConversations(admin, currentUser),
+  }), force);
 
 const getChatMessages = async (admin, currentUser, conversationId) => {
   const conversation = await loadChatConversationById(admin, conversationId);
@@ -808,6 +819,7 @@ const markChatConversationRead = async (admin, currentUser, conversationId) => {
     throw new HttpError(500, 'Failed to mark chat messages as read.');
   }
 
+  clearChatBootstrapCache();
   return { conversationId, readAt: now };
 };
 
@@ -880,6 +892,7 @@ const sendChatMessage = async (admin, currentUser, body) => {
     'Failed to update chat conversation.',
   );
 
+  clearChatBootstrapCache();
   return {
     chatMessage: mapChatMessage(insertedMessage),
     conversation: mapChatConversation(updatedConversation, currentUser.id, otherUser),
@@ -888,6 +901,35 @@ const sendChatMessage = async (admin, currentUser, body) => {
 
 const clearAvailabilityOverviewCache = () => {
   availabilityOverviewCache.clear();
+};
+
+const getTimedCacheValue = async (cache, cacheKey, ttlMs, loadValue, force = false) => {
+  if (!force) {
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+    if (cached) {
+      cache.delete(cacheKey);
+    }
+  }
+
+  const value = await loadValue();
+  cache.set(cacheKey, {
+    expiresAt: Date.now() + ttlMs,
+    value,
+  });
+  return value;
+};
+
+const clearGameDataCaches = () => {
+  instructorDashboardCache.clear();
+  instructorNominationsCache.clear();
+  refereeAssignmentsCache.clear();
+};
+
+const clearChatBootstrapCache = () => {
+  chatBootstrapCache.clear();
 };
 
 const getTodayDateString = () => BAKU_DATE_FORMATTER.format(new Date());
@@ -2235,89 +2277,191 @@ const generateAiLogo = async () => {
   }
 };
 
-const getInstructorNominationsData = async (admin, instructorId) => {
+const getInstructorNominationsData = async (admin, instructorId, force = false) => {
   const currentUser = await requireProfileById(admin, instructorId);
   if (!['Instructor', 'Staff', 'TO Supervisor', 'Financialist'].includes(currentUser.role)) {
     throw new HttpError(403, 'Only Instructor, TO Supervisor, Staff and Financialist accounts can load nominations.');
   }
 
-  const { data, error } = await admin
-    .from('nominations')
-    .select('*')
-    .order('match_date', { ascending: false })
-    .order('match_time', { ascending: false });
+  return getTimedCacheValue(instructorNominationsCache, instructorId, HEAVY_VIEW_CACHE_TTL_MS, async () => {
+    const { data, error } = await admin
+      .from('nominations')
+      .select('*')
+      .order('match_date', { ascending: false })
+      .order('match_time', { ascending: false });
 
-  const nominations = ensureData(data || [], error, 'Failed to load instructor nominations.');
-  if (!nominations.length) {
-    return [];
-  }
+    const nominations = ensureData(data || [], error, 'Failed to load instructor nominations.');
+    if (!nominations.length) {
+      return [];
+    }
 
-  const nominationIds = nominations.map((nomination) => nomination.id);
-  await expirePendingAssignments(admin, nominationIds);
-  const assignments = await listAssignmentsByNominationIds(admin, nominationIds);
-  const toAssignments = await listTOAssignmentsByNominationIds(admin, nominationIds);
-  const referees = await listProfilesByIds(
-    admin,
-    [...new Set(assignments.map((assignment) => assignment.referee_id))],
-  );
-  const toUsers = await listProfilesByIds(
-    admin,
-    [...new Set(toAssignments.map((assignment) => assignment.to_id))],
-  );
-  const creators = await listProfilesByIds(
-    admin,
-    [...new Set(nominations.map((nomination) => nomination.created_by))],
-  );
-  const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
-  const toMap = new Map(toUsers.map((item) => [item.id, item]));
-  const creatorMap = new Map(creators.map((creator) => [creator.id, creator]));
-  const assignmentsByNominationId = groupRowsByNominationId(assignments);
-  const toAssignmentsByNominationId = groupRowsByNominationId(toAssignments);
+    const nominationIds = nominations.map((nomination) => nomination.id);
+    await expirePendingAssignments(admin, nominationIds);
+    const assignments = await listAssignmentsByNominationIds(admin, nominationIds);
+    const toAssignments = await listTOAssignmentsByNominationIds(admin, nominationIds);
+    const referees = await listProfilesByIds(
+      admin,
+      [...new Set(assignments.map((assignment) => assignment.referee_id))],
+    );
+    const toUsers = await listProfilesByIds(
+      admin,
+      [...new Set(toAssignments.map((assignment) => assignment.to_id))],
+    );
+    const creators = await listProfilesByIds(
+      admin,
+      [...new Set(nominations.map((nomination) => nomination.created_by))],
+    );
+    const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
+    const toMap = new Map(toUsers.map((item) => [item.id, item]));
+    const creatorMap = new Map(creators.map((creator) => [creator.id, creator]));
+    const assignmentsByNominationId = groupRowsByNominationId(assignments);
+    const toAssignmentsByNominationId = groupRowsByNominationId(toAssignments);
 
-  return nominations
-    .map((nomination) => ({
-      id: nomination.id,
-      gameCode: nomination.game_code || 'ABL-NEW',
-      teams: nomination.teams,
-      matchDate: nomination.match_date,
-      matchTime: nomination.match_time,
-      venue: nomination.venue,
-      finalScore: nomination.final_score || null,
-      matchVideoUrl: nomination.match_video_url || null,
-      matchProtocolUrl: nomination.match_protocol_url || null,
-      refereeFee: nomination.referee_fee ?? null,
-      toFee: nomination.to_fee ?? null,
-      createdAt: nomination.created_at,
-      createdById: nomination.created_by,
-      createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
-      referees: buildRefereeCrewFromAssignments(assignmentsByNominationId.get(nomination.id) || [], refereeMap, {
+    return nominations
+      .map((nomination) => ({
+        id: nomination.id,
+        gameCode: nomination.game_code || 'ABL-NEW',
+        teams: nomination.teams,
         matchDate: nomination.match_date,
         matchTime: nomination.match_time,
-      }),
-      toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap, {
-        matchDate: nomination.match_date,
-        matchTime: nomination.match_time,
-      }),
-    }))
-    .sort(sortByMatchDesc);
+        venue: nomination.venue,
+        finalScore: nomination.final_score || null,
+        matchVideoUrl: nomination.match_video_url || null,
+        matchProtocolUrl: nomination.match_protocol_url || null,
+        refereeFee: nomination.referee_fee ?? null,
+        toFee: nomination.to_fee ?? null,
+        createdAt: nomination.created_at,
+        createdById: nomination.created_by,
+        createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
+        referees: buildRefereeCrewFromAssignments(assignmentsByNominationId.get(nomination.id) || [], refereeMap, {
+          matchDate: nomination.match_date,
+          matchTime: nomination.match_time,
+        }),
+        toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap, {
+          matchDate: nomination.match_date,
+          matchTime: nomination.match_time,
+        }),
+      }))
+      .sort(sortByMatchDesc);
+  }, force);
 };
 
-const getRefereeAssignmentsData = async (admin, refereeId) => {
+const getRefereeAssignmentsData = async (admin, refereeId, force = false) => {
   const user = await requireProfileById(admin, refereeId);
   if (!['Referee', 'Instructor', 'TO'].includes(user.role)) {
     throw new HttpError(403, 'Only Referee, Instructor and TO accounts have game assignments.');
   }
 
-  const replacementNotices = user.role === 'TO' ? [] : await listReplacementNotices(admin, refereeId);
+  return getTimedCacheValue(refereeAssignmentsCache, `${refereeId}:${user.role}`, HEAVY_VIEW_CACHE_TTL_MS, async () => {
+    const replacementNotices = user.role === 'TO' ? [] : await listReplacementNotices(admin, refereeId);
 
-  if (user.role === 'TO') {
-    const assignments = await listTOAssignmentsByUserId(admin, refereeId);
-    const visibleAssignments = assignments.filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
+    if (user.role === 'TO') {
+      const assignments = await listTOAssignmentsByUserId(admin, refereeId);
+      const visibleAssignments = assignments.filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
+
+      if (!visibleAssignments.length) {
+        return {
+          nominations: [],
+          replacementNotices: [],
+          activeAnnouncement: await getCurrentAnnouncementForUser(admin, user),
+        };
+      }
+
+      const nominations = await listNominationsByIds(
+        admin,
+        [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
+      );
+      const instructors = await listProfilesByIds(
+        admin,
+        [...new Set(nominations.map((nomination) => nomination.created_by))],
+      );
+      const nominationAssignments = await listAssignmentsByNominationIds(
+        admin,
+        [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
+      );
+      const toAssignments = await listTOAssignmentsByNominationIds(
+        admin,
+        [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
+      );
+      const refereeCrewProfiles = await listProfilesByIds(
+        admin,
+        [...new Set(nominationAssignments.map((assignment) => assignment.referee_id))],
+      );
+      const toCrewProfiles = await listProfilesByIds(
+        admin,
+        [...new Set(toAssignments.map((assignment) => assignment.to_id))],
+      );
+      const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+      const instructorMap = new Map(instructors.map((instructor) => [instructor.id, instructor]));
+      const refereeCrewMap = new Map(refereeCrewProfiles.map((item) => [item.id, item]));
+      const toCrewMap = new Map(toCrewProfiles.map((item) => [item.id, item]));
+      const nominationAssignmentsByNominationId = groupRowsByNominationId(nominationAssignments);
+      const toAssignmentsByNominationId = groupRowsByNominationId(toAssignments);
+
+      return {
+        nominations: visibleAssignments
+          .map((assignment) => {
+            const nomination = nominationMap.get(assignment.nomination_id);
+            if (!nomination) {
+              return null;
+            }
+
+            return {
+              id: assignment.id,
+              nominationId: nomination.id,
+              gameCode: nomination.game_code || 'ABL-NEW',
+              teams: nomination.teams,
+              matchDate: nomination.match_date,
+              matchTime: nomination.match_time,
+              venue: nomination.venue,
+              finalScore: nomination.final_score || null,
+              matchVideoUrl: nomination.match_video_url || null,
+              matchProtocolUrl: nomination.match_protocol_url || null,
+              refereeFee: nomination.referee_fee ?? null,
+              toFee: nomination.to_fee ?? null,
+              slotNumber: Number(assignment.slot_number),
+              status: getAssignmentStatusForMatch(assignment.status, nomination.match_date, nomination.match_time),
+              respondedAt: assignment.responded_at || null,
+              autoDeclineAt: null,
+              instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
+              assignmentGroup: 'TO',
+              assignmentLabel: getTOAssignmentLabel(Number(assignment.slot_number)),
+              crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], refereeCrewMap, {
+                matchDate: nomination.match_date,
+                matchTime: nomination.match_time,
+              }),
+              toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toCrewMap, {
+                matchDate: nomination.match_date,
+                matchTime: nomination.match_time,
+              }),
+            };
+          })
+          .filter(Boolean)
+          .sort(sortByMatchDesc),
+        replacementNotices: [],
+        activeAnnouncement: await getCurrentAnnouncementForUser(admin, user),
+      };
+    }
+
+    const { data, error } = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
+    const assignments = ensureData(data || [], error, 'Failed to load referee nominations.');
+    await expirePendingAssignments(admin, [...new Set(assignments.map((assignment) => assignment.nomination_id))]);
+    await autoAcceptPastAssignments(
+      admin,
+      assignments.map((assignment) => assignment.nomination_id),
+    );
+    const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
+    const refreshedAssignments = ensureData(
+      refreshedAssignmentsResponse.data || [],
+      refreshedAssignmentsResponse.error,
+      'Failed to load referee nominations.',
+    );
+    const visibleAssignments = refreshedAssignments.filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
 
     if (!visibleAssignments.length) {
       return {
         nominations: [],
-        replacementNotices: [],
+        replacementNotices,
         activeAnnouncement: await getCurrentAnnouncementForUser(admin, user),
       };
     }
@@ -2338,18 +2482,18 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
       admin,
       [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
     );
-    const refereeCrewProfiles = await listProfilesByIds(
+    const assignedOfficials = await listProfilesByIds(
       admin,
       [...new Set(nominationAssignments.map((assignment) => assignment.referee_id))],
     );
-    const toCrewProfiles = await listProfilesByIds(
+    const toProfiles = await listProfilesByIds(
       admin,
       [...new Set(toAssignments.map((assignment) => assignment.to_id))],
     );
     const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
     const instructorMap = new Map(instructors.map((instructor) => [instructor.id, instructor]));
-    const refereeCrewMap = new Map(refereeCrewProfiles.map((item) => [item.id, item]));
-    const toCrewMap = new Map(toCrewProfiles.map((item) => [item.id, item]));
+    const officialMap = new Map(assignedOfficials.map((official) => [official.id, official]));
+    const toMap = new Map(toProfiles.map((item) => [item.id, item]));
     const nominationAssignmentsByNominationId = groupRowsByNominationId(nominationAssignments);
     const toAssignmentsByNominationId = groupRowsByNominationId(toAssignments);
 
@@ -2377,15 +2521,17 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
             slotNumber: Number(assignment.slot_number),
             status: getAssignmentStatusForMatch(assignment.status, nomination.match_date, nomination.match_time),
             respondedAt: assignment.responded_at || null,
-            autoDeclineAt: null,
+            autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
             instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
-            assignmentGroup: 'TO',
-            assignmentLabel: getTOAssignmentLabel(Number(assignment.slot_number)),
-            crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], refereeCrewMap, {
+            assignmentGroup: 'Referee',
+            assignmentLabel: getNominationSlotLabel(Number(assignment.slot_number)),
+            crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap, {
               matchDate: nomination.match_date,
               matchTime: nomination.match_time,
             }),
-            toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toCrewMap, {
+            toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap, {
+              acceptedOnly: user.role === 'Referee',
+              requireFullAcceptedCrew: user.role === 'Referee',
               matchDate: nomination.match_date,
               matchTime: nomination.match_time,
             }),
@@ -2393,69 +2539,92 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
         })
         .filter(Boolean)
         .sort(sortByMatchDesc),
-      replacementNotices: [],
-      activeAnnouncement: await getCurrentAnnouncementForUser(admin, user),
-    };
-  }
-
-  const { data, error } = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
-  const assignments = ensureData(data || [], error, 'Failed to load referee nominations.');
-  await expirePendingAssignments(admin, [...new Set(assignments.map((assignment) => assignment.nomination_id))]);
-  await autoAcceptPastAssignments(
-    admin,
-    assignments.map((assignment) => assignment.nomination_id),
-  );
-  const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', refereeId);
-  const refreshedAssignments = ensureData(
-    refreshedAssignmentsResponse.data || [],
-    refreshedAssignmentsResponse.error,
-    'Failed to load referee nominations.',
-  );
-  const visibleAssignments = refreshedAssignments.filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
-
-  if (!visibleAssignments.length) {
-    return {
-      nominations: [],
       replacementNotices,
       activeAnnouncement: await getCurrentAnnouncementForUser(admin, user),
     };
+  }, force);
+};
+
+const getInstructorDashboardData = async (admin, instructorId, force = false) => {
+  const currentUser = await requireProfileById(admin, instructorId);
+  if (!['Instructor', 'TO Supervisor'].includes(currentUser.role)) {
+    throw new HttpError(403, 'Only Instructor and TO Supervisor accounts can load this dashboard.');
   }
 
-  const nominations = await listNominationsByIds(
-    admin,
-    [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
-  );
-  const instructors = await listProfilesByIds(
-    admin,
-    [...new Set(nominations.map((nomination) => nomination.created_by))],
-  );
-  const nominationAssignments = await listAssignmentsByNominationIds(
-    admin,
-    [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
-  );
-  const toAssignments = await listTOAssignmentsByNominationIds(
-    admin,
-    [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
-  );
-  const assignedOfficials = await listProfilesByIds(
-    admin,
-    [...new Set(nominationAssignments.map((assignment) => assignment.referee_id))],
-  );
-  const toProfiles = await listProfilesByIds(
-    admin,
-    [...new Set(toAssignments.map((assignment) => assignment.to_id))],
-  );
-  const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
-  const instructorMap = new Map(instructors.map((instructor) => [instructor.id, instructor]));
-  const officialMap = new Map(assignedOfficials.map((official) => [official.id, official]));
-  const toMap = new Map(toProfiles.map((item) => [item.id, item]));
-  const nominationAssignmentsByNominationId = groupRowsByNominationId(nominationAssignments);
-  const toAssignmentsByNominationId = groupRowsByNominationId(toAssignments);
+  return getTimedCacheValue(instructorDashboardCache, `${instructorId}:${currentUser.role}`, HEAVY_VIEW_CACHE_TTL_MS, async () => {
+    const [
+      { data: officialRows, error: officialsError },
+      { data: toRows, error: toError },
+      { data: nominationRows, error: nominationsError },
+    ] = await Promise.all([
+      admin
+        .from('profiles')
+        .select('id, full_name, email, license_number, role')
+        .in('role', ['Referee', 'Instructor'])
+        .order('role', { ascending: true })
+        .order('full_name', { ascending: true }),
+      admin
+        .from('profiles')
+        .select('id, full_name, email, license_number, role')
+        .eq('role', 'TO')
+        .order('full_name', { ascending: true }),
+      admin
+        .from('nominations')
+        .select('*')
+        .order('match_date', { ascending: false })
+        .order('match_time', { ascending: false }),
+    ]);
 
-  return {
-    nominations: visibleAssignments
+    const officials = ensureData(officialRows || [], officialsError, 'Failed to load referees.').map(mapOfficialDirectoryItem);
+    const toOfficials = ensureData(toRows || [], toError, 'Failed to load TO users.').map(mapOfficialDirectoryItem);
+    const officialMap = new Map(officials.map((official) => [official.id, official]));
+    const nominationsSource = ensureData(nominationRows || [], nominationsError, 'Failed to load instructor nominations.');
+
+    const nominationIds = nominationsSource.map((nomination) => nomination.id);
+    await expirePendingAssignments(admin, nominationIds);
+    const nominationAssignments = nominationIds.length ? await listAssignmentsByNominationIds(admin, nominationIds) : [];
+    const nominationTOAssignments = nominationIds.length ? await listTOAssignmentsByNominationIds(admin, nominationIds) : [];
+    const ownVisibleAssignments = nominationAssignments.filter(
+      (assignment) => assignment.referee_id === instructorId && assignment.status !== ASSIGNMENT_STATUS.DECLINED,
+    );
+    const ownNominationMap = new Map(nominationsSource.map((nomination) => [nomination.id, nomination]));
+    const nominationCreators = await listProfilesByIds(
+      admin,
+      [...new Set(nominationsSource.map((nomination) => nomination.created_by))],
+    );
+    const creatorMap = new Map(nominationCreators.map((creator) => [creator.id, creator]));
+    const toMap = new Map(toOfficials.map((official) => [official.id, official]));
+    const nominationAssignmentsByNominationId = groupRowsByNominationId(nominationAssignments);
+    const nominationTOAssignmentsByNominationId = groupRowsByNominationId(nominationTOAssignments);
+
+    const nominations = nominationsSource.map((nomination) => ({
+      id: nomination.id,
+      gameCode: nomination.game_code || 'ABL-NEW',
+      teams: nomination.teams,
+      matchDate: nomination.match_date,
+      matchTime: nomination.match_time,
+      venue: nomination.venue,
+      finalScore: nomination.final_score || null,
+      matchVideoUrl: nomination.match_video_url || null,
+      matchProtocolUrl: nomination.match_protocol_url || null,
+      refereeFee: nomination.referee_fee ?? null,
+      toFee: nomination.to_fee ?? null,
+      createdAt: nomination.created_at,
+      createdById: nomination.created_by,
+      createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
+      referees: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap, {
+        matchDate: nomination.match_date,
+        matchTime: nomination.match_time,
+      }),
+      toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap, {
+        matchDate: nomination.match_date,
+        matchTime: nomination.match_time,
+      }),
+    }));
+
+    const assignments = ownVisibleAssignments
       .map((assignment) => {
-        const nomination = nominationMap.get(assignment.nomination_id);
+        const nomination = ownNominationMap.get(assignment.nomination_id);
         if (!nomination) {
           return null;
         }
@@ -2477,152 +2646,31 @@ const getRefereeAssignmentsData = async (admin, refereeId) => {
           status: getAssignmentStatusForMatch(assignment.status, nomination.match_date, nomination.match_time),
           respondedAt: assignment.responded_at || null,
           autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
-          instructorName: instructorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
+          instructorName: officialMap.get(nomination.created_by)?.fullName || currentUser.full_name,
           assignmentGroup: 'Referee',
           assignmentLabel: getNominationSlotLabel(Number(assignment.slot_number)),
           crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap, {
             matchDate: nomination.match_date,
             matchTime: nomination.match_time,
           }),
-          toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap, {
-            acceptedOnly: user.role === 'Referee',
-            requireFullAcceptedCrew: user.role === 'Referee',
+          toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap, {
             matchDate: nomination.match_date,
             matchTime: nomination.match_time,
           }),
         };
       })
       .filter(Boolean)
-      .sort(sortByMatchDesc),
-    replacementNotices,
-    activeAnnouncement: await getCurrentAnnouncementForUser(admin, user),
-  };
-};
+      .sort(sortByMatchDesc);
 
-const getInstructorDashboardData = async (admin, instructorId) => {
-  const currentUser = await requireProfileById(admin, instructorId);
-  if (!['Instructor', 'TO Supervisor'].includes(currentUser.role)) {
-    throw new HttpError(403, 'Only Instructor and TO Supervisor accounts can load this dashboard.');
-  }
-
-  const [
-    { data: officialRows, error: officialsError },
-    { data: toRows, error: toError },
-    { data: nominationRows, error: nominationsError },
-  ] = await Promise.all([
-    admin
-      .from('profiles')
-      .select('id, full_name, email, license_number, role')
-      .in('role', ['Referee', 'Instructor'])
-      .order('role', { ascending: true })
-      .order('full_name', { ascending: true }),
-    admin
-      .from('profiles')
-      .select('id, full_name, email, license_number, role')
-      .eq('role', 'TO')
-      .order('full_name', { ascending: true }),
-    admin
-      .from('nominations')
-      .select('*')
-      .order('match_date', { ascending: false })
-      .order('match_time', { ascending: false }),
-  ]);
-
-  const officials = ensureData(officialRows || [], officialsError, 'Failed to load referees.').map(mapOfficialDirectoryItem);
-  const toOfficials = ensureData(toRows || [], toError, 'Failed to load TO users.').map(mapOfficialDirectoryItem);
-  const officialMap = new Map(officials.map((official) => [official.id, official]));
-  const nominationsSource = ensureData(nominationRows || [], nominationsError, 'Failed to load instructor nominations.');
-
-  const nominationIds = nominationsSource.map((nomination) => nomination.id);
-  await expirePendingAssignments(admin, nominationIds);
-  const nominationAssignments = nominationIds.length ? await listAssignmentsByNominationIds(admin, nominationIds) : [];
-  const nominationTOAssignments = nominationIds.length ? await listTOAssignmentsByNominationIds(admin, nominationIds) : [];
-  const ownVisibleAssignments = nominationAssignments.filter(
-    (assignment) => assignment.referee_id === instructorId && assignment.status !== ASSIGNMENT_STATUS.DECLINED,
-  );
-  const ownNominationMap = new Map(nominationsSource.map((nomination) => [nomination.id, nomination]));
-  const nominationCreators = await listProfilesByIds(
-    admin,
-    [...new Set(nominationsSource.map((nomination) => nomination.created_by))],
-  );
-  const creatorMap = new Map(nominationCreators.map((creator) => [creator.id, creator]));
-  const toMap = new Map(toOfficials.map((official) => [official.id, official]));
-  const nominationAssignmentsByNominationId = groupRowsByNominationId(nominationAssignments);
-  const nominationTOAssignmentsByNominationId = groupRowsByNominationId(nominationTOAssignments);
-
-  const nominations = nominationsSource.map((nomination) => ({
-    id: nomination.id,
-    gameCode: nomination.game_code || 'ABL-NEW',
-    teams: nomination.teams,
-    matchDate: nomination.match_date,
-    matchTime: nomination.match_time,
-    venue: nomination.venue,
-    finalScore: nomination.final_score || null,
-    matchVideoUrl: nomination.match_video_url || null,
-    matchProtocolUrl: nomination.match_protocol_url || null,
-    refereeFee: nomination.referee_fee ?? null,
-    toFee: nomination.to_fee ?? null,
-    createdAt: nomination.created_at,
-    createdById: nomination.created_by,
-    createdByName: creatorMap.get(nomination.created_by)?.full_name || 'Unknown instructor',
-    referees: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap, {
-      matchDate: nomination.match_date,
-      matchTime: nomination.match_time,
-    }),
-    toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap, {
-      matchDate: nomination.match_date,
-      matchTime: nomination.match_time,
-    }),
-  }));
-
-  const assignments = ownVisibleAssignments
-    .map((assignment) => {
-      const nomination = ownNominationMap.get(assignment.nomination_id);
-      if (!nomination) {
-        return null;
-      }
-
-      return {
-        id: assignment.id,
-        nominationId: nomination.id,
-        gameCode: nomination.game_code || 'ABL-NEW',
-        teams: nomination.teams,
-        matchDate: nomination.match_date,
-        matchTime: nomination.match_time,
-        venue: nomination.venue,
-        finalScore: nomination.final_score || null,
-        matchVideoUrl: nomination.match_video_url || null,
-        matchProtocolUrl: nomination.match_protocol_url || null,
-        refereeFee: nomination.referee_fee ?? null,
-        toFee: nomination.to_fee ?? null,
-        slotNumber: Number(assignment.slot_number),
-        status: getAssignmentStatusForMatch(assignment.status, nomination.match_date, nomination.match_time),
-        respondedAt: assignment.responded_at || null,
-        autoDeclineAt: createAssignmentAutoDeclineDate(nomination.created_at)?.toISOString() || null,
-        instructorName: officialMap.get(nomination.created_by)?.fullName || currentUser.full_name,
-        assignmentGroup: 'Referee',
-        assignmentLabel: getNominationSlotLabel(Number(assignment.slot_number)),
-        crew: buildRefereeCrewFromAssignments(nominationAssignmentsByNominationId.get(nomination.id) || [], officialMap, {
-          matchDate: nomination.match_date,
-          matchTime: nomination.match_time,
-        }),
-        toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap, {
-          matchDate: nomination.match_date,
-          matchTime: nomination.match_time,
-        }),
-      };
-    })
-    .filter(Boolean)
-    .sort(sortByMatchDesc);
-
-  return {
-    referees: officials,
-    toOfficials,
-    nominations,
-    assignments: currentUser.role === 'Instructor' ? assignments : [],
-    replacementNotices: currentUser.role === 'Instructor' ? await listReplacementNotices(admin, instructorId) : [],
-    activeAnnouncement: await getCurrentAnnouncementForUser(admin, currentUser),
-  };
+    return {
+      referees: officials,
+      toOfficials,
+      nominations,
+      assignments: currentUser.role === 'Instructor' ? assignments : [],
+      replacementNotices: currentUser.role === 'Instructor' ? await listReplacementNotices(admin, instructorId) : [],
+      activeAnnouncement: await getCurrentAnnouncementForUser(admin, currentUser),
+    };
+  }, force);
 };
 
 const rankingRefereePerformanceFieldMap = [
@@ -3466,7 +3514,8 @@ const createNomination = async (admin, currentUser, body) => {
     throw new HttpError(500, 'Failed to assign referees to the game.');
   }
 
-  const nominations = await getInstructorNominationsData(admin, currentUser.id);
+  clearGameDataCaches();
+  const nominations = await getInstructorNominationsData(admin, currentUser.id, true);
   return nominations.find((nomination) => nomination.id === inserted.id);
 };
 
@@ -3523,7 +3572,8 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
     throw new HttpError(500, 'Failed to replace referee.');
   }
 
-  const nominations = await getInstructorNominationsData(admin, currentUser.id);
+  clearGameDataCaches();
+  const nominations = await getInstructorNominationsData(admin, currentUser.id, true);
   return nominations.find((nomination) => nomination.id === nominationId);
 };
 
@@ -3586,7 +3636,8 @@ const editNominationOfficials = async (admin, currentUser, nominationId, referee
     }
   }
 
-  const nominations = await getInstructorNominationsData(admin, currentUser.id);
+  clearGameDataCaches();
+  const nominations = await getInstructorNominationsData(admin, currentUser.id, true);
   return nominations.find((item) => item.id === nominationId);
 };
 
@@ -3670,7 +3721,8 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
     }
   }
 
-  const nominations = await getInstructorNominationsData(admin, currentUser.id);
+  clearGameDataCaches();
+  const nominations = await getInstructorNominationsData(admin, currentUser.id, true);
   return nominations.find((item) => item.id === nominationId);
 };
 
@@ -3719,7 +3771,8 @@ const updateNominationScore = async (admin, currentUser, nominationId, finalScor
     throw new HttpError(500, 'Failed to update match details.');
   }
 
-  const nominations = await getInstructorNominationsData(admin, currentUser.id);
+  clearGameDataCaches();
+  const nominations = await getInstructorNominationsData(admin, currentUser.id, true);
   return nominations.find((item) => item.id === nominationId);
 };
 
@@ -3763,7 +3816,8 @@ const respondToNomination = async (admin, currentUser, nominationId, response) =
       throw new HttpError(500, 'Failed to save response.');
     }
 
-    const nominations = await getRefereeAssignmentsData(admin, currentUser.id);
+    clearGameDataCaches();
+    const nominations = await getRefereeAssignmentsData(admin, currentUser.id, true);
     return nominations.nominations.find((nomination) => nomination.nominationId === nominationId) || null;
   }
 
@@ -3799,7 +3853,8 @@ const respondToNomination = async (admin, currentUser, nominationId, response) =
     throw new HttpError(500, 'Failed to save response.');
   }
 
-  const nominations = await getRefereeAssignmentsData(admin, currentUser.id);
+  clearGameDataCaches();
+  const nominations = await getRefereeAssignmentsData(admin, currentUser.id, true);
   return nominations.nominations.find((nomination) => nomination.nominationId === nominationId) || null;
 };
 
@@ -3837,6 +3892,8 @@ const deleteNomination = async (admin, currentUser, nominationId) => {
   if (error) {
     throw new HttpError(500, 'Failed to delete nomination.');
   }
+
+  clearGameDataCaches();
 };
 
 const listTestReportTOItems = async (admin, currentUser) => {
