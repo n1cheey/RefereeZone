@@ -81,6 +81,7 @@ const getChatDashboardCacheKey = (userId: string) => `chat:bootstrap:${userId}`;
 const getAvailabilityCacheKey = (userId: string, role: User['role']) => `availability:${userId}:${role}`;
 const TO_CREW_SLOT_NUMBERS = [1, 2, 3, 4];
 const STATISTIC_CREW_SLOT_NUMBERS = [1, 2, 3];
+const REQUIRED_STATISTIC_CREW_SLOT_NUMBERS = [1, 2];
 const STATISTIC_SUPERVISOR_LICENSE = 'Stat Supervisor';
 const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Baku',
@@ -898,8 +899,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         setDashboardError(t('dashboard.statisticCrewPastSelectAtLeastOne'));
         return;
       }
-    } else if (filledStatisticians.length !== STATISTIC_CREW_SLOT_NUMBERS.length) {
-      setDashboardError('Choose 3 different statistic crew members.');
+    } else if (
+      REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.some((slotNumber) => !payloadStatisticians[slotNumber - 1])
+    ) {
+      setDashboardError('Choose Statistician 1 and Statistician 2.');
       return;
     }
 
@@ -981,14 +984,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       ) || null,
     [createdNominationSections],
   );
+  const hasPendingRequiredStatisticCrew = (nomination: InstructorNomination) =>
+    REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.some(
+      (slotNumber) =>
+        !nomination.statisticCrew.find((member) => member.slotNumber === slotNumber) ||
+        nomination.statisticCrew.find((member) => member.slotNumber === slotNumber)?.status === 'Declined',
+    );
+
   const pendingStatisticCrewCount = useMemo(
     () =>
       !isStatisticSupervisor
         ? 0
         : createdNominationSections.upcoming.filter(
-            (nomination) =>
-              nomination.statisticCrew.length < STATISTIC_CREW_SLOT_NUMBERS.length ||
-              nomination.statisticCrew.some((member) => member.status === 'Declined'),
+            (nomination) => hasPendingRequiredStatisticCrew(nomination),
           ).length,
     [createdNominationSections, isStatisticSupervisor],
   );
@@ -997,9 +1005,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       !isStatisticSupervisor
         ? null
         : createdNominationSections.upcoming.find(
-            (nomination) =>
-              nomination.statisticCrew.length < STATISTIC_CREW_SLOT_NUMBERS.length ||
-              nomination.statisticCrew.some((member) => member.status === 'Declined'),
+            (nomination) => hasPendingRequiredStatisticCrew(nomination),
           ) || null,
     [createdNominationSections, isStatisticSupervisor],
   );

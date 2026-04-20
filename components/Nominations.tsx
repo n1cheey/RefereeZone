@@ -32,6 +32,7 @@ const getNominationsCacheKey = (userId: string, role: User['role']) => `nominati
 const getDashboardCacheKey = (userId: string, role: User['role']) => `dashboard:${userId}:${role}`;
 const TO_CREW_SLOT_NUMBERS = [1, 2, 3, 4];
 const STATISTIC_CREW_SLOT_NUMBERS = [1, 2, 3];
+const REQUIRED_STATISTIC_CREW_SLOT_NUMBERS = [1, 2];
 const STATISTIC_SUPERVISOR_LICENSE = 'Stat Supervisor';
 
 const sortMatchesDesc = <T extends { matchDate: string; matchTime: string }>(items: T[]) =>
@@ -556,8 +557,10 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         setErrorMessage(t('dashboard.statisticCrewPastSelectAtLeastOne'));
         return;
       }
-    } else if (filledStatisticians.length !== STATISTIC_CREW_SLOT_NUMBERS.length) {
-      setErrorMessage('Choose 3 different statistic crew members.');
+    } else if (
+      REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.some((slotNumber) => !payloadStatisticians[slotNumber - 1])
+    ) {
+      setErrorMessage('Choose Statistician 1 and Statistician 2.');
       return;
     }
 

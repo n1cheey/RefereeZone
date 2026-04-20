@@ -50,6 +50,7 @@ const ROLE_PREFIX = {
 };
 const TO_CREW_SLOT_NUMBERS = [1, 2, 3, 4];
 const STATISTIC_CREW_SLOT_NUMBERS = [5, 6, 7];
+const REQUIRED_STATISTIC_CREW_SLOT_NUMBERS = [5, 6];
 const STATISTIC_SUPERVISOR_LICENSE = 'Stat Supervisor';
 const BAKU_TIMEZONE = 'Asia/Baku';
 const BAKU_OFFSET = '+04:00';
@@ -3895,12 +3896,20 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
       throw new HttpError(500, 'Failed to assign statistic crew.');
     }
   } else {
-    const normalizedStatisticianIds = ensureDistinctTOs(
+    const normalizedStatisticianIds = normalizeTOSlotSelections(
       statisticianIds,
       STATISTIC_CREW_SLOT_NUMBERS.length,
       'statisticians',
     );
-    await requireTOUsers(admin, normalizedStatisticianIds);
+    const requiredStatisticianIds = REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.map(
+      (slotNumber, index) => normalizedStatisticianIds[STATISTIC_CREW_SLOT_NUMBERS.indexOf(slotNumber)] || '',
+    );
+
+    if (requiredStatisticianIds.some((toId) => !toId)) {
+      throw new HttpError(400, `Select exactly ${REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.length} required statisticians.`);
+    }
+
+    await requireTOUsers(admin, normalizedStatisticianIds.filter(Boolean));
 
     const { error: deleteError } = await admin
       .from('nomination_tos')
@@ -3912,14 +3921,16 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
     }
 
     const { error: insertError } = await admin.from('nomination_tos').insert(
-      normalizedStatisticianIds.map((toId, index) => ({
-        nomination_id: nominationId,
-        to_id: toId,
-        slot_number: STATISTIC_CREW_SLOT_NUMBERS[index],
-        assigned_by: currentUser.id,
-        status: ASSIGNMENT_STATUS.PENDING,
-        responded_at: null,
-      })),
+      normalizedStatisticianIds
+        .map((toId, index) => ({
+          nomination_id: nominationId,
+          to_id: toId,
+          slot_number: STATISTIC_CREW_SLOT_NUMBERS[index],
+          assigned_by: currentUser.id,
+          status: ASSIGNMENT_STATUS.PENDING,
+          responded_at: null,
+        }))
+        .filter((item) => item.to_id),
     );
 
     if (insertError) {
