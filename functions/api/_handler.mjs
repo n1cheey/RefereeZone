@@ -3647,22 +3647,30 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
   return nominations.find((nomination) => nomination.id === nominationId);
 };
 
-const editNominationOfficials = async (admin, currentUser, nominationId, refereeIds) => {
+const editNominationOfficials = async (admin, currentUser, nominationId, body) => {
   await requireRole(admin, currentUser.id, 'Instructor');
   const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
-  const normalizedRefereeIds = ensureDistinctReferees(refereeIds || []);
+  const normalizedRefereeIds = ensureDistinctReferees(body.refereeIds || []);
+  const nextTeams = String(body.teams || '').trim() || nomination.teams;
+  const nextMatchDate = String(body.matchDate || '').trim() || nomination.match_date;
+  const nextMatchTime = String(body.matchTime || '').trim() || nomination.match_time;
+  const nextVenue = String(body.venue || '').trim() || nomination.venue;
   const assignableOfficials = await requireAssignableOfficials(admin, normalizedRefereeIds);
   const officialMap = new Map(assignableOfficials.map((official) => [official.id, official]));
   const currentSlots = await listAssignmentsByNominationIds(admin, [nominationId]);
+
+  if (!nextTeams || !nextMatchDate || !nextMatchTime || !nextVenue) {
+    throw new HttpError(400, 'Fill in teams, date, time and venue.');
+  }
 
   if (currentSlots.length !== 3) {
     throw new HttpError(409, 'This game does not have a complete crew to edit.');
   }
 
   const slotMap = new Map(currentSlots.map((slot) => [Number(slot.slot_number), slot]));
-  const reportDeadlineAt = createDeadlineDate(nomination.match_date, nomination.match_time)?.toISOString() || null;
+  const reportDeadlineAt = createDeadlineDate(nextMatchDate, nextMatchTime)?.toISOString() || null;
   const respondedAt = new Date().toISOString();
-  const shouldAutoAcceptAssignments = hasMatchStarted(nomination.match_date, nomination.match_time);
+  const shouldAutoAcceptAssignments = hasMatchStarted(nextMatchDate, nextMatchTime);
 
   for (const [index, refereeId] of normalizedRefereeIds.entries()) {
     const slotNumber = index + 1;
@@ -3795,6 +3803,27 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
 
     if (insertError) {
       throw new HttpError(500, 'Failed to assign TO crew.');
+    }
+  }
+
+  if (
+    nextTeams !== nomination.teams ||
+    nextMatchDate !== nomination.match_date ||
+    nextMatchTime !== nomination.match_time ||
+    nextVenue !== nomination.venue
+  ) {
+    const { error: nominationUpdateError } = await admin
+      .from('nominations')
+      .update({
+        teams: nextTeams,
+        match_date: nextMatchDate,
+        match_time: nextMatchTime,
+        venue: nextVenue,
+      })
+      .eq('id', nominationId);
+
+    if (nominationUpdateError) {
+      throw new HttpError(500, 'Failed to update game details.');
     }
   }
 
@@ -5656,7 +5685,7 @@ const routeRequest = async (event) => {
       admin,
       currentUser,
       editNominationMatch[1],
-      body.refereeIds,
+      body,
     );
     return json(200, { message: 'Nomination updated.', nomination });
   }

@@ -14,10 +14,6 @@ const MatchTeamsHeader: React.FC<MatchTeamsHeaderProps> = ({
 }) => {
   const teamItems = splitMatchTeams(teams);
 
-  if (teamItems.length < 2) {
-    return <h4 className={`${titleClassName} ${className}`.trim()}>{teams}</h4>;
-  }
-
   return (
     <div className={`flex flex-wrap items-center gap-3 ${className}`.trim()}>
       {teamItems.map((teamName, index) => {

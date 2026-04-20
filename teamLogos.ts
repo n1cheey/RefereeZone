@@ -1,14 +1,19 @@
-const absheronLionsLogo = new URL('./teams/Absheron_Lions_BK.png', import.meta.url).href;
-const genceLogo = new URL('./teams/Gəncə_BK.jpg', import.meta.url).href;
-const lenkeranLogo = new URL('./teams/Lənkəran_BK.jpg', import.meta.url).href;
-const nakhchivanLogo = new URL('./teams/Nakhchivan_BK.png', import.meta.url).href;
-const neftchiLogo = new URL('./teams/neftchi_ik.png', import.meta.url).href;
-const ntdLogo = new URL('./teams/NTD_BK.png', import.meta.url).href;
-const orduLogo = new URL('./teams/Ordu_İK.png', import.meta.url).href;
-const qubaLogo = new URL('./teams/Quba_BK.png', import.meta.url).href;
-const sabahLogo = new URL('./teams/Sabah_BK.png', import.meta.url).href;
-const serhedciLogo = new URL('./teams/serhedci_bk.jpg', import.meta.url).href;
-const shekiLogo = new URL('./teams/Sheki_BK.jpg', import.meta.url).href;
+const teamAssetModules = import.meta.glob('./teams/*', { eager: true, import: 'default' }) as Record<string, string>;
+
+export const TEAM_OPTIONS = [
+  'Abşeron BK',
+  'Gəncə BK',
+  'Lənkəran BK',
+  'Naxçıvan BK',
+  'Neftçi BK',
+  'NTD BK',
+  'Ordu İK',
+  'Quba BK',
+  'Sabah BK',
+  'Sərhədçi BK',
+  'Şəki BK',
+  'Sumqayıt BK',
+] as const;
 
 const CHARACTER_REPLACEMENTS: Record<string, string> = {
   ə: 'e',
@@ -40,14 +45,37 @@ const normalizeTeamName = (value: string) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
-const TEAM_LOGO_BY_KEY: Record<string, string> = {
+const getTeamAssetUrl = (filenamePart: string) => {
+  const normalizedFilenamePart = normalizeTeamName(filenamePart);
+  const entry = Object.entries(teamAssetModules).find(([assetPath]) => normalizeTeamName(assetPath).includes(normalizedFilenamePart));
+  return entry?.[1] || null;
+};
+
+const absheronLionsLogo = getTeamAssetUrl('Absheron_Lions_BK');
+const genceLogo = getTeamAssetUrl('Gəncə_BK');
+const lenkeranLogo = getTeamAssetUrl('Lənkəran_BK');
+const nakhchivanLogo = getTeamAssetUrl('Nakhchivan_BK');
+const neftchiLogo = getTeamAssetUrl('neftchi_ik');
+const ntdLogo = getTeamAssetUrl('NTD_BK');
+const orduLogo = getTeamAssetUrl('Ordu_İK');
+const qubaLogo = getTeamAssetUrl('Quba_BK');
+const sabahLogo = getTeamAssetUrl('Sabah_BK');
+const serhedciLogo = getTeamAssetUrl('serhedci_bk');
+const shekiLogo = getTeamAssetUrl('Sheki_BK');
+const sumqayitLogo = getTeamAssetUrl('Sumqayit');
+
+const TEAM_LOGO_BY_KEY: Record<string, string | null> = {
+  'absheron bk': absheronLionsLogo,
   'absheron lions bk': absheronLionsLogo,
+  'abseron bk': absheronLionsLogo,
   'abseron lions bk': absheronLionsLogo,
   'gence bk': genceLogo,
   'lenkeran bk': lenkeranLogo,
   'nakhchivan bk': nakhchivanLogo,
   'nakhcivan bk': nakhchivanLogo,
   'naxcivan bk': nakhchivanLogo,
+  'naxchivan bk': nakhchivanLogo,
+  'neftchi bk': neftchiLogo,
   'neftchi ik': neftchiLogo,
   'ntd bk': ntdLogo,
   'ordu ik': orduLogo,
@@ -57,11 +85,25 @@ const TEAM_LOGO_BY_KEY: Record<string, string> = {
   'serhedchi bk': serhedciLogo,
   'sheki bk': shekiLogo,
   'seki bk': shekiLogo,
+  'sumqayit bk': sumqayitLogo,
+  'sumqayit': sumqayitLogo,
+  'sumgait bk': sumqayitLogo,
 };
 
 export const getTeamLogoUrl = (teamName: string) => TEAM_LOGO_BY_KEY[normalizeTeamName(teamName)] || null;
 
-export const splitMatchTeams = (teams: string) => {
-  const parts = teams.split(/\s+-\s+/).map((part) => part.trim()).filter(Boolean);
-  return parts.length >= 2 ? parts.slice(0, 2) : [teams];
+export const splitMatchTeams = (teams: string) =>
+  String(teams || '')
+    .split(/\s+(?:vs|v\.?)\s+|\s+-\s+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+export const formatMatchTeams = (team1: string, team2: string) => {
+  const left = String(team1 || '').trim();
+  const right = String(team2 || '').trim();
+  if (!left || !right) {
+    return '';
+  }
+
+  return `${left} vs ${right}`;
 };

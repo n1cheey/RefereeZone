@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin, Shield } from 'lucide-react';
 import { InstructorNomination, RefereeNomination, User } from '../types';
 import Layout from './Layout';
+import MatchTeamsHeader from './MatchTeamsHeader';
 import { useI18n } from '../i18n';
 import {
   getInstructorDashboard,
@@ -374,7 +375,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
                         <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
                           {match.gameCode}
                         </div>
-                        <div className="mt-1 text-base font-bold text-slate-900">{match.teams}</div>
+                        <MatchTeamsHeader teams={match.teams} className="mt-1" titleClassName="text-base font-bold text-slate-900" />
                       </div>
                       <div
                         className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${

@@ -71,6 +71,10 @@ export function editNominationOfficials(payload: {
   nominationId: string;
   instructorId: string;
   refereeIds: string[];
+  teams?: string;
+  matchDate?: string;
+  matchTime?: string;
+  venue?: string;
 }) {
   return apiRequest<{ message: string; nomination: InstructorNomination }>(
     `/api/nominations/${encodeURIComponent(payload.nominationId)}`,
@@ -80,6 +84,10 @@ export function editNominationOfficials(payload: {
       body: JSON.stringify({
         instructorId: payload.instructorId,
         refereeIds: payload.refereeIds,
+        teams: payload.teams,
+        matchDate: payload.matchDate,
+        matchTime: payload.matchTime,
+        venue: payload.venue,
       }),
     },
   );

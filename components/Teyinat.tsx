@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Calendar, Clock, Download, MapPin } from 'lucide-react';
 import Layout from './Layout';
+import MatchTeamsHeader from './MatchTeamsHeader';
 import { getNominationSlotLabel } from '../slotLabels';
 import { exportTeyinatPdf, TeyinatGroup } from '../services/teyinatPdf';
 import { getInstructorNominations } from '../services/nominationService';
@@ -208,7 +209,7 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
                     />
                     <div>
                       <div className="text-xs font-bold uppercase tracking-wide text-[#581c1c]">{nomination.gameCode}</div>
-                      <h3 className="mt-1 text-lg font-bold text-slate-900">{nomination.teams}</h3>
+                      <MatchTeamsHeader teams={nomination.teams} className="mt-1" titleClassName="text-lg font-bold text-slate-900" />
                       <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-3">
                         <div className="flex items-center gap-2">
                           <Calendar size={14} className="text-[#f97316]" />

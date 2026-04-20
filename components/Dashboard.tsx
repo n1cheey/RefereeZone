@@ -5,6 +5,7 @@ import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import { getMatchTimestamp, isPastMatch } from '../matchTiming';
 import Layout from './Layout';
 import MatchTeamsHeader from './MatchTeamsHeader';
+import { formatMatchTeams, splitMatchTeams, TEAM_OPTIONS } from '../teamLogos';
 import {
   AlertTriangle,
   Award,
@@ -189,7 +190,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const animatedMonthlyEarningsRef = useRef(0);
   const [form, setForm] = useState({
     gameCode: '',
-    teams: '',
+    team1: '',
+    team2: '',
     matchDate: '',
     matchTime: '',
     venue: '',
@@ -558,7 +560,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const resetForm = () => {
     setForm({
       gameCode: '',
-      teams: '',
+      team1: '',
+      team2: '',
       matchDate: '',
       matchTime: '',
       venue: '',
@@ -627,10 +630,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     }
 
     try {
+      const teams = formatMatchTeams(form.team1, form.team2);
+      if (!teams || form.team1 === form.team2) {
+        setDashboardError('Choose two different teams.');
+        setIsSubmittingCreate(false);
+        return;
+      }
+
       await createNomination({
         instructorId: user.id,
         gameCode: form.gameCode,
-        teams: form.teams,
+        teams,
         matchDate: form.matchDate,
         matchTime: form.matchTime,
         venue: form.venue,
@@ -719,8 +729,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   };
 
   const handleStartEditNomination = (nomination: InstructorNomination) => {
+    const [team1 = '', team2 = ''] = splitMatchTeams(nomination.teams);
     setEditingNominationId(nomination.id);
     setEditSelections({
+      team1,
+      team2,
+      matchDate: nomination.matchDate,
+      matchTime: nomination.matchTime,
+      venue: nomination.venue,
       referee1: nomination.referees.find((item) => item.slotNumber === 1)?.refereeId || '',
       referee2: nomination.referees.find((item) => item.slotNumber === 2)?.refereeId || '',
       referee3: nomination.referees.find((item) => item.slotNumber === 3)?.refereeId || '',
@@ -736,9 +752,23 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
   const handleSaveEditedNomination = async (nominationId: string) => {
     const refereeIds = [editSelections.referee1, editSelections.referee2, editSelections.referee3];
+    const teams = formatMatchTeams(editSelections.team1 || '', editSelections.team2 || '');
+    const matchDate = String(editSelections.matchDate || '').trim();
+    const matchTime = String(editSelections.matchTime || '').trim();
+    const venue = String(editSelections.venue || '').trim();
 
     if (new Set(refereeIds).size !== 3 || refereeIds.some((item) => !item)) {
       setDashboardError('Choose 3 different officials.');
+      return;
+    }
+
+    if (!teams || editSelections.team1 === editSelections.team2) {
+      setDashboardError('Choose two different teams.');
+      return;
+    }
+
+    if (!matchDate || !matchTime || !venue) {
+      setDashboardError('Fill in date, time and venue.');
       return;
     }
 
@@ -751,6 +781,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         nominationId,
         instructorId: user.id,
         refereeIds,
+        teams,
+        matchDate,
+        matchTime,
+        venue,
       });
       await refreshInstructorData();
       handleCancelEditNomination();
@@ -1604,22 +1638,89 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className="text-xs font-bold uppercase text-[#581c1c]">{nomination.gameCode}</div>
-          <MatchTeamsHeader teams={nomination.teams} className="mt-1" />
+          {editingNominationId === nomination.id ? (
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Team 1</label>
+                <select
+                  value={editSelections.team1 || ''}
+                  onChange={(e) => setEditSelections((prev) => ({ ...prev, team1: e.target.value }))}
+                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                >
+                  <option value="">Select team</option>
+                  {TEAM_OPTIONS.map((team) => (
+                    <option key={team} value={team}>
+                      {team}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Team 2</label>
+                <select
+                  value={editSelections.team2 || ''}
+                  onChange={(e) => setEditSelections((prev) => ({ ...prev, team2: e.target.value }))}
+                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                >
+                  <option value="">Select team</option>
+                  {TEAM_OPTIONS.map((team) => (
+                    <option key={team} value={team}>
+                      {team}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ) : (
+            <MatchTeamsHeader teams={nomination.teams} className="mt-1" />
+          )}
           <div className="mt-1 text-xs text-slate-500">{t('dashboard.createdByLabel', { name: nomination.createdByName })}</div>
-          <div className="grid gap-2 mt-2 text-sm text-slate-600 md:grid-cols-2">
-            <div className="flex items-center gap-2">
-              <Calendar size={14} className="text-[#f97316]" />
-              {nomination.matchDate}
+          {editingNominationId === nomination.id ? (
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Date</label>
+                <input
+                  type="date"
+                  value={editSelections.matchDate || ''}
+                  onChange={(e) => setEditSelections((prev) => ({ ...prev, matchDate: e.target.value }))}
+                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Time</label>
+                <input
+                  type="time"
+                  value={editSelections.matchTime || ''}
+                  onChange={(e) => setEditSelections((prev) => ({ ...prev, matchTime: e.target.value }))}
+                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Venue</label>
+                <input
+                  value={editSelections.venue || ''}
+                  onChange={(e) => setEditSelections((prev) => ({ ...prev, venue: e.target.value }))}
+                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                  placeholder="Sarhadchi Arena"
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Clock size={14} className="text-[#f97316]" />
-              {nomination.matchTime}
+          ) : (
+            <div className="grid gap-2 mt-2 text-sm text-slate-600 md:grid-cols-2">
+              <div className="flex items-center gap-2">
+                <Calendar size={14} className="text-[#f97316]" />
+                {nomination.matchDate}
+              </div>
+              <div className="flex items-center gap-2">
+                <Clock size={14} className="text-[#f97316]" />
+                {nomination.matchTime}
+              </div>
+              <div className="flex items-center gap-2 md:col-span-2">
+                <MapPin size={14} className="text-[#f97316]" />
+                {nomination.venue}
+              </div>
             </div>
-            <div className="flex items-center gap-2 md:col-span-2">
-              <MapPin size={14} className="text-[#f97316]" />
-              {nomination.venue}
-            </div>
-          </div>
+          )}
         </div>
         {isInstructor && nomination.createdById === user.id ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -2236,15 +2337,37 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                     placeholder="ABL-205"
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Game</label>
-                  <input
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Team 1</label>
+                  <select
                     required
-                    value={form.teams}
-                    onChange={(e) => updateFormField('teams', e.target.value)}
-                    className="block w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
-                    placeholder="Sabah vs Ganja"
-                  />
+                    value={form.team1}
+                    onChange={(e) => updateFormField('team1', e.target.value)}
+                    className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
+                  >
+                    <option value="">Select team</option>
+                    {TEAM_OPTIONS.map((team) => (
+                      <option key={team} value={team}>
+                        {team}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Team 2</label>
+                  <select
+                    required
+                    value={form.team2}
+                    onChange={(e) => updateFormField('team2', e.target.value)}
+                    className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-[#581c1c]"
+                  >
+                    <option value="">Select team</option>
+                    {TEAM_OPTIONS.map((team) => (
+                      <option key={team} value={team}>
+                        {team}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
