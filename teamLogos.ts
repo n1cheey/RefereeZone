@@ -45,6 +45,14 @@ const normalizeTeamName = (value: string) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
+const ASSET_URL_BY_NORMALIZED_BASENAME = Object.fromEntries(
+  Object.entries(teamAssetModules).map(([assetPath, assetUrl]) => {
+    const filename = assetPath.split('/').pop() || assetPath;
+    const basename = filename.replace(/\.[^.]+$/, '');
+    return [normalizeTeamName(basename), assetUrl];
+  }),
+) as Record<string, string>;
+
 const CANONICAL_TEAM_NAME_BY_KEY: Record<string, string> = {
   'absheron bk': 'Ab\u015feron Lions BK',
   'absheron lions bk': 'Ab\u015feron Lions BK',
@@ -77,17 +85,16 @@ const CANONICAL_TEAM_NAME_BY_KEY: Record<string, string> = {
 
 const getTeamAssetUrl = (filenamePart: string) => {
   const normalizedFilenamePart = normalizeTeamName(filenamePart);
-  const entry = Object.entries(teamAssetModules).find(([assetPath]) => normalizeTeamName(assetPath).includes(normalizedFilenamePart));
-  return entry?.[1] || null;
+  return ASSET_URL_BY_NORMALIZED_BASENAME[normalizedFilenamePart] || null;
 };
 
 const absheronLionsLogo = getTeamAssetUrl('Absheron_Lions_BK');
 const genceLogo = getTeamAssetUrl('G\u0259nc\u0259_BK');
 const lenkeranLogo = getTeamAssetUrl('L\u0259nk\u0259ran_BK');
 const nakhchivanLogo = getTeamAssetUrl('Nakhchivan_BK');
-const neftchiLogo = getTeamAssetUrl('neftchi_ik');
+const neftchiLogo = getTeamAssetUrl('Neftçi_ik');
 const ntdLogo = getTeamAssetUrl('NTD_BK');
-const orduLogo = getTeamAssetUrl('Ordu_\u0130K');
+const orduLogo = getTeamAssetUrl('Ordu_IK');
 const qubaLogo = getTeamAssetUrl('Quba_BK');
 const sabahLogo = getTeamAssetUrl('Sabah_BK');
 const serhedciLogo = getTeamAssetUrl('serhedci_bk');
