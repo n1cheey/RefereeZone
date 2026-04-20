@@ -1,41 +1,41 @@
 const teamAssetModules = import.meta.glob('./teams/*', { eager: true, import: 'default' }) as Record<string, string>;
 
 export const TEAM_OPTIONS = [
-  'Abşeron Lions BK',
-  'Gəncə BK',
-  'Lənkəran BK',
-  'Naxçıvan BK',
-  'Neftçi İK',
+  'Ab\u015feron Lions BK',
+  'G\u0259nc\u0259 BK',
+  'L\u0259nk\u0259ran BK',
+  'Nax\u00e7\u0131van BK',
+  'Neft\u00e7i \u0130K',
   'NTD BK',
-  'Ordu İK',
+  'Ordu \u0130K',
   'Quba BK',
   'Sabah BK',
-  'Sərhədçi PİK',
-  'Şəki BK',
-  'Sumqayıt BK',
+  'S\u0259rh\u0259d\u00e7i P\u0130K',
+  '\u015e\u0259ki BK',
+  'Sumqay\u0131t BK',
 ] as const;
 
 const CHARACTER_REPLACEMENTS: Record<string, string> = {
-  ə: 'e',
-  Ə: 'e',
-  ı: 'i',
-  İ: 'i',
-  ş: 's',
-  Ş: 's',
-  ç: 'c',
-  Ç: 'c',
-  ğ: 'g',
-  Ğ: 'g',
-  ö: 'o',
-  Ö: 'o',
-  ü: 'u',
-  Ü: 'u',
+  '\u0259': 'e',
+  '\u018f': 'e',
+  '\u0131': 'i',
+  '\u0130': 'i',
+  '\u015f': 's',
+  '\u015e': 's',
+  '\u00e7': 'c',
+  '\u00c7': 'c',
+  '\u011f': 'g',
+  '\u011e': 'g',
+  '\u00f6': 'o',
+  '\u00d6': 'o',
+  '\u00fc': 'u',
+  '\u00dc': 'u',
   x: 'kh',
   X: 'kh',
 };
 
 const normalizeTeamName = (value: string) =>
-  value
+  String(value || '')
     .split('')
     .map((character) => CHARACTER_REPLACEMENTS[character] ?? character)
     .join('')
@@ -45,6 +45,36 @@ const normalizeTeamName = (value: string) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
+const CANONICAL_TEAM_NAME_BY_KEY: Record<string, string> = {
+  'absheron bk': 'Ab\u015feron Lions BK',
+  'absheron lions bk': 'Ab\u015feron Lions BK',
+  'abseron bk': 'Ab\u015feron Lions BK',
+  'abseron lions bk': 'Ab\u015feron Lions BK',
+  'gence bk': 'G\u0259nc\u0259 BK',
+  'lenkeran bk': 'L\u0259nk\u0259ran BK',
+  'nakhchivan bk': 'Nax\u00e7\u0131van BK',
+  'nakhcivan bk': 'Nax\u00e7\u0131van BK',
+  'naxcivan bk': 'Nax\u00e7\u0131van BK',
+  'naxchivan bk': 'Nax\u00e7\u0131van BK',
+  'neftchi ik': 'Neft\u00e7i \u0130K',
+  'neftci ik': 'Neft\u00e7i \u0130K',
+  'neftchi bk': 'Neft\u00e7i \u0130K',
+  'neftci bk': 'Neft\u00e7i \u0130K',
+  'ntd bk': 'NTD BK',
+  'ordu ik': 'Ordu \u0130K',
+  'quba bk': 'Quba BK',
+  'sabah bk': 'Sabah BK',
+  'serhedci pik': 'S\u0259rh\u0259d\u00e7i P\u0130K',
+  'serhedchi pik': 'S\u0259rh\u0259d\u00e7i P\u0130K',
+  'serhedci bk': 'S\u0259rh\u0259d\u00e7i P\u0130K',
+  'serhedchi bk': 'S\u0259rh\u0259d\u00e7i P\u0130K',
+  'sheki bk': '\u015e\u0259ki BK',
+  'seki bk': '\u015e\u0259ki BK',
+  'sumqayit bk': 'Sumqay\u0131t BK',
+  'sumqayit': 'Sumqay\u0131t BK',
+  'sumgait bk': 'Sumqay\u0131t BK',
+};
+
 const getTeamAssetUrl = (filenamePart: string) => {
   const normalizedFilenamePart = normalizeTeamName(filenamePart);
   const entry = Object.entries(teamAssetModules).find(([assetPath]) => normalizeTeamName(assetPath).includes(normalizedFilenamePart));
@@ -52,12 +82,12 @@ const getTeamAssetUrl = (filenamePart: string) => {
 };
 
 const absheronLionsLogo = getTeamAssetUrl('Absheron_Lions_BK');
-const genceLogo = getTeamAssetUrl('Gəncə_BK');
-const lenkeranLogo = getTeamAssetUrl('Lənkəran_BK');
+const genceLogo = getTeamAssetUrl('G\u0259nc\u0259_BK');
+const lenkeranLogo = getTeamAssetUrl('L\u0259nk\u0259ran_BK');
 const nakhchivanLogo = getTeamAssetUrl('Nakhchivan_BK');
 const neftchiLogo = getTeamAssetUrl('neftchi_ik');
 const ntdLogo = getTeamAssetUrl('NTD_BK');
-const orduLogo = getTeamAssetUrl('Ordu_İK');
+const orduLogo = getTeamAssetUrl('Ordu_\u0130K');
 const qubaLogo = getTeamAssetUrl('Quba_BK');
 const sabahLogo = getTeamAssetUrl('Sabah_BK');
 const serhedciLogo = getTeamAssetUrl('serhedci_bk');
@@ -76,7 +106,9 @@ const TEAM_LOGO_BY_KEY: Record<string, string | null> = {
   'naxcivan bk': nakhchivanLogo,
   'naxchivan bk': nakhchivanLogo,
   'neftchi ik': neftchiLogo,
+  'neftci ik': neftchiLogo,
   'neftchi bk': neftchiLogo,
+  'neftci bk': neftchiLogo,
   'ntd bk': ntdLogo,
   'ordu ik': orduLogo,
   'quba bk': qubaLogo,
@@ -92,17 +124,19 @@ const TEAM_LOGO_BY_KEY: Record<string, string | null> = {
   'sumgait bk': sumqayitLogo,
 };
 
+export const getCanonicalTeamName = (teamName: string) => CANONICAL_TEAM_NAME_BY_KEY[normalizeTeamName(teamName)] || String(teamName || '').trim();
+
 export const getTeamLogoUrl = (teamName: string) => TEAM_LOGO_BY_KEY[normalizeTeamName(teamName)] || null;
 
 export const splitMatchTeams = (teams: string) =>
   String(teams || '')
     .split(/\s+(?:vs|v\.?)\s+|\s+-\s+/i)
-    .map((part) => part.trim())
+    .map((part) => getCanonicalTeamName(part))
     .filter(Boolean);
 
 export const formatMatchTeams = (team1: string, team2: string) => {
-  const left = String(team1 || '').trim();
-  const right = String(team2 || '').trim();
+  const left = getCanonicalTeamName(team1);
+  const right = getCanonicalTeamName(team2);
   if (!left || !right) {
     return '';
   }

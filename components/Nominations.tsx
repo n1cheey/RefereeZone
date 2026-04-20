@@ -430,7 +430,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     setEditActionNominationId(nominationId);
 
     try {
-      await editNominationOfficials({
+      const response = await editNominationOfficials({
         nominationId,
         instructorId: user.id,
         refereeIds,
@@ -440,11 +440,12 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         venue,
       });
 
-      const response = await getInstructorDashboard(user.id);
-      setReferees(response.referees);
-      setTOOfficials(response.toOfficials);
-      setInstructorNominations(response.nominations);
-      setRefereeAssignments(response.assignments);
+      if (response.nomination) {
+        setInstructorNominations((prev) =>
+          prev.map((item) => (item.id === nominationId ? response.nomination : item)),
+        );
+      }
+
       handleCancelEditNomination();
       setErrorMessage('');
     } catch (error) {

@@ -778,7 +778,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     setDashboardMessage('');
 
     try {
-      await editNominationOfficials({
+      const response = await editNominationOfficials({
         nominationId,
         instructorId: user.id,
         refereeIds,
@@ -787,7 +787,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         matchTime,
         venue,
       });
-      await refreshInstructorData();
+
+      if (response.nomination) {
+        setInstructorNominations((prev) =>
+          prev.map((item) => (item.id === nominationId ? response.nomination : item)),
+        );
+      }
+
       handleCancelEditNomination();
       setDashboardMessage('Game crew updated.');
     } catch (error) {
