@@ -1,0 +1,54 @@
+import React from 'react';
+import { getTeamLogoUrl, splitMatchTeams } from '../teamLogos';
+
+interface MatchTeamsHeaderProps {
+  teams: string;
+  className?: string;
+  titleClassName?: string;
+}
+
+const MatchTeamsHeader: React.FC<MatchTeamsHeaderProps> = ({
+  teams,
+  className = '',
+  titleClassName = 'text-lg font-bold text-slate-900',
+}) => {
+  const teamItems = splitMatchTeams(teams);
+
+  if (teamItems.length < 2) {
+    return <h4 className={`${titleClassName} ${className}`.trim()}>{teams}</h4>;
+  }
+
+  return (
+    <div className={`flex flex-wrap items-center gap-3 ${className}`.trim()}>
+      {teamItems.map((teamName, index) => {
+        const teamLogoUrl = getTeamLogoUrl(teamName);
+        return (
+          <React.Fragment key={`${teamName}-${index}`}>
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
+                {teamLogoUrl ? (
+                  <img src={teamLogoUrl} alt={teamName} className="h-full w-full object-contain" loading="lazy" />
+                ) : (
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    {teamName
+                      .split(' ')
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map((part) => part[0])
+                      .join('')}
+                  </span>
+                )}
+              </div>
+              <h4 className={`${titleClassName} min-w-0`.trim()}>{teamName}</h4>
+            </div>
+            {index < teamItems.length - 1 ? (
+              <span className="text-xs font-bold uppercase tracking-[0.28em] text-slate-400">vs</span>
+            ) : null}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+};
+
+export default MatchTeamsHeader;

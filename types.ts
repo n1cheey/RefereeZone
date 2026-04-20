@@ -69,6 +69,7 @@ export interface InstructorNomination {
   createdByName: string;
   referees: NominationSlot[];
   toCrew: TONominationSlot[];
+  statisticCrew: TONominationSlot[];
 }
 
 export interface RefereeNomination {
@@ -93,6 +94,7 @@ export interface RefereeNomination {
   assignmentLabel: string;
   crew: NominationSlot[];
   toCrew: TONominationSlot[];
+  statisticCrew: TONominationSlot[];
 }
 
 export interface ReplacementNotice {

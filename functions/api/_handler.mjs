@@ -48,6 +48,9 @@ const ROLE_PREFIX = {
   Staff: 'STF',
   Financialist: 'FIN',
 };
+const TO_CREW_SLOT_NUMBERS = [1, 2, 3, 4];
+const STATISTIC_CREW_SLOT_NUMBERS = [5, 6, 7];
+const STATISTIC_SUPERVISOR_LICENSE = 'Stat Supervisor';
 const BAKU_TIMEZONE = 'Asia/Baku';
 const BAKU_OFFSET = '+04:00';
 const BAKU_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
@@ -258,6 +261,18 @@ const getTOAssignmentLabel = (slotNumber) => {
 
   if (slotNumber === 4) {
     return '24sec Operator';
+  }
+
+  if (slotNumber === 5) {
+    return 'Statistician 1';
+  }
+
+  if (slotNumber === 6) {
+    return 'Statistician 2';
+  }
+
+  if (slotNumber === 7) {
+    return 'Graphics';
   }
 
   return `TO ${slotNumber}`;
@@ -1395,10 +1410,19 @@ const buildRefereeCrewFromAssignments = (assignments = [], officialMap, options 
   }));
 };
 
-const buildTOCrewFromAssignments = (assignments = [], toMap, options = {}) => {
-  const { acceptedOnly = false, requireFullAcceptedCrew = false, matchDate = null, matchTime = null } = options;
+const buildTOStyleCrewFromAssignments = (assignments = [], toMap, options = {}) => {
+  const {
+    acceptedOnly = false,
+    requireFullAcceptedCrew = false,
+    matchDate = null,
+    matchTime = null,
+    slotNumbers = TO_CREW_SLOT_NUMBERS,
+    slotNumberOffset = 0,
+  } = options;
+  const allowedSlots = new Set(slotNumbers);
+  const scopedAssignments = assignments.filter((assignment) => allowedSlots.has(Number(assignment.slot_number)));
 
-  const normalizedAssignments = assignments.map((assignment) => ({
+  const normalizedAssignments = scopedAssignments.map((assignment) => ({
     ...assignment,
     status: getAssignmentStatusForMatch(assignment.status, matchDate, matchTime),
   }));
@@ -1407,18 +1431,32 @@ const buildTOCrewFromAssignments = (assignments = [], toMap, options = {}) => {
     ? normalizedAssignments.filter((assignment) => assignment.status === ASSIGNMENT_STATUS.ACCEPTED)
     : normalizedAssignments;
 
-  if (requireFullAcceptedCrew && filteredAssignments.length !== 4) {
+  if (requireFullAcceptedCrew && filteredAssignments.length !== slotNumbers.length) {
     return [];
   }
 
   return filteredAssignments.map((assignment) => ({
-    slotNumber: Number(assignment.slot_number),
+    slotNumber: Number(assignment.slot_number) - slotNumberOffset,
     toId: assignment.to_id,
     toName: toMap.get(assignment.to_id)?.full_name || toMap.get(assignment.to_id)?.fullName || 'Unknown TO',
     status: assignment.status || ASSIGNMENT_STATUS.PENDING,
     respondedAt: assignment.responded_at || null,
   }));
 };
+
+const buildTOCrewFromAssignments = (assignments = [], toMap, options = {}) =>
+  buildTOStyleCrewFromAssignments(assignments, toMap, {
+    ...options,
+    slotNumbers: TO_CREW_SLOT_NUMBERS,
+    slotNumberOffset: 0,
+  });
+
+const buildStatisticCrewFromAssignments = (assignments = [], toMap, options = {}) =>
+  buildTOStyleCrewFromAssignments(assignments, toMap, {
+    ...options,
+    slotNumbers: STATISTIC_CREW_SLOT_NUMBERS,
+    slotNumberOffset: 4,
+  });
 
 const buildTOCrew = (toAssignments, nominationId, toMap, options = {}) => {
   const nominationAssignments = toAssignments.filter((assignment) => assignment.nomination_id === nominationId);
@@ -1794,6 +1832,16 @@ const requireTOUsers = async (admin, toIds) => {
   return rows;
 };
 
+const requireStatisticSupervisor = (currentUser) => {
+  if (!hasRole(currentUser.role, 'TO Supervisor')) {
+    throw new HttpError(403, 'Only TO Supervisor accounts can assign statistic crew.');
+  }
+
+  if (String(currentUser.license_number || '').trim() !== STATISTIC_SUPERVISOR_LICENSE) {
+    throw new HttpError(403, 'Only the Stat Supervisor account can assign statistic crew.');
+  }
+};
+
 const listReplacementNotices = async (admin, refereeId) => {
   const { data, error } = await admin
     .from('replacement_notices')
@@ -1850,23 +1898,23 @@ const requireAssignableOfficials = async (admin, refereeIds) => {
   return rows;
 };
 
-const ensureDistinctTOs = (toIds) => {
+const ensureDistinctTOs = (toIds, expectedCount = 4, entityLabel = 'TO users') => {
   const normalized = (toIds || []).map((toId) => String(toId || '').trim()).filter(Boolean);
   const unique = new Set(normalized);
 
-  if (normalized.length !== 4 || unique.size !== 4) {
-    throw new HttpError(400, 'Select exactly 4 different TO users.');
+  if (normalized.length !== expectedCount || unique.size !== expectedCount) {
+    throw new HttpError(400, `Select exactly ${expectedCount} different ${entityLabel}.`);
   }
 
   return normalized;
 };
-const normalizeTOSlotSelections = (toIds) => {
-  const normalized = Array.from({ length: 4 }, (_, index) => String(toIds?.[index] || '').trim());
+const normalizeTOSlotSelections = (toIds, expectedCount = 4, entityLabel = 'TO users') => {
+  const normalized = Array.from({ length: expectedCount }, (_, index) => String(toIds?.[index] || '').trim());
   const filled = normalized.filter(Boolean);
   const unique = new Set(filled);
 
   if (unique.size !== filled.length) {
-    throw new HttpError(400, 'Select different TO users for each filled slot.');
+    throw new HttpError(400, `Select different ${entityLabel} for each filled slot.`);
   }
 
   return normalized;
@@ -2341,6 +2389,10 @@ const getInstructorNominationsData = async (admin, instructorId, force = false) 
           matchDate: nomination.match_date,
           matchTime: nomination.match_time,
         }),
+        statisticCrew: buildStatisticCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap, {
+          matchDate: nomination.match_date,
+          matchTime: nomination.match_time,
+        }),
       }))
       .sort(sortByMatchDesc);
   }, force);
@@ -2431,6 +2483,10 @@ const getRefereeAssignmentsData = async (admin, refereeId, force = false) => {
                 matchTime: nomination.match_time,
               }),
               toCrew: buildTOCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toCrewMap, {
+                matchDate: nomination.match_date,
+                matchTime: nomination.match_time,
+              }),
+              statisticCrew: buildStatisticCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toCrewMap, {
                 matchDate: nomination.match_date,
                 matchTime: nomination.match_time,
               }),
@@ -2535,6 +2591,12 @@ const getRefereeAssignmentsData = async (admin, refereeId, force = false) => {
               matchDate: nomination.match_date,
               matchTime: nomination.match_time,
             }),
+            statisticCrew: buildStatisticCrewFromAssignments(toAssignmentsByNominationId.get(nomination.id) || [], toMap, {
+              acceptedOnly: user.role === 'Referee',
+              requireFullAcceptedCrew: user.role === 'Referee',
+              matchDate: nomination.match_date,
+              matchTime: nomination.match_time,
+            }),
           };
         })
         .filter(Boolean)
@@ -2620,6 +2682,10 @@ const getInstructorDashboardData = async (admin, instructorId, force = false) =>
         matchDate: nomination.match_date,
         matchTime: nomination.match_time,
       }),
+      statisticCrew: buildStatisticCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap, {
+        matchDate: nomination.match_date,
+        matchTime: nomination.match_time,
+      }),
     }));
 
     const assignments = ownVisibleAssignments
@@ -2654,6 +2720,10 @@ const getInstructorDashboardData = async (admin, instructorId, force = false) =>
             matchTime: nomination.match_time,
           }),
           toCrew: buildTOCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap, {
+            matchDate: nomination.match_date,
+            matchTime: nomination.match_time,
+          }),
+          statisticCrew: buildStatisticCrewFromAssignments(nominationTOAssignmentsByNominationId.get(nomination.id) || [], toMap, {
             matchDate: nomination.match_date,
             matchTime: nomination.match_time,
           }),
@@ -3650,17 +3720,20 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
   );
 
   const isPastMatch = hasMatchStarted(nomination.match_date, nomination.match_time);
-  const existingAssignments = await listTOAssignmentsByNominationIds(admin, [nominationId]);
+  const existingAssignments = (await listTOAssignmentsByNominationIds(admin, [nominationId])).filter((assignment) =>
+    TO_CREW_SLOT_NUMBERS.includes(Number(assignment.slot_number)),
+  );
   const existingAssignmentsBySlot = new Map(existingAssignments.map((assignment) => [Number(assignment.slot_number), assignment]));
 
   if (isPastMatch) {
-    const normalizedTOSelections = normalizeTOSlotSelections(toIds);
-    const mergedTOSelections = [1, 2, 3, 4].map(
-      (_, index) => existingAssignmentsBySlot.get(index + 1)?.to_id || normalizedTOSelections[index] || '',
+    const normalizedTOSelections = normalizeTOSlotSelections(toIds, TO_CREW_SLOT_NUMBERS.length, 'TO users');
+    const mergedTOSelections = TO_CREW_SLOT_NUMBERS.map(
+      (slotNumber, index) => existingAssignmentsBySlot.get(slotNumber)?.to_id || normalizedTOSelections[index] || '',
     );
 
     existingAssignmentsBySlot.forEach((assignment, slotNumber) => {
-      const selectedToId = mergedTOSelections[slotNumber - 1];
+      const slotIndex = TO_CREW_SLOT_NUMBERS.indexOf(slotNumber);
+      const selectedToId = slotIndex >= 0 ? mergedTOSelections[slotIndex] : '';
       if (selectedToId !== assignment.to_id) {
         throw new HttpError(409, 'Assigned TO officials cannot be changed after the match starts.');
       }
@@ -3669,7 +3742,7 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
     const additions = mergedTOSelections
       .map((toId, index) => ({
         toId,
-        slotNumber: index + 1,
+        slotNumber: TO_CREW_SLOT_NUMBERS[index],
       }))
       .filter((item) => item.toId && !existingAssignmentsBySlot.has(item.slotNumber));
 
@@ -3697,10 +3770,14 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
       throw new HttpError(500, 'Failed to assign TO crew.');
     }
   } else {
-    const normalizedTOIds = ensureDistinctTOs(toIds);
+    const normalizedTOIds = ensureDistinctTOs(toIds, TO_CREW_SLOT_NUMBERS.length, 'TO users');
     await requireTOUsers(admin, normalizedTOIds);
 
-    const { error: deleteError } = await admin.from('nomination_tos').delete().eq('nomination_id', nominationId);
+    const { error: deleteError } = await admin
+      .from('nomination_tos')
+      .delete()
+      .eq('nomination_id', nominationId)
+      .in('slot_number', TO_CREW_SLOT_NUMBERS);
     if (deleteError) {
       throw new HttpError(500, 'Failed to reset TO crew.');
     }
@@ -3709,7 +3786,7 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
       normalizedTOIds.map((toId, index) => ({
         nomination_id: nominationId,
         to_id: toId,
-        slot_number: index + 1,
+        slot_number: TO_CREW_SLOT_NUMBERS[index],
         assigned_by: currentUser.id,
         status: ASSIGNMENT_STATUS.PENDING,
         responded_at: null,
@@ -3718,6 +3795,106 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
 
     if (insertError) {
       throw new HttpError(500, 'Failed to assign TO crew.');
+    }
+  }
+
+  clearGameDataCaches();
+  const nominations = await getInstructorNominationsData(admin, currentUser.id, true);
+  return nominations.find((item) => item.id === nominationId);
+};
+
+const assignNominationStatistics = async (admin, currentUser, nominationId, statisticianIds) => {
+  requireStatisticSupervisor(currentUser);
+  const nomination = await requireSingle(
+    admin.from('nominations').select('id, match_date, match_time').eq('id', nominationId),
+    'Nomination not found.',
+    'Failed to load nomination.',
+  );
+
+  const isPastMatch = hasMatchStarted(nomination.match_date, nomination.match_time);
+  const existingAssignments = (await listTOAssignmentsByNominationIds(admin, [nominationId])).filter((assignment) =>
+    STATISTIC_CREW_SLOT_NUMBERS.includes(Number(assignment.slot_number)),
+  );
+  const existingAssignmentsBySlot = new Map(existingAssignments.map((assignment) => [Number(assignment.slot_number), assignment]));
+
+  if (isPastMatch) {
+    const normalizedStatisticSelections = normalizeTOSlotSelections(
+      statisticianIds,
+      STATISTIC_CREW_SLOT_NUMBERS.length,
+      'statisticians',
+    );
+    const mergedStatisticSelections = STATISTIC_CREW_SLOT_NUMBERS.map(
+      (slotNumber, index) => existingAssignmentsBySlot.get(slotNumber)?.to_id || normalizedStatisticSelections[index] || '',
+    );
+
+    existingAssignmentsBySlot.forEach((assignment, slotNumber) => {
+      const slotIndex = STATISTIC_CREW_SLOT_NUMBERS.indexOf(slotNumber);
+      const selectedStatisticId = slotIndex >= 0 ? mergedStatisticSelections[slotIndex] : '';
+      if (selectedStatisticId !== assignment.to_id) {
+        throw new HttpError(409, 'Assigned statistic crew members cannot be changed after the match starts.');
+      }
+    });
+
+    const additions = mergedStatisticSelections
+      .map((toId, index) => ({
+        toId,
+        slotNumber: STATISTIC_CREW_SLOT_NUMBERS[index],
+      }))
+      .filter((item) => item.toId && !existingAssignmentsBySlot.has(item.slotNumber));
+
+    if (!additions.length) {
+      throw new HttpError(400, 'Choose at least one statistic crew member for an empty slot.');
+    }
+
+    await requireTOUsers(
+      admin,
+      additions.map((item) => item.toId),
+    );
+
+    const { error: insertError } = await admin.from('nomination_tos').insert(
+      additions.map((item) => ({
+        nomination_id: nominationId,
+        to_id: item.toId,
+        slot_number: item.slotNumber,
+        assigned_by: currentUser.id,
+        status: ASSIGNMENT_STATUS.ACCEPTED,
+        responded_at: new Date().toISOString(),
+      })),
+    );
+
+    if (insertError) {
+      throw new HttpError(500, 'Failed to assign statistic crew.');
+    }
+  } else {
+    const normalizedStatisticianIds = ensureDistinctTOs(
+      statisticianIds,
+      STATISTIC_CREW_SLOT_NUMBERS.length,
+      'statisticians',
+    );
+    await requireTOUsers(admin, normalizedStatisticianIds);
+
+    const { error: deleteError } = await admin
+      .from('nomination_tos')
+      .delete()
+      .eq('nomination_id', nominationId)
+      .in('slot_number', STATISTIC_CREW_SLOT_NUMBERS);
+    if (deleteError) {
+      throw new HttpError(500, 'Failed to reset statistic crew.');
+    }
+
+    const { error: insertError } = await admin.from('nomination_tos').insert(
+      normalizedStatisticianIds.map((toId, index) => ({
+        nomination_id: nominationId,
+        to_id: toId,
+        slot_number: STATISTIC_CREW_SLOT_NUMBERS[index],
+        assigned_by: currentUser.id,
+        status: ASSIGNMENT_STATUS.PENDING,
+        responded_at: null,
+      })),
+    );
+
+    if (insertError) {
+      throw new HttpError(500, 'Failed to assign statistic crew.');
     }
   }
 
@@ -5513,6 +5690,12 @@ const routeRequest = async (event) => {
   if (method === 'PATCH' && nominationTOMatch) {
     const nomination = await assignNominationTOs(admin, currentUser, nominationTOMatch[1], body.toIds);
     return json(200, { message: 'TO crew updated.', nomination });
+  }
+
+  const nominationStatisticMatch = path.match(/^\/nominations\/([^/]+)\/statistics$/);
+  if (method === 'PATCH' && nominationStatisticMatch) {
+    const nomination = await assignNominationStatistics(admin, currentUser, nominationStatisticMatch[1], body.statisticianIds);
+    return json(200, { message: 'Statistic crew updated.', nomination });
   }
 
   const nominationScoreMatch = path.match(/^\/nominations\/([^/]+)\/score$/);

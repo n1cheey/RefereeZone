@@ -103,6 +103,24 @@ export function assignNominationTOs(payload: {
   );
 }
 
+export function assignNominationStatistics(payload: {
+  nominationId: string;
+  toSupervisorId: string;
+  statisticianIds: string[];
+}) {
+  return apiRequest<{ message: string; nomination: InstructorNomination }>(
+    `/api/nominations/${encodeURIComponent(payload.nominationId)}/statistics`,
+    {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        toSupervisorId: payload.toSupervisorId,
+        statisticianIds: payload.statisticianIds,
+      }),
+    },
+  );
+}
+
 export function deleteNomination(payload: { nominationId: string; instructorId: string }) {
   return apiRequest<{ message: string }>(
     `/api/nominations/${encodeURIComponent(payload.nominationId)}?instructorId=${encodeURIComponent(payload.instructorId)}`,

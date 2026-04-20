@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Layout from './Layout';
+import MatchTeamsHeader from './MatchTeamsHeader';
 import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination } from '../types';
-import { getNominationSlotLabel, getTOSlotLabel } from '../slotLabels';
+import { getNominationSlotLabel, getStatisticSlotLabel, getTOSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import { getMatchTimestamp, isPastMatch } from '../matchTiming';
 import { Calendar, CheckCircle2, Clock, FileText, MapPin, Pencil, Trash2, XCircle, Youtube } from 'lucide-react';
 import {
+  assignNominationStatistics,
   assignNominationTOs,
   deleteNomination,
   editNominationOfficials,
@@ -27,6 +29,9 @@ interface NominationsProps {
 const POLL_INTERVAL_MS = 45000;
 const getNominationsCacheKey = (userId: string, role: User['role']) => `nominations:${userId}:${role}`;
 const getDashboardCacheKey = (userId: string, role: User['role']) => `dashboard:${userId}:${role}`;
+const TO_CREW_SLOT_NUMBERS = [1, 2, 3, 4];
+const STATISTIC_CREW_SLOT_NUMBERS = [1, 2, 3];
+const STATISTIC_SUPERVISOR_LICENSE = 'Stat Supervisor';
 
 const sortMatchesDesc = <T extends { matchDate: string; matchTime: string }>(items: T[]) =>
   [...items].sort((left, right) => {
@@ -77,6 +82,8 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const [editActionNominationId, setEditActionNominationId] = useState<string | null>(null);
   const [toActionNominationId, setTOActionNominationId] = useState<string | null>(null);
   const [toSelections, setTOSelections] = useState<Record<string, string[]>>({});
+  const [statisticActionNominationId, setStatisticActionNominationId] = useState<string | null>(null);
+  const [statisticSelections, setStatisticSelections] = useState<Record<string, string[]>>({});
   const [scoreActionId, setScoreActionId] = useState<string | null>(null);
   const [scoreInputs, setScoreInputs] = useState<Record<string, string>>({});
   const [videoInputs, setVideoInputs] = useState<Record<string, string>>({});
@@ -89,6 +96,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const isStaff = user.role === 'Staff';
   const isFinancialist = user.role === 'Financialist';
   const isTOSupervisor = user.role === 'TO Supervisor';
+  const isStatisticSupervisor = isTOSupervisor && user.licenseNumber === STATISTIC_SUPERVISOR_LICENSE;
   const isTO = user.role === 'TO';
 
   useEffect(() => {
@@ -422,7 +430,13 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
 
   const getTONominationSelection = (nomination: InstructorNomination) =>
     toSelections[nomination.id] ||
-    [1, 2, 3, 4].map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
+    TO_CREW_SLOT_NUMBERS.map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
+
+  const getStatisticNominationSelection = (nomination: InstructorNomination) =>
+    statisticSelections[nomination.id] ||
+    STATISTIC_CREW_SLOT_NUMBERS.map(
+      (slotNumber) => nomination.statisticCrew.find((item) => item.slotNumber === slotNumber)?.toId || '',
+    );
 
   const handleSaveTOCrew = async (nominationId: string) => {
     const nomination = instructorNominations.find((item) => item.id === nominationId);
@@ -430,7 +444,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       return;
     }
 
-    const existingTOIds = [1, 2, 3, 4].map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
+    const existingTOIds = TO_CREW_SLOT_NUMBERS.map((slotNumber) => nomination.toCrew.find((item) => item.slotNumber === slotNumber)?.toId || '');
     const selectedTOs = getTONominationSelection(nomination);
     const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
     const payloadTOs = isPastNomination
@@ -455,7 +469,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         setErrorMessage(t('dashboard.toCrewPastSelectAtLeastOne'));
         return;
       }
-    } else if (filledTOs.length !== 4) {
+    } else if (filledTOs.length !== TO_CREW_SLOT_NUMBERS.length) {
       setErrorMessage('Choose 4 different TO users.');
       return;
     }
@@ -479,6 +493,68 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to update TO crew.');
     } finally {
       setTOActionNominationId(null);
+    }
+  };
+
+  const handleSaveStatisticCrew = async (nominationId: string) => {
+    const nomination = instructorNominations.find((item) => item.id === nominationId);
+    if (!nomination) {
+      return;
+    }
+
+    const existingStatisticIds = STATISTIC_CREW_SLOT_NUMBERS.map(
+      (slotNumber) => nomination.statisticCrew.find((item) => item.slotNumber === slotNumber)?.toId || '',
+    );
+    const selectedStatisticians = getStatisticNominationSelection(nomination);
+    const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
+    const payloadStatisticians = isPastNomination
+      ? existingStatisticIds.map((toId, index) => toId || selectedStatisticians[index] || '')
+      : selectedStatisticians;
+    const filledStatisticians = payloadStatisticians.filter(Boolean);
+
+    if (new Set(filledStatisticians).size !== filledStatisticians.length) {
+      setErrorMessage('Choose different statistic crew members.');
+      return;
+    }
+
+    if (isPastNomination) {
+      const changedAssignedSlot = existingStatisticIds.some(
+        (toId, index) => toId && selectedStatisticians[index] && selectedStatisticians[index] !== toId,
+      );
+      if (changedAssignedSlot) {
+        setErrorMessage('Assigned statistic crew members cannot be changed after the match starts.');
+        return;
+      }
+
+      const hasNewStatisticianForEmptySlot = existingStatisticIds.some((toId, index) => !toId && payloadStatisticians[index]);
+      if (!hasNewStatisticianForEmptySlot) {
+        setErrorMessage(t('dashboard.statisticCrewPastSelectAtLeastOne'));
+        return;
+      }
+    } else if (filledStatisticians.length !== STATISTIC_CREW_SLOT_NUMBERS.length) {
+      setErrorMessage('Choose 3 different statistic crew members.');
+      return;
+    }
+
+    setStatisticActionNominationId(nominationId);
+
+    try {
+      await assignNominationStatistics({
+        nominationId,
+        toSupervisorId: user.id,
+        statisticianIds: payloadStatisticians,
+      });
+
+      const response = await getInstructorDashboard(user.id);
+      setReferees(response.referees);
+      setTOOfficials(response.toOfficials);
+      setInstructorNominations(response.nominations);
+      setRefereeAssignments(response.assignments);
+      setErrorMessage('');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to update statistic crew.');
+    } finally {
+      setStatisticActionNominationId(null);
     }
   };
 
@@ -677,7 +753,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-lg font-bold text-slate-800 mb-3">{nomination.teams}</div>
+            <MatchTeamsHeader teams={nomination.teams} className="mb-3" titleClassName="text-lg font-bold text-slate-800" />
             <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nomination.gameCode}</div>
             <div className="text-xs text-slate-500">Created by: {nomination.createdByName}</div>
           </div>
@@ -765,27 +841,105 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
           <div className="mt-4 rounded-xl bg-slate-50 p-3">
             <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.toCrew')}</div>
             <div className="mt-3 grid gap-3 md:grid-cols-4">
-              {[1, 2, 3, 4].map((slotNumber) => {
+              {TO_CREW_SLOT_NUMBERS.map((slotNumber) => {
                 const existingAssignment = nomination.toCrew.find((item) => item.slotNumber === slotNumber);
                 const currentSelection = getTONominationSelection(nomination)[slotNumber - 1] || '';
+                const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
+                const canAssignTOCrew = isTOSupervisor && (!isPastNomination || !existingAssignment);
+                return (
+                  <div key={`${nomination.id}-to-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="text-xs font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber, language)}</div>
+                    {canAssignTOCrew ? (
+                      <select
+                        value={currentSelection}
+                        onChange={(event) =>
+                          setTOSelections((prev) => {
+                            const next = [...getTONominationSelection(nomination)];
+                            next[slotNumber - 1] = event.target.value;
+                            return { ...prev, [nomination.id]: next };
+                          })
+                        }
+                        className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
+                      >
+                        <option value="">{t('dashboard.selectTO')}</option>
+                        {toOfficials.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.fullName}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <>
+                        <div className="mt-1 font-semibold text-slate-900">{existingAssignment?.toName || t('common.notAssigned')}</div>
+                        {existingAssignment ? (
+                          <div
+                            className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}
+                          >
+                            {getAssignmentStatusLabel(existingAssignment.status, language)}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                    {canAssignTOCrew && existingAssignment ? (
+                      <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
+                        {getAssignmentStatusLabel(existingAssignment.status, language)}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          {isTOSupervisor &&
+          isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
+          nomination.toCrew.length === TO_CREW_SLOT_NUMBERS.length ? (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              {t('dashboard.toCrewLocked')}
+            </div>
+          ) : null}
+          {isTOSupervisor &&
+          isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
+          nomination.toCrew.length < TO_CREW_SLOT_NUMBERS.length ? (
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+              {t('dashboard.toCrewPastFillOnly')}
+            </div>
+          ) : null}
+          {isTOSupervisor &&
+          (!isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) || nomination.toCrew.length < TO_CREW_SLOT_NUMBERS.length) && (
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => handleSaveTOCrew(nomination.id)}
+                disabled={toActionNominationId === nomination.id}
+                className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
+              >
+                {toActionNominationId === nomination.id ? t('dashboard.savingTOCrew') : t('dashboard.saveTOCrew')}
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="mt-4 rounded-xl bg-slate-50 p-3">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.statisticCrew')}</div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            {STATISTIC_CREW_SLOT_NUMBERS.map((slotNumber) => {
+              const existingAssignment = nomination.statisticCrew.find((item) => item.slotNumber === slotNumber);
+              const currentSelection = getStatisticNominationSelection(nomination)[slotNumber - 1] || '';
               const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
-              const canAssignTOCrew = isTOSupervisor && (!isPastNomination || !existingAssignment);
+              const canAssignStatisticCrew = isStatisticSupervisor && (!isPastNomination || !existingAssignment);
               return (
-                <div key={`${nomination.id}-to-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                  <div className="text-xs font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber, language)}</div>
-                  {canAssignTOCrew ? (
+                <div key={`${nomination.id}-stat-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="text-xs font-bold uppercase text-slate-500">{getStatisticSlotLabel(slotNumber, language)}</div>
+                  {canAssignStatisticCrew ? (
                     <select
                       value={currentSelection}
                       onChange={(event) =>
-                        setTOSelections((prev) => {
-                          const next = [...getTONominationSelection(nomination)];
+                        setStatisticSelections((prev) => {
+                          const next = [...getStatisticNominationSelection(nomination)];
                           next[slotNumber - 1] = event.target.value;
                           return { ...prev, [nomination.id]: next };
                         })
                       }
                       className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
                     >
-                      <option value="">Select TO</option>
+                      <option value="">{t('dashboard.selectStatistician')}</option>
                       {toOfficials.map((option) => (
                         <option key={option.id} value={option.id}>
                           {option.fullName}
@@ -794,15 +948,17 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                     </select>
                   ) : (
                     <>
-                      <div className="mt-1 font-semibold text-slate-900">{existingAssignment?.toName || 'Not assigned'}</div>
+                      <div className="mt-1 font-semibold text-slate-900">{existingAssignment?.toName || t('common.notAssigned')}</div>
                       {existingAssignment ? (
-                        <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
-                        {getAssignmentStatusLabel(existingAssignment.status, language)}
+                        <div
+                          className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}
+                        >
+                          {getAssignmentStatusLabel(existingAssignment.status, language)}
                         </div>
                       ) : null}
                     </>
                   )}
-                  {canAssignTOCrew && existingAssignment ? (
+                  {canAssignStatisticCrew && existingAssignment ? (
                     <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
                       {getAssignmentStatusLabel(existingAssignment.status, language)}
                     </div>
@@ -811,29 +967,30 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
               );
             })}
           </div>
-          {isTOSupervisor &&
+          {isStatisticSupervisor &&
           isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
-          nomination.toCrew.length === 4 ? (
+          nomination.statisticCrew.length === STATISTIC_CREW_SLOT_NUMBERS.length ? (
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-              {t('dashboard.toCrewLocked')}
+              {t('dashboard.statisticCrewLocked')}
             </div>
           ) : null}
-          {isTOSupervisor &&
+          {isStatisticSupervisor &&
           isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
-          nomination.toCrew.length < 4 ? (
+          nomination.statisticCrew.length < STATISTIC_CREW_SLOT_NUMBERS.length ? (
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-              {t('dashboard.toCrewPastFillOnly')}
+              {t('dashboard.statisticCrewPastFillOnly')}
             </div>
           ) : null}
-          {isTOSupervisor &&
-          (!isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) || nomination.toCrew.length < 4) && (
+          {isStatisticSupervisor &&
+          (!isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) ||
+            nomination.statisticCrew.length < STATISTIC_CREW_SLOT_NUMBERS.length) && (
             <div className="mt-4 flex justify-end">
               <button
-                onClick={() => handleSaveTOCrew(nomination.id)}
-                disabled={toActionNominationId === nomination.id}
+                onClick={() => handleSaveStatisticCrew(nomination.id)}
+                disabled={statisticActionNominationId === nomination.id}
                 className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
               >
-                {toActionNominationId === nomination.id ? 'Saving TO Crew...' : 'Save TO Crew'}
+                {statisticActionNominationId === nomination.id ? t('dashboard.savingStatisticCrew') : t('dashboard.saveStatisticCrew')}
               </button>
             </div>
           )}
@@ -882,7 +1039,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             {formatAutoDeclineCountdown(nom.autoDeclineAt, countdownNow, language) || t('dashboard.autoRejectUnavailable')}
           </div>
         ) : null}
-        <div className="text-lg font-bold text-slate-800 mb-3">{nom.teams}</div>
+        <MatchTeamsHeader teams={nom.teams} className="mb-3" titleClassName="text-lg font-bold text-slate-800" />
         <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nom.gameCode}</div>
         <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nom.assignmentLabel}</div>
         <div className="grid grid-cols-2 gap-y-2 text-sm text-slate-600">
@@ -907,13 +1064,13 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         {renderCrew(nom.crew)}
         {user.role === 'Referee' && nom.toCrew.length === 0 ? (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-            TO crew will appear after the TO Supervisor assigns officials and they accept the game.
+            {t('dashboard.toCrewWillAppear')}
           </div>
         ) : (
           <div className="mt-4 rounded-xl bg-slate-50 p-3">
             <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.toCrew')}</div>
             <div className="mt-3 grid gap-2 md:grid-cols-4">
-              {[1, 2, 3, 4].map((slotNumber) => {
+              {TO_CREW_SLOT_NUMBERS.map((slotNumber) => {
                 const toSlot = nom.toCrew.find((item) => item.slotNumber === slotNumber);
                 return (
                   <div key={`${nom.id}-to-${slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
@@ -924,6 +1081,33 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                     {toSlot ? (
                       <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(toSlot.status)}`}>
                         {getAssignmentStatusLabel(toSlot.status, language)}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {user.role === 'Referee' && nom.statisticCrew.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+            {t('dashboard.statisticCrewWillAppear')}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-xl bg-slate-50 p-3">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.statisticCrew')}</div>
+            <div className="mt-3 grid gap-2 md:grid-cols-3">
+              {STATISTIC_CREW_SLOT_NUMBERS.map((slotNumber) => {
+                const statisticSlot = nom.statisticCrew.find((item) => item.slotNumber === slotNumber);
+                return (
+                  <div key={`${nom.id}-stat-${slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                    <div className="text-[11px] font-bold uppercase text-slate-500">{getStatisticSlotLabel(slotNumber, language)}</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">
+                      {statisticSlot?.toName || (user.role === 'Referee' ? t('common.awaitingConfirmation') : t('common.notAssigned'))}
+                    </div>
+                    {statisticSlot ? (
+                      <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(statisticSlot.status)}`}>
+                        {getAssignmentStatusLabel(statisticSlot.status, language)}
                       </div>
                     ) : null}
                   </div>

@@ -72,7 +72,7 @@ create table if not exists public.nomination_tos (
   id uuid primary key default gen_random_uuid(),
   nomination_id uuid not null references public.nominations(id) on delete cascade,
   to_id uuid not null references public.profiles(id) on delete cascade,
-  slot_number integer not null check (slot_number between 1 and 4),
+  slot_number integer not null check (slot_number between 1 and 7),
   assigned_by uuid not null references public.profiles(id) on delete cascade,
   status text not null default 'Pending' check (status in ('Pending', 'Accepted', 'Declined')),
   responded_at timestamptz,
@@ -91,6 +91,11 @@ alter table public.nomination_tos drop constraint if exists nomination_tos_statu
 alter table public.nomination_tos
   add constraint nomination_tos_status_check
   check (status in ('Pending', 'Accepted', 'Declined'));
+
+alter table public.nomination_tos drop constraint if exists nomination_tos_slot_number_check;
+alter table public.nomination_tos
+  add constraint nomination_tos_slot_number_check
+  check (slot_number between 1 and 7);
 
 create table if not exists public.reports (
   id uuid primary key default gen_random_uuid(),
