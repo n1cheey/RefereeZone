@@ -890,24 +890,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     }
 
     if (isPastNomination) {
-      const changedAssignedSlot = existingStatisticIds.some(
-        (toId, index) => toId && selectedStatisticians[index] && selectedStatisticians[index] !== toId,
-      );
-      if (changedAssignedSlot) {
+      if (nomination.statisticCrew.length > 0) {
         setDashboardError('Assigned statistic crew members cannot be changed after the match starts.');
         return;
       }
 
-      const hasNewStatisticianForEmptySlot = existingStatisticIds.some(
-        (toId, index) => !toId && payloadStatisticians[index],
-      );
-      if (!hasNewStatisticianForEmptySlot) {
-        setDashboardError(t('dashboard.statisticCrewPastSelectAtLeastOne'));
+      if (REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.some((slotNumber) => !payloadStatisticians[slotNumber - 1])) {
+        setDashboardError('Choose Statistician 1 and Statistician 2.');
         return;
       }
-    } else if (
-      REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.some((slotNumber) => !payloadStatisticians[slotNumber - 1])
-    ) {
+    } else if (REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.some((slotNumber) => !payloadStatisticians[slotNumber - 1])) {
       setDashboardError('Choose Statistician 1 and Statistician 2.');
       return;
     }
@@ -1905,19 +1897,20 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           </div>
         )}
       </div>
-      <div className="mt-4 rounded-xl bg-slate-50 p-3">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.statisticCrew')}</div>
-        <div className="mt-3 grid gap-3 md:grid-cols-3">
-          {STATISTIC_CREW_SLOT_NUMBERS.map((slotNumber) => {
-            const existingAssignment = nomination.statisticCrew.find((item) => item.slotNumber === slotNumber);
-            const currentSelection = getStatisticNominationSelection(nomination)[slotNumber - 1] || '';
-            const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
-            const canAssignStatisticCrew = isStatisticSupervisor && (!isPastNomination || !existingAssignment);
-            return (
-              <div key={`${nomination.id}-stat-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="text-xs font-bold uppercase text-slate-500">{getStatisticSlotLabel(slotNumber, language)}</div>
-                {canAssignStatisticCrew ? (
-                  <select
+        <div className="mt-4 rounded-xl bg-slate-50 p-3">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.statisticCrew')}</div>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            {STATISTIC_CREW_SLOT_NUMBERS.map((slotNumber) => {
+              const existingAssignment = nomination.statisticCrew.find((item) => item.slotNumber === slotNumber);
+              const currentSelection = getStatisticNominationSelection(nomination)[slotNumber - 1] || '';
+              const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
+              const canAssignStatisticCrew =
+                isStatisticSupervisor && (!isPastNomination || nomination.statisticCrew.length === 0);
+              return (
+                <div key={`${nomination.id}-stat-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="text-xs font-bold uppercase text-slate-500">{getStatisticSlotLabel(slotNumber, language)}</div>
+                  {canAssignStatisticCrew ? (
+                    <select
                     value={currentSelection}
                     onChange={(event) =>
                       setStatisticSelections((prev) => {
@@ -1956,21 +1949,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
         {isStatisticSupervisor &&
         isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
-        nomination.statisticCrew.length === STATISTIC_CREW_SLOT_NUMBERS.length ? (
+        nomination.statisticCrew.length > 0 ? (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
             {t('dashboard.statisticCrewLocked')}
           </div>
         ) : null}
         {isStatisticSupervisor &&
         isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
-        nomination.statisticCrew.length < STATISTIC_CREW_SLOT_NUMBERS.length ? (
+        nomination.statisticCrew.length === 0 ? (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
             {t('dashboard.statisticCrewPastFillOnly')}
           </div>
         ) : null}
         {isStatisticSupervisor &&
         (!isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) ||
-          nomination.statisticCrew.length < STATISTIC_CREW_SLOT_NUMBERS.length) && (
+          nomination.statisticCrew.length === 0) && (
           <div className="mt-4 flex justify-end">
             <button
               onClick={() => handleSaveStatisticCrew(nomination.id)}

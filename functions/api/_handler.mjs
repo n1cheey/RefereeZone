@@ -3853,43 +3853,34 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
       STATISTIC_CREW_SLOT_NUMBERS.length,
       'statisticians',
     );
-    const mergedStatisticSelections = STATISTIC_CREW_SLOT_NUMBERS.map(
-      (slotNumber, index) => existingAssignmentsBySlot.get(slotNumber)?.to_id || normalizedStatisticSelections[index] || '',
+    const requiredStatisticianIds = REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.map(
+      (slotNumber) => normalizedStatisticSelections[STATISTIC_CREW_SLOT_NUMBERS.indexOf(slotNumber)] || '',
     );
 
-    existingAssignmentsBySlot.forEach((assignment, slotNumber) => {
-      const slotIndex = STATISTIC_CREW_SLOT_NUMBERS.indexOf(slotNumber);
-      const selectedStatisticId = slotIndex >= 0 ? mergedStatisticSelections[slotIndex] : '';
-      if (selectedStatisticId !== assignment.to_id) {
-        throw new HttpError(409, 'Assigned statistic crew members cannot be changed after the match starts.');
-      }
-    });
+    if (existingAssignments.length > 0) {
+      throw new HttpError(409, 'Assigned statistic crew members cannot be changed after the match starts.');
+    }
 
-    const additions = mergedStatisticSelections
-      .map((toId, index) => ({
-        toId,
-        slotNumber: STATISTIC_CREW_SLOT_NUMBERS[index],
-      }))
-      .filter((item) => item.toId && !existingAssignmentsBySlot.has(item.slotNumber));
-
-    if (!additions.length) {
-      throw new HttpError(400, 'Choose at least one statistic crew member for an empty slot.');
+    if (requiredStatisticianIds.some((toId) => !toId)) {
+      throw new HttpError(400, `Select exactly ${REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.length} required statisticians.`);
     }
 
     await requireTOUsers(
       admin,
-      additions.map((item) => item.toId),
+      normalizedStatisticSelections.filter(Boolean),
     );
 
     const { error: insertError } = await admin.from('nomination_tos').insert(
-      additions.map((item) => ({
+      normalizedStatisticSelections
+        .map((toId, index) => ({
         nomination_id: nominationId,
-        to_id: item.toId,
-        slot_number: item.slotNumber,
+          to_id: toId,
+          slot_number: STATISTIC_CREW_SLOT_NUMBERS[index],
         assigned_by: currentUser.id,
         status: ASSIGNMENT_STATUS.ACCEPTED,
         responded_at: new Date().toISOString(),
-      })),
+        }))
+        .filter((item) => item.to_id),
     );
 
     if (insertError) {
