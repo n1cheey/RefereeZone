@@ -66,6 +66,7 @@ const RANKING_STATE_CACHE_TTL_MS = 20000;
 const HEAVY_VIEW_CACHE_TTL_MS = 10000;
 const CHAT_MESSAGE_MAX_LENGTH = 4000;
 const AVAILABILITY_REASON_MAX_LENGTH = 1200;
+const EXPO_PUSH_API_URL = 'https://exp.host/--/api/v2/push/send';
 const AVAILABILITY_STATUS = {
   PENDING: 'Pending',
   APPROVED: 'Approved',
@@ -114,6 +115,8 @@ const binary = (statusCode, body, headers = {}) => ({
   body: Buffer.from(body).toString('base64'),
   isBase64Encoded: true,
 });
+
+const isExpoPushToken = (value) => /^ExponentPushToken\[[^\]]+\]$|^ExpoPushToken\[[^\]]+\]$/.test(String(value || '').trim());
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const normalizeRole = (role) => LEGACY_ROLE_ALIASES[String(role || '').trim()] || String(role || '').trim();
@@ -597,6 +600,19 @@ const listProfilesByIds = async (admin, ids) => {
   return ensureData(data || [], error, 'Failed to load user profiles.').map(normalizeProfileRow);
 };
 
+const listProfilesByRoles = async (admin, roles) => {
+  if (!roles.length) {
+    return [];
+  }
+
+  const { data, error } = await admin
+    .from('profiles')
+    .select('id, email, full_name, photo_url, license_number, role')
+    .in('role', roles.map(toStorageRole));
+
+  return ensureData(data || [], error, 'Failed to load user profiles by role.').map(normalizeProfileRow);
+};
+
 const listLastSeenMap = async (admin, ids) => {
   if (!ids.length) {
     return new Map();
@@ -625,8 +641,15 @@ const normalizeChatPair = (leftUserId, rightUserId) => {
 const isRestrictedChatStarterProfile = (profile) =>
   normalizeEmail(profile?.email) === RESTRICTED_CHAT_INITIATOR_EMAIL;
 
+const isTestLicenseProfile = (profile) =>
+  String(profile?.licenseNumber || profile?.license_number || '')
+    .trim()
+    .toLowerCase() === 'test';
+
 const canInitiateDirectChat = (currentUser, otherUser) =>
-  !isRestrictedChatStarterProfile(otherUser) || isRestrictedChatStarterProfile(currentUser);
+  !isTestLicenseProfile(currentUser) &&
+  !isTestLicenseProfile(otherUser) &&
+  (!isRestrictedChatStarterProfile(otherUser) || isRestrictedChatStarterProfile(currentUser));
 
 const isChatParticipant = (conversation, userId) =>
   String(conversation.user_a_id || '') === String(userId || '') ||
@@ -683,6 +706,7 @@ const getChatUsers = async (admin, currentUser) => {
 
   const profiles = ensureData(data || [], error, 'Failed to load chat users.')
     .map(normalizeProfileRow)
+    .filter((profile) => !isTestLicenseProfile(profile))
     .filter((profile) => canInitiateDirectChat(currentUser, profile));
   const lastSeenMap = await listLastSeenMap(
     admin,
@@ -692,7 +716,229 @@ const getChatUsers = async (admin, currentUser) => {
   return profiles.map((profile) => mapChatUser(profile, lastSeenMap.get(profile.id) || null));
 };
 
+const registerPushToken = async (admin, currentUser, body) => {
+  const token = String(body.token || '').trim();
+
+  if (!isExpoPushToken(token)) {
+    throw new HttpError(400, 'Invalid Expo push token.');
+  }
+
+  return requireSingle(
+    admin
+      .from('push_notification_tokens')
+      .upsert(
+        {
+          user_id: currentUser.id,
+          expo_push_token: token,
+          platform: String(body.platform || '').trim() || 'unknown',
+          app_version: String(body.appVersion || '').trim() || null,
+          device_type: String(body.deviceType || '').trim() || null,
+          build_type: String(body.buildType || '').trim() || null,
+          is_active: true,
+          last_registered_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'expo_push_token' },
+      )
+      .select('*'),
+    'Failed to register push token.',
+    'Failed to register push token.',
+  );
+};
+
+const unregisterPushToken = async (admin, currentUser, body) => {
+  const token = String(body.token || '').trim();
+  if (!token) {
+    throw new HttpError(400, 'Push token is required.');
+  }
+
+  const { error } = await admin
+    .from('push_notification_tokens')
+    .update({
+      is_active: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', currentUser.id)
+    .eq('expo_push_token', token);
+
+  if (error) {
+    throw new HttpError(500, 'Failed to unregister push token.');
+  }
+};
+
+const getPushTokenStatus = async (admin, currentUser, token) => {
+  if (!token) {
+    return null;
+  }
+
+  return maybeSingle(
+    admin
+      .from('push_notification_tokens')
+      .select('*')
+      .eq('user_id', currentUser.id)
+      .eq('expo_push_token', token),
+    'Failed to load push token status.',
+  );
+};
+
+const getPushTokenHistory = async (admin, currentUser, limit = 20, requestedUserId = null) => {
+  const effectiveUserId =
+    requestedUserId && ['Instructor', 'Staff', 'Financialist'].includes(currentUser.role)
+      ? String(requestedUserId || '').trim()
+      : currentUser.id;
+
+  const { data, error } = await admin
+    .from('push_notification_delivery_history')
+    .select('*')
+    .eq('user_id', effectiveUserId)
+    .order('created_at', { ascending: false })
+    .limit(Math.min(Math.max(Number(limit) || 20, 1), 100));
+
+  return ensureData(data || [], error, 'Failed to load push notification history.');
+};
+
+const listActivePushTokensByUserIds = async (admin, userIds) => {
+  if (!userIds.length) {
+    return [];
+  }
+
+  const { data, error } = await admin
+    .from('push_notification_tokens')
+    .select('*')
+    .in('user_id', [...new Set(userIds.map((userId) => String(userId || '').trim()).filter(Boolean))])
+    .eq('is_active', true);
+
+  return ensureData(data || [], error, 'Failed to load active push tokens.').filter((row) =>
+    isExpoPushToken(row.expo_push_token),
+  );
+};
+
+const insertPushDeliveryHistory = async (admin, entry) => {
+  const { error } = await admin.from('push_notification_delivery_history').insert(entry);
+  if (error) {
+    console.error('[push] Failed to insert delivery history.', error);
+  }
+};
+
+const updatePushTokenDeliveryState = async (admin, tokenId, patch) => {
+  const { error } = await admin
+    .from('push_notification_tokens')
+    .update({
+      ...patch,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', tokenId);
+
+  if (error) {
+    console.error('[push] Failed to update token delivery state.', error);
+  }
+};
+
+const sendPushNotifications = async (admin, targetUserIds, payload) => {
+  const pushTokens = await listActivePushTokensByUserIds(admin, targetUserIds);
+  if (!pushTokens.length) {
+    return [];
+  }
+
+  const messages = pushTokens.map((pushToken) => ({
+    to: pushToken.expo_push_token,
+    title: payload.title,
+    body: payload.body,
+    data: {
+      kind: payload.kind,
+      ...(payload.data || {}),
+      ...(payload.path ? { path: payload.path } : {}),
+    },
+    sound: payload.kind === 'chat-message' ? 'default' : 'alert.wav',
+    channelId: payload.kind === 'chat-message' ? 'refzone-chat' : 'refzone-alerts-v2',
+  }));
+
+  let response;
+  try {
+    response = await fetch(EXPO_PUSH_API_URL, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Accept-Encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(messages),
+    });
+  } catch (error) {
+    await Promise.all(
+      pushTokens.map((pushToken) =>
+        insertPushDeliveryHistory(admin, {
+          token_id: pushToken.id,
+          user_id: pushToken.user_id,
+          expo_push_token: pushToken.expo_push_token,
+          delivery_kind: payload.kind,
+          delivery_title: payload.title,
+          delivery_body: payload.body,
+          event_stage: 'send_failed',
+          delivery_status: 'error',
+          failure_reason: error instanceof Error ? error.message : 'Unknown push send failure.',
+        }),
+      ),
+    );
+    throw error;
+  }
+
+  let responsePayload = null;
+  try {
+    responsePayload = await response.json();
+  } catch {
+    responsePayload = null;
+  }
+
+  const tickets = Array.isArray(responsePayload?.data) ? responsePayload.data : [];
+  const deliveredAt = new Date().toISOString();
+
+  await Promise.all(
+    pushTokens.map(async (pushToken, index) => {
+      const ticket = tickets[index] || null;
+      const ticketStatus = String(ticket?.status || '').trim() || (response.ok ? 'ok' : 'error');
+      const ticketId = String(ticket?.id || '').trim() || null;
+      const ticketMessage = String(ticket?.message || '').trim() || null;
+      const ticketError = String(ticket?.details?.error || '').trim() || null;
+
+      await updatePushTokenDeliveryState(admin, pushToken.id, {
+        last_delivery_kind: payload.kind,
+        last_delivery_title: payload.title,
+        last_delivery_body: payload.body,
+        last_delivery_at: deliveredAt,
+        last_ticket_id: ticketId,
+        last_ticket_status: ticketStatus,
+        last_ticket_message: ticketMessage,
+        last_ticket_error: ticketError,
+        last_ticket_checked_at: deliveredAt,
+      });
+
+      await insertPushDeliveryHistory(admin, {
+        token_id: pushToken.id,
+        user_id: pushToken.user_id,
+        expo_push_token: pushToken.expo_push_token,
+        delivery_kind: payload.kind,
+        delivery_title: payload.title,
+        delivery_body: payload.body,
+        event_stage: 'ticket',
+        delivery_status: response.ok ? 'sent' : 'error',
+        failure_reason: response.ok ? null : `HTTP ${response.status}`,
+        ticket_id: ticketId,
+        ticket_status: ticketStatus,
+        ticket_message: ticketMessage,
+        ticket_error: ticketError,
+      });
+    }),
+  );
+
+  return pushTokens;
+};
+
 const listChatConversations = async (admin, currentUser) => {
+  if (isTestLicenseProfile(currentUser)) {
+    return [];
+  }
+
   const { data, error } = await admin
     .from('chat_conversations')
     .select('*')
@@ -730,6 +976,10 @@ const listChatConversations = async (admin, currentUser) => {
         return null;
       }
 
+      if (isTestLicenseProfile(otherUser)) {
+        return null;
+      }
+
       return mapChatConversation(
         conversation,
         currentUser.id,
@@ -744,6 +994,11 @@ const listChatConversations = async (admin, currentUser) => {
 
 const openChatConversation = async (admin, currentUser, otherUserId) => {
   const otherUser = await requireProfileById(admin, otherUserId);
+
+  if (isTestLicenseProfile(currentUser) || isTestLicenseProfile(otherUser)) {
+    throw new HttpError(403, 'Chat is unavailable for users with Test license.');
+  }
+
   const [userAId, userBId] = normalizeChatPair(currentUser.id, otherUser.id);
   const existingConversation = await maybeSingle(
     admin.from('chat_conversations').select('*').eq('user_a_id', userAId).eq('user_b_id', userBId),
@@ -866,6 +1121,10 @@ const sendChatMessage = async (admin, currentUser, body) => {
     otherUser = openedConversation.otherUser;
   }
 
+  if (isTestLicenseProfile(currentUser) || isTestLicenseProfile(otherUser)) {
+    throw new HttpError(403, 'Chat is unavailable for users with Test license.');
+  }
+
   const now = new Date().toISOString();
   const insertedMessage = await requireSingle(
     admin
@@ -907,6 +1166,20 @@ const sendChatMessage = async (admin, currentUser, body) => {
     'Failed to update chat conversation.',
     'Failed to update chat conversation.',
   );
+
+  void sendPushNotifications(admin, [otherUser.id], {
+    kind: 'chat-message',
+    title: currentUser.full_name,
+    body: messageBody.length > 140 ? `${messageBody.slice(0, 137)}...` : messageBody,
+    path: `/chat?conversationId=${encodeURIComponent(conversation.id)}`,
+    data: {
+      conversationId: conversation.id,
+      messageId: insertedMessage.id,
+      senderId: currentUser.id,
+    },
+  }).catch((pushError) => {
+    console.error('[push] Failed to send chat notification.', pushError);
+  });
 
   clearChatBootstrapCache();
   return {
@@ -1100,6 +1373,25 @@ const createAvailabilityRequest = async (admin, currentUser, body) => {
     throw new HttpError(500, 'Failed to save availability request.');
   }
 
+  const reviewers = await listProfilesByRoles(admin, ['Instructor', 'TO Supervisor']);
+  const reviewerIds = reviewers
+    .filter((profile) => profile.role === getAvailabilityApproverRole(currentUser.role))
+    .map((profile) => profile.id);
+
+  void sendPushNotifications(admin, reviewerIds, {
+    kind: 'availability-request',
+    title: '🗓️ Availability request',
+    body: `${currentUser.full_name} requested leave from ${startDate} to ${endDate}.`,
+    path: '/availability',
+    data: {
+      requestUserId: currentUser.id,
+      startDate,
+      endDate,
+    },
+  }).catch((pushError) => {
+    console.error('[push] Failed to send availability request notification.', pushError);
+  });
+
   clearAvailabilityOverviewCache();
   return getCachedAvailabilityOverview(admin, currentUser, true);
 };
@@ -1142,6 +1434,21 @@ const reviewAvailabilityRequest = async (admin, currentUser, requestId, body) =>
   if (error) {
     throw new HttpError(500, 'Failed to review availability request.');
   }
+
+  const requester = await requireProfileById(admin, request.user_id);
+  void sendPushNotifications(admin, [request.user_id], {
+    kind: 'availability-reviewed',
+    title: status === AVAILABILITY_STATUS.APPROVED ? '✅ Leave request approved' : '❌ Leave request declined',
+    body: `${currentUser.full_name} ${status === AVAILABILITY_STATUS.APPROVED ? 'approved' : 'declined'} your leave request.`,
+    path: '/availability',
+    data: {
+      requestId,
+      status,
+      userId: requester.id,
+    },
+  }).catch((pushError) => {
+    console.error('[push] Failed to send availability review notification.', pushError);
+  });
 
   clearAvailabilityOverviewCache();
   return getCachedAvailabilityOverview(admin, currentUser, true);
@@ -3341,6 +3648,127 @@ const updateMemberProfile = async (admin, currentUser, memberId, email, fullName
   return mapUser(await requireProfileById(admin, memberId));
 };
 
+const hasUpcomingRefereeAssignments = async (admin, userId) => {
+  const { data, error } = await admin
+    .from('nomination_referees')
+    .select('nomination_id, status')
+    .eq('referee_id', userId)
+    .in('status', [ASSIGNMENT_STATUS.PENDING, ASSIGNMENT_STATUS.ACCEPTED])
+    .limit(50);
+
+  const assignments = ensureData(data || [], error, 'Failed to validate referee assignments.');
+  if (!assignments.length) {
+    return false;
+  }
+
+  const nominationIds = [...new Set(assignments.map((assignment) => assignment.nomination_id).filter(Boolean))];
+  if (!nominationIds.length) {
+    return false;
+  }
+
+  const { data: nominationsData, error: nominationsError } = await admin
+    .from('nominations')
+    .select('id, match_date, match_time')
+    .in('id', nominationIds);
+
+  const nominations = ensureData(nominationsData || [], nominationsError, 'Failed to validate referee assignments.');
+  return nominations.some((nomination) => !hasMatchStarted(nomination.match_date, nomination.match_time));
+};
+
+const hasUpcomingTOAssignments = async (admin, userId) => {
+  const { data, error } = await admin
+    .from('nomination_tos')
+    .select('nomination_id, status')
+    .eq('to_id', userId)
+    .in('status', [ASSIGNMENT_STATUS.PENDING, ASSIGNMENT_STATUS.ACCEPTED])
+    .limit(50);
+
+  const assignments = ensureData(data || [], error, 'Failed to validate TO assignments.');
+  if (!assignments.length) {
+    return false;
+  }
+
+  const nominationIds = [...new Set(assignments.map((assignment) => assignment.nomination_id).filter(Boolean))];
+  if (!nominationIds.length) {
+    return false;
+  }
+
+  const { data: nominationsData, error: nominationsError } = await admin
+    .from('nominations')
+    .select('id, match_date, match_time')
+    .in('id', nominationIds);
+
+  const nominations = ensureData(nominationsData || [], nominationsError, 'Failed to validate TO assignments.');
+  return nominations.some((nomination) => !hasMatchStarted(nomination.match_date, nomination.match_time));
+};
+
+const updateOwnProfile = async (admin, currentUser, fullName, photoUrl) => {
+  const trimmedName = String(fullName || '').trim();
+  const trimmedPhotoUrl = String(photoUrl || '').trim();
+
+  if (!trimmedName) {
+    throw new HttpError(400, 'Full name is required.');
+  }
+
+  const { error } = await admin
+    .from('profiles')
+    .update({
+      full_name: trimmedName,
+      photo_url: trimmedPhotoUrl || currentUser.photo_url || DEFAULT_PHOTO_URL,
+    })
+    .eq('id', currentUser.id);
+
+  if (error) {
+    throw new HttpError(500, 'Failed to update profile.');
+  }
+
+  await admin.auth.admin.updateUserById(currentUser.id, {
+    user_metadata: {
+      full_name: trimmedName,
+      role: normalizeRole(currentUser.role),
+    },
+  }).catch(() => undefined);
+
+  return mapUser(await requireProfileById(admin, currentUser.id));
+};
+
+const deleteOwnAccount = async (admin, currentUser) => {
+  const [createdNominations, assignedTOCrews, upcomingRefereeAssignments, upcomingTOAssignments] =
+    await Promise.all([
+      maybeSingle(
+        admin.from('nominations').select('id').eq('created_by', currentUser.id).limit(1),
+        'Failed to check created games.',
+      ),
+      maybeSingle(
+        admin.from('nomination_tos').select('id').eq('assigned_by', currentUser.id).limit(1),
+        'Failed to check managed TO crews.',
+      ),
+      hasUpcomingRefereeAssignments(admin, currentUser.id),
+      hasUpcomingTOAssignments(admin, currentUser.id),
+    ]);
+
+  if (createdNominations) {
+    throw new HttpError(409, 'You cannot delete this account while you still own created games.');
+  }
+
+  if (assignedTOCrews) {
+    throw new HttpError(409, 'You cannot delete this account while you still manage assigned TO crews.');
+  }
+
+  if (upcomingRefereeAssignments) {
+    throw new HttpError(409, 'You cannot delete this account while you still have upcoming game assignments.');
+  }
+
+  if (upcomingTOAssignments) {
+    throw new HttpError(409, 'You cannot delete this account while you still have upcoming TO assignments.');
+  }
+
+  const { error } = await admin.auth.admin.deleteUser(currentUser.id);
+  if (error) {
+    throw new HttpError(500, 'Failed to delete account.');
+  }
+};
+
 const deleteMember = async (admin, currentUser, memberId) => {
   await requireRole(admin, currentUser.id, 'Instructor');
 
@@ -3584,6 +4012,54 @@ const createNomination = async (admin, currentUser, body) => {
     await admin.from('nominations').delete().eq('id', inserted.id);
     throw new HttpError(500, 'Failed to assign referees to the game.');
   }
+
+  void sendPushNotifications(admin, refereeIds, {
+    kind: 'assignment',
+    title: '📋 New assignment',
+    body: `You are assigned to ${teams}.`,
+    path: '/(tabs)/nominations',
+    data: {
+      nominationId: inserted.id,
+    },
+  }).catch((pushError) => {
+    console.error('[push] Failed to send assignment notification.', pushError);
+  });
+
+  void listProfilesByRoles(admin, ['Instructor'])
+    .then((profiles) =>
+      sendPushNotifications(
+        admin,
+        profiles.filter((profile) => profile.id !== currentUser.id).map((profile) => profile.id),
+        {
+          kind: 'new-game-created',
+          title: '🏀 New game created',
+          body: `${currentUser.full_name} added a new game: ${teams}.`,
+          path: '/(tabs)/nominations',
+          data: {
+            nominationId: inserted.id,
+          },
+        },
+      ),
+    )
+    .catch((pushError) => {
+      console.error('[push] Failed to send new game notification.', pushError);
+    });
+
+  void listProfilesByRoles(admin, ['TO Supervisor'])
+    .then((profiles) =>
+      sendPushNotifications(admin, profiles.map((profile) => profile.id), {
+        kind: 'to-selection',
+        title: '👥 TO crew needed',
+        body: `Choose the TO crew for ${teams}.`,
+        path: '/(tabs)/nominations',
+        data: {
+          nominationId: inserted.id,
+        },
+      }),
+    )
+    .catch((pushError) => {
+      console.error('[push] Failed to send TO selection notification.', pushError);
+    });
 
   clearGameDataCaches();
   const nominations = await getInstructorNominationsData(admin, currentUser.id, true);
@@ -4024,6 +4500,28 @@ const respondToNomination = async (admin, currentUser, nominationId, response) =
       throw new HttpError(500, 'Failed to save response.');
     }
 
+    if (response === ASSIGNMENT_STATUS.DECLINED) {
+      const nomination = await requireSingle(
+        admin.from('nominations').select('id, teams, created_by').eq('id', nominationId),
+        'Nomination not found.',
+        'Failed to load nomination.',
+      );
+      const supervisors = await listProfilesByRoles(admin, ['TO Supervisor']);
+      const recipientIds = [...new Set([String(nomination.created_by || '').trim(), ...supervisors.map((profile) => profile.id)].filter(Boolean))];
+      void sendPushNotifications(admin, recipientIds, {
+        kind: 'assignment-declined',
+        title: '⚠️ Assignment declined',
+        body: `${currentUser.full_name} declined the game ${String(nomination.teams || '').trim()}.`,
+        path: '/(tabs)/nominations',
+        data: {
+          nominationId,
+          declinedBy: currentUser.id,
+        },
+      }).catch((pushError) => {
+        console.error('[push] Failed to send decline notification.', pushError);
+      });
+    }
+
     clearGameDataCaches();
     const nominations = await getRefereeAssignmentsData(admin, currentUser.id, true);
     return nominations.nominations.find((nomination) => nomination.nominationId === nominationId) || null;
@@ -4059,6 +4557,28 @@ const respondToNomination = async (admin, currentUser, nominationId, response) =
 
   if (error) {
     throw new HttpError(500, 'Failed to save response.');
+  }
+
+  if (response === ASSIGNMENT_STATUS.DECLINED) {
+    const nomination = await requireSingle(
+      admin.from('nominations').select('id, teams, created_by').eq('id', nominationId),
+      'Nomination not found.',
+      'Failed to load nomination.',
+    );
+    const supervisors = await listProfilesByRoles(admin, ['TO Supervisor']);
+    const recipientIds = [...new Set([String(nomination.created_by || '').trim(), ...supervisors.map((profile) => profile.id)].filter(Boolean))];
+    void sendPushNotifications(admin, recipientIds, {
+      kind: 'assignment-declined',
+      title: '⚠️ Assignment declined',
+      body: `${currentUser.full_name} declined the game ${String(nomination.teams || '').trim()}.`,
+      path: '/(tabs)/nominations',
+      data: {
+        nominationId,
+        declinedBy: currentUser.id,
+      },
+    }).catch((pushError) => {
+      console.error('[push] Failed to send decline notification.', pushError);
+    });
   }
 
   clearGameDataCaches();
@@ -5541,6 +6061,53 @@ const routeRequest = async (event) => {
     await recordUserActivity(admin, currentUser, event);
     return json(200, {
       user: mapUser(currentUser),
+    });
+  }
+
+  if (method === 'PATCH' && path === '/auth/me') {
+    const user = await updateOwnProfile(admin, currentUser, body.fullName, body.photoUrl);
+    return json(200, {
+      message: 'Profile updated.',
+      user,
+    });
+  }
+
+  if (method === 'DELETE' && path === '/auth/me') {
+    await deleteOwnAccount(admin, currentUser);
+    return json(200, {
+      message: 'Account deleted.',
+    });
+  }
+
+  if (method === 'POST' && path === '/push-tokens') {
+    const status = await registerPushToken(admin, currentUser, body);
+    return json(200, {
+      message: 'Push token registered.',
+      status,
+    });
+  }
+
+  if (method === 'POST' && path === '/push-tokens/unregister') {
+    await unregisterPushToken(admin, currentUser, body);
+    return json(200, {
+      message: 'Push token unregistered.',
+    });
+  }
+
+  if (method === 'GET' && path === '/push-tokens/status') {
+    return json(200, {
+      status: await getPushTokenStatus(admin, currentUser, requestUrl.searchParams.get('token')),
+    });
+  }
+
+  if (method === 'GET' && path === '/push-tokens/history') {
+    return json(200, {
+      history: await getPushTokenHistory(
+        admin,
+        currentUser,
+        Number(requestUrl.searchParams.get('limit') || 20),
+        requestUrl.searchParams.get('userId'),
+      ),
     });
   }
 
