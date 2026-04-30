@@ -62,6 +62,7 @@ interface DashboardProps {
       | 'news'
       | 'announcement'
       | 'chat'
+      | 'tests'
       | 'calendar'
       | 'calculation'
       | 'availability'
@@ -1423,6 +1424,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           color: 'bg-cyan-50',
           badgeCount: totalUnreadChatCount,
         },
+        ...((user.role === 'Instructor' || user.role === 'TO Supervisor' || user.role === 'Referee' || user.role === 'TO')
+          ? [{ id: 'tests' as const, label: 'Tests', icon: Shield, iconColor: 'text-fuchsia-600', color: 'bg-fuchsia-50' }]
+          : []),
         { id: 'news' as const, label: t('news.title'), icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
       ];
 

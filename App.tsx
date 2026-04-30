@@ -16,6 +16,7 @@ import AnnouncementManager from './components/AnnouncementManager';
 import Chat from './components/Chat';
 import CalendarView from './components/CalendarView';
 import Availability from './components/Availability';
+import Tests from './components/Tests';
 import { I18nProvider, useI18n } from './i18n';
 import {
   getCurrentUserProfile,
@@ -37,6 +38,7 @@ type View =
   | 'news'
   | 'announcement'
   | 'chat'
+  | 'tests'
   | 'calendar'
   | 'calculation'
   | 'availability'
@@ -103,6 +105,7 @@ const normalizeStoredView = (value: unknown): View => {
     case 'news':
     case 'announcement':
     case 'chat':
+    case 'tests':
     case 'calendar':
     case 'calculation':
     case 'availability':
@@ -427,9 +430,11 @@ const AppContent: React.FC = () => {
         return <News user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'announcement':
         return <AnnouncementManager user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
-      case 'chat':
-        return <Chat user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
-      case 'calendar':
+        case 'chat':
+          return <Chat user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+        case 'tests':
+          return <Tests user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+        case 'calendar':
         return <CalendarView user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
       case 'calculation':
         return currentUser!.role === 'Financialist'

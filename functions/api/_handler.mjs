@@ -1,4 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
+import {
+  RouteError as TestsRouteError,
+  createTest,
+  getTestDetail,
+  getTestResult,
+  getTestSession,
+  grantTestRetake,
+  listTests,
+  startTestAttempt,
+  submitTestAnswer,
+  updateTest,
+} from './tests-module.mjs';
 
 const DEFAULT_PHOTO_URL = 'https://picsum.photos/seed/referee/300/300';
 const ROLE_OPTIONS = ['Instructor', 'TO Supervisor', 'TO', 'Referee', 'Staff', 'Financialist'];
@@ -6163,6 +6175,65 @@ const routeRequest = async (event) => {
     });
   }
 
+  if (method === 'GET' && path === '/tests') {
+    return json(200, await listTests(admin, currentUser));
+  }
+
+  if (method === 'POST' && path === '/tests') {
+    return json(201, await createTest(admin, currentUser, body));
+  }
+
+  const testMatch = path.match(/^\/tests\/([^/]+)$/);
+  if (method === 'GET' && testMatch) {
+    return json(200, await getTestDetail(admin, currentUser, testMatch[1]));
+  }
+
+  if (method === 'PATCH' && testMatch) {
+    return json(200, await updateTest(admin, currentUser, testMatch[1], body));
+  }
+
+  const startTestMatch = path.match(/^\/tests\/([^/]+)\/start$/);
+  if (method === 'POST' && startTestMatch) {
+    return json(200, await startTestAttempt(admin, currentUser, startTestMatch[1]));
+  }
+
+  const testSessionMatch = path.match(/^\/tests\/([^/]+)\/session$/);
+  if (method === 'GET' && testSessionMatch) {
+    return json(
+      200,
+      await getTestSession(
+        admin,
+        currentUser,
+        testSessionMatch[1],
+        requestUrl.searchParams.get('attemptId'),
+        requestUrl.searchParams.get('language'),
+      ),
+    );
+  }
+
+  const submitTestAnswerMatch = path.match(/^\/tests\/([^/]+)\/answer$/);
+  if (method === 'POST' && submitTestAnswerMatch) {
+    return json(200, await submitTestAnswer(admin, currentUser, submitTestAnswerMatch[1], body));
+  }
+
+  const testResultMatch = path.match(/^\/tests\/([^/]+)\/result$/);
+  if (method === 'GET' && testResultMatch) {
+    return json(
+      200,
+      await getTestResult(
+        admin,
+        currentUser,
+        testResultMatch[1],
+        String(requestUrl.searchParams.get('attemptId') || ''),
+      ),
+    );
+  }
+
+  const testRetakeMatch = path.match(/^\/tests\/([^/]+)\/attempts\/([^/]+)\/retake$/);
+  if (method === 'POST' && testRetakeMatch) {
+    return json(200, await grantTestRetake(admin, currentUser, testRetakeMatch[1], testRetakeMatch[2]));
+  }
+
   if (method === 'GET' && path === '/activity') {
     return json(200, { activity: await listRecentActivity(admin, currentUser) });
   }
@@ -6381,7 +6452,7 @@ export const handler = async (event) => {
   try {
     return await routeRequest(event);
   } catch (error) {
-    if (error instanceof HttpError) {
+    if (error instanceof HttpError || error instanceof TestsRouteError || (error && typeof error.status === 'number')) {
       return json(error.status, { message: error.message });
     }
 
