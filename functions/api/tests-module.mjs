@@ -7,6 +7,11 @@ const TEST_QUESTION_TIME_LIMIT_SECONDS = 120;
 const TEST_LANGUAGES = ['en', 'az', 'ru'];
 const TEST_PUBLISH_STATUSES = ['Draft', 'Published'];
 const TEST_ASSIGNMENT_MODES = ['AllEligible', 'SelectedUsers'];
+const BINARY_OPTION_LABELS = {
+  en: ['Yes', 'No'],
+  az: ['Bəli', 'Xeyr'],
+  ru: ['Да', 'Нет'],
+};
 
 export class RouteError extends Error {
   constructor(status, message) {
@@ -165,41 +170,32 @@ const shuffleArray = (items) => {
 
 const normalizeQuestionDraft = (question, index) => {
   const prompt = String(question?.prompt || '').trim();
-  const type = normalizeQuestionType(question?.type);
-  const options = Array.isArray(question?.options) ? question.options : [];
+  const type = 'single';
+  const rawCorrectAnswer = String(question?.correctAnswer || '').trim().toLowerCase();
+  const normalizedCorrectAnswer =
+    rawCorrectAnswer === 'yes' || rawCorrectAnswer === 'true' || rawCorrectAnswer === '1'
+      ? 'Yes'
+      : rawCorrectAnswer === 'no' || rawCorrectAnswer === 'false' || rawCorrectAnswer === '0'
+        ? 'No'
+        : null;
+  const options = [
+    { label: 'Yes', isCorrect: normalizedCorrectAnswer === 'Yes' },
+    { label: 'No', isCorrect: normalizedCorrectAnswer === 'No' },
+  ];
 
   if (!prompt) {
     throw new RouteError(400, `Question ${index + 1} is missing a prompt.`);
   }
 
-  if (options.length < 2) {
-    throw new RouteError(400, `Question ${index + 1} must have at least 2 answer options.`);
-  }
-
-  const normalizedOptions = options.map((option, optionIndex) => {
-    const label = String(option?.label || '').trim();
-    if (!label) {
-      throw new RouteError(400, `Question ${index + 1}, option ${optionIndex + 1} is empty.`);
-    }
-
-    return {
-      label,
-      isCorrect: Boolean(option?.isCorrect),
-    };
-  });
-
-  const correctCount = normalizedOptions.filter((option) => option.isCorrect).length;
-  if (correctCount === 0) {
-    throw new RouteError(400, `Question ${index + 1} must have at least one correct answer.`);
-  }
-  if (type === 'single' && correctCount !== 1) {
-    throw new RouteError(400, `Single choice question ${index + 1} must have exactly one correct answer.`);
+  if (!normalizedCorrectAnswer) {
+    throw new RouteError(400, `Question ${index + 1} must have a Yes/No correct answer.`);
   }
 
   return {
     prompt,
     type,
-    options: normalizedOptions,
+    correctAnswer: normalizedCorrectAnswer,
+    options,
   };
 };
 
@@ -485,14 +481,14 @@ const toTranslatedQuestion = (question, options, language) => {
     id: question.id,
     type: question.question_type,
     prompt,
-    options: options.map((option) => ({
+    options: options.map((option, index) => ({
       id: option.id,
       label:
         language === 'az'
-          ? option.label_az || option.label_en
+          ? BINARY_OPTION_LABELS.az[index] || option.label_az || option.label_en
           : language === 'ru'
-            ? option.label_ru || option.label_en
-            : option.label_en,
+            ? BINARY_OPTION_LABELS.ru[index] || option.label_ru || option.label_en
+            : BINARY_OPTION_LABELS.en[index] || option.label_en,
     })),
   };
 };
@@ -783,13 +779,18 @@ const loadQuestionDraftsByTestId = async (admin, testId) => {
   const questions = await listQuestionsByTestId(admin, testId);
   const options = await listQuestionOptions(admin, questions.map((question) => question.id));
 
-  return questions.map((question) => ({
-    id: question.id,
-    prompt: question.prompt_en,
-    type: question.question_type,
-    options: options
-      .filter((option) => option.question_id === question.id)
-      .map((option) => ({
+    return questions.map((question) => ({
+      id: question.id,
+      prompt: question.prompt_en,
+      type: question.question_type,
+      correctAnswer: options
+        .filter((option) => option.question_id === question.id)
+        .find((option) => Boolean(option.is_correct))?.label_en === 'No'
+          ? 'No'
+          : 'Yes',
+      options: options
+        .filter((option) => option.question_id === question.id)
+        .map((option) => ({
         id: option.id,
         label: option.label_en,
         isCorrect: Boolean(option.is_correct),

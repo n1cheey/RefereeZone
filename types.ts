@@ -359,6 +359,7 @@ export interface TestQuestionDraft {
   id?: string;
   prompt: string;
   type: TestQuestionType;
+  correctAnswer?: 'Yes' | 'No';
   options: TestQuestionOptionDraft[];
 }
 

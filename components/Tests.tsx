@@ -25,11 +25,6 @@ const QUESTION_BANK_SIZE = 100;
 const QUESTIONS_PER_ATTEMPT = 25;
 const PASS_THRESHOLD = 20;
 
-const QUESTION_TYPE_OPTIONS = [
-  { value: 'single', label: 'Single choice' },
-  { value: 'multiple', label: 'Multiple choice' },
-] as const;
-
 const AUDIENCE_OPTIONS = [
   { value: 'Referee', label: 'Referee' },
   { value: 'TO', label: 'TO' },
@@ -44,11 +39,10 @@ const ASSIGNMENT_MODE_OPTIONS = [
 const emptyQuestion = (): TestQuestionDraft => ({
   prompt: '',
   type: 'single',
+  correctAnswer: 'Yes',
   options: [
-    { label: '', isCorrect: true },
-    { label: '', isCorrect: false },
-    { label: '', isCorrect: false },
-    { label: '', isCorrect: false },
+    { label: 'Yes', isCorrect: true },
+    { label: 'No', isCorrect: false },
   ],
 });
 
@@ -426,42 +420,17 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
   const updateQuestion = (questionIndex: number, patch: Partial<TestQuestionDraft>) => {
     setForm((current) => {
       const nextQuestions = [...current.questions];
-      nextQuestions[questionIndex] = {
+      const nextQuestion = {
         ...nextQuestions[questionIndex],
         ...patch,
       };
-      return {
-        ...current,
-        questions: nextQuestions,
-      };
-    });
-  };
-
-  const updateOption = (questionIndex: number, optionIndex: number, patch: { label?: string; isCorrect?: boolean }) => {
-    setForm((current) => {
-      const nextQuestions = [...current.questions];
-      const question = nextQuestions[questionIndex];
-      const nextOptions = [...question.options];
-
-      if (patch.isCorrect !== undefined && question.type === 'single' && patch.isCorrect) {
-        nextOptions.forEach((option, index) => {
-          nextOptions[index] = {
-            ...option,
-            isCorrect: index === optionIndex,
-          };
-        });
-      } else {
-        nextOptions[optionIndex] = {
-          ...nextOptions[optionIndex],
-          ...patch,
-        };
+      if (patch.correctAnswer) {
+        nextQuestion.options = [
+          { label: 'Yes', isCorrect: patch.correctAnswer === 'Yes' },
+          { label: 'No', isCorrect: patch.correctAnswer === 'No' },
+        ];
       }
-
-      nextQuestions[questionIndex] = {
-        ...question,
-        options: nextOptions,
-      };
-
+      nextQuestions[questionIndex] = nextQuestion;
       return {
         ...current,
         questions: nextQuestions,
@@ -663,7 +632,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                   Question bank progress: {form.questions.filter((question) => question.prompt.trim()).length} / {QUESTION_BANK_SIZE}
                 </div>
                 <div className="text-xs text-slate-500">
-                  Each question needs at least 2 options and at least 1 correct answer.
+                  Each question is answered with Yes or No, and you choose which one is correct.
                 </div>
               </div>
 
@@ -672,16 +641,9 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                   <div key={`question-${questionIndex}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div className="text-sm font-bold text-slate-900">Question {questionIndex + 1}</div>
-                      <select
-                        value={question.type}
-                        onChange={(event) => updateQuestion(questionIndex, { type: event.target.value as 'single' | 'multiple' })}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none">
-                        {QUESTION_TYPE_OPTIONS.map((item) => (
-                          <option key={item.value} value={item.value}>
-                            {item.label}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                        Yes / No
+                      </div>
                     </div>
                     <textarea
                       value={question.prompt}
@@ -689,26 +651,16 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                       className="mt-3 min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]"
                       placeholder="Write the question in English."
                     />
-                    <div className="mt-3 grid gap-3 md:grid-cols-2">
-                      {question.options.map((option, optionIndex) => (
-                        <div key={`question-${questionIndex}-option-${optionIndex}`} className="rounded-2xl border border-slate-200 bg-white p-3">
-                          <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={option.isCorrect}
-                              onChange={(event) => updateOption(questionIndex, optionIndex, { isCorrect: event.target.checked })}
-                            />
-                            Correct answer
-                          </label>
-                          <input
-                            value={option.label}
-                            onChange={(event) => updateOption(questionIndex, optionIndex, { label: event.target.value })}
-                            className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[#57131b]"
-                            placeholder={`Option ${optionIndex + 1}`}
-                          />
-                        </div>
-                      ))}
-                    </div>
+                    <label className="mt-3 flex flex-col gap-2">
+                      <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Correct answer</span>
+                      <select
+                        value={question.correctAnswer || 'Yes'}
+                        onChange={(event) => updateQuestion(questionIndex, { correctAnswer: event.target.value as 'Yes' | 'No' })}
+                        className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]">
+                        <option value="Yes">Yes</option>
+                        <option value="No">No</option>
+                      </select>
+                    </label>
                   </div>
                 ))}
               </div>
