@@ -1173,7 +1173,7 @@ export async function getTestSession(admin, currentUser, testId, attemptId, lang
 
   const questionIds = Array.isArray(currentAttempt.question_ids) ? currentAttempt.question_ids : [];
   const currentQuestionId = questionIds[Number(currentAttempt.current_question_index || 0)];
-  const question = await maybeSingle(
+  let question = await maybeSingle(
     admin.from('test_questions').select('*').eq('id', currentQuestionId),
     'Failed to load current question.',
   );
