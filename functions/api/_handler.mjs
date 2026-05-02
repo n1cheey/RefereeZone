@@ -76,6 +76,7 @@ let googleGenAiModulePromise = null;
 const CURRENT_USER_CACHE_TTL_MS = 30000;
 const RANKING_STATE_CACHE_TTL_MS = 20000;
 const HEAVY_VIEW_CACHE_TTL_MS = 10000;
+const CHAT_DIRECTORY_CACHE_TTL_MS = 30000;
 const CHAT_MESSAGE_MAX_LENGTH = 4000;
 const AVAILABILITY_REASON_MAX_LENGTH = 1200;
 const EXPO_PUSH_API_URL = 'https://exp.host/--/api/v2/push/send';
@@ -94,6 +95,7 @@ const instructorDashboardCache = new Map();
 const instructorNominationsCache = new Map();
 const refereeAssignmentsCache = new Map();
 const chatBootstrapCache = new Map();
+const chatDirectoryCache = new Map();
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -709,15 +711,18 @@ const mapChatMessage = (message) => ({
 });
 
 const getChatUsers = async (admin, currentUser) => {
-  const { data, error } = await admin
-    .from('profiles')
-    .select('id, email, full_name, photo_url, license_number, role')
-    .neq('id', currentUser.id)
-    .order('role', { ascending: true })
-    .order('full_name', { ascending: true });
+  const profiles = (
+    await getTimedCacheValue(chatDirectoryCache, 'profiles', CHAT_DIRECTORY_CACHE_TTL_MS, async () => {
+      const { data, error } = await admin
+        .from('profiles')
+        .select('id, email, full_name, photo_url, license_number, role')
+        .order('role', { ascending: true })
+        .order('full_name', { ascending: true });
 
-  const profiles = ensureData(data || [], error, 'Failed to load chat users.')
-    .map(normalizeProfileRow)
+      return ensureData(data || [], error, 'Failed to load chat users.').map(normalizeProfileRow);
+    })
+  )
+    .filter((profile) => String(profile.id || '') !== String(currentUser.id || ''))
     .filter((profile) => !isTestLicenseProfile(profile))
     .filter((profile) => canInitiateDirectChat(currentUser, profile));
   const lastSeenMap = await listLastSeenMap(
@@ -1059,10 +1064,23 @@ const openChatConversation = async (admin, currentUser, otherUserId) => {
 };
 
 const getChatBootstrap = async (admin, currentUser, force = false) =>
-  getTimedCacheValue(chatBootstrapCache, currentUser.id, HEAVY_VIEW_CACHE_TTL_MS, async () => ({
-    users: await getChatUsers(admin, currentUser),
-    conversations: await listChatConversations(admin, currentUser),
-  }), force);
+  getTimedCacheValue(
+    chatBootstrapCache,
+    currentUser.id,
+    HEAVY_VIEW_CACHE_TTL_MS,
+    async () => {
+      const [users, conversations] = await Promise.all([
+        getChatUsers(admin, currentUser),
+        listChatConversations(admin, currentUser),
+      ]);
+
+      return {
+        users,
+        conversations,
+      };
+    },
+    force,
+  );
 
 const getChatMessages = async (admin, currentUser, conversationId) => {
   const conversation = await loadChatConversationById(admin, conversationId);
@@ -1205,22 +1223,39 @@ const clearAvailabilityOverviewCache = () => {
 };
 
 const getTimedCacheValue = async (cache, cacheKey, ttlMs, loadValue, force = false) => {
-  if (!force) {
-    const cached = cache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.value;
-    }
-    if (cached) {
-      cache.delete(cacheKey);
-    }
+  const cached = cache.get(cacheKey);
+
+  if (!force && cached?.expiresAt > Date.now() && 'value' in cached) {
+    return cached.value;
   }
 
-  const value = await loadValue();
+  if (cached?.pendingPromise) {
+    return cached.pendingPromise;
+  }
+
+  const pendingPromise = (async () => {
+    try {
+      const value = await loadValue();
+      cache.set(cacheKey, {
+        expiresAt: Date.now() + ttlMs,
+        value,
+      });
+      return value;
+    } catch (error) {
+      const current = cache.get(cacheKey);
+      if (current?.pendingPromise === pendingPromise) {
+        cache.delete(cacheKey);
+      }
+      throw error;
+    }
+  })();
+
   cache.set(cacheKey, {
-    expiresAt: Date.now() + ttlMs,
-    value,
+    expiresAt: cached?.expiresAt || 0,
+    pendingPromise,
   });
-  return value;
+
+  return pendingPromise;
 };
 
 const clearGameDataCaches = () => {
