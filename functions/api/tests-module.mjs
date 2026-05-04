@@ -168,7 +168,8 @@ const shuffleArray = (items) => {
   return copy;
 };
 
-const normalizeQuestionDraft = (question, index) => {
+const normalizeQuestionDraft = (question, index, config = {}) => {
+  const { allowIncomplete = false } = config;
   const prompt = String(question?.prompt || '').trim();
   const type = 'single';
   const rawCorrectAnswer = String(question?.correctAnswer || '').trim().toLowerCase();
@@ -178,24 +179,24 @@ const normalizeQuestionDraft = (question, index) => {
       : rawCorrectAnswer === 'no' || rawCorrectAnswer === 'false' || rawCorrectAnswer === '0'
         ? 'No'
         : null;
-  const options = [
+  const questionOptions = [
     { label: 'Yes', isCorrect: normalizedCorrectAnswer === 'Yes' },
     { label: 'No', isCorrect: normalizedCorrectAnswer === 'No' },
   ];
 
-  if (!prompt) {
+  if (!allowIncomplete && !prompt) {
     throw new RouteError(400, `Question ${index + 1} is missing a prompt.`);
   }
 
-  if (!normalizedCorrectAnswer) {
+  if (!allowIncomplete && !normalizedCorrectAnswer) {
     throw new RouteError(400, `Question ${index + 1} must have a Yes/No correct answer.`);
   }
 
   return {
     prompt,
     type,
-    correctAnswer: normalizedCorrectAnswer,
-    options,
+    correctAnswer: normalizedCorrectAnswer || 'Yes',
+    options: questionOptions,
   };
 };
 
@@ -257,7 +258,9 @@ const validateTestDraft = (body) => {
     assignmentMode,
     selectedUserIds,
     deadlineAt,
-    questions: questions.map(normalizeQuestionDraft),
+    questions: questions.map((question, index) =>
+      normalizeQuestionDraft(question, index, { allowIncomplete: status === 'Draft' }),
+    ),
   };
 };
 
@@ -299,6 +302,24 @@ const deleteQuestionsByTestId = async (admin, testId) => {
   }
 };
 
+const deleteTestById = async (admin, testId) => {
+  const { error } = await admin.from('tests').delete().eq('id', testId);
+  if (error) {
+    throw new RouteError(500, 'Failed to roll back test after save error.');
+  }
+};
+
+const buildCanonicalTestOptions = (correctAnswer) => [
+  {
+    label: 'Yes',
+    isCorrect: correctAnswer === 'Yes',
+  },
+  {
+    label: 'No',
+    isCorrect: correctAnswer === 'No',
+  },
+];
+
 const saveQuestionsForTest = async (admin, testId, questions) => {
   for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
     const questionDraft = questions[questionIndex];
@@ -322,19 +343,18 @@ const saveQuestionsForTest = async (admin, testId, questions) => {
       'Failed to save test question.',
     );
 
-    for (let optionIndex = 0; optionIndex < questionDraft.options.length; optionIndex += 1) {
-      const optionDraft = questionDraft.options[optionIndex];
+    const canonicalOptions = buildCanonicalTestOptions(questionDraft.correctAnswer);
+    for (let optionIndex = 0; optionIndex < canonicalOptions.length; optionIndex += 1) {
+      const optionDraft = canonicalOptions[optionIndex];
       const { error: optionError } = await admin.from('test_question_options').insert({
         question_id: question.id,
         label_en: optionDraft.label,
-        label_az: null,
-        label_ru: null,
         is_correct: optionDraft.isCorrect,
         option_order: optionIndex + 1,
       });
 
       if (optionError) {
-        throw new RouteError(500, 'Failed to save test option.');
+        throw new RouteError(500, `Failed to save test option for question ${questionIndex + 1}: ${optionError.message || 'Unknown database error.'}`);
       }
     }
   }
@@ -828,7 +848,16 @@ export async function createTest(admin, currentUser, body) {
 
   const test = ensureSingle(insertedTest, testError, 'Failed to create test.', 'Failed to create test.');
 
-  await saveQuestionsForTest(admin, test.id, draft.questions);
+  try {
+    await saveQuestionsForTest(admin, test.id, draft.questions);
+  } catch (error) {
+    try {
+      await deleteTestById(admin, test.id);
+    } catch {
+      // Keep original save error as the primary failure.
+    }
+    throw error;
+  }
 
   if (draft.status === 'Published') {
     const assignees = await listAssignableProfiles(admin, draft, currentUser);
@@ -865,6 +894,7 @@ export async function updateTest(admin, currentUser, testId, body) {
   }
 
   const draft = validateTestDraft(body);
+  const previousQuestions = await loadQuestionDraftsByTestId(admin, existingTest.id);
   const nowIso = new Date().toISOString();
   const { data: updatedTestData, error: updateError } = await admin
     .from('tests')
@@ -884,7 +914,34 @@ export async function updateTest(admin, currentUser, testId, body) {
   const updatedTest = ensureSingle(updatedTestData, updateError, 'Test not found.', 'Failed to update test.');
 
   await deleteQuestionsByTestId(admin, existingTest.id);
-  await saveQuestionsForTest(admin, existingTest.id, draft.questions);
+
+  try {
+    await saveQuestionsForTest(admin, existingTest.id, draft.questions);
+  } catch (error) {
+    try {
+      await deleteQuestionsByTestId(admin, existingTest.id);
+      await saveQuestionsForTest(admin, existingTest.id, previousQuestions);
+      await admin
+        .from('tests')
+        .update({
+          title: existingTest.title,
+          description: existingTest.description,
+          audience_role: existingTest.audience_role,
+          status: existingTest.status,
+          assignment_mode: existingTest.assignment_mode,
+          deadline_at: existingTest.deadline_at,
+          updated_at: existingTest.updated_at || nowIso,
+        })
+        .eq('id', existingTest.id);
+    } catch {
+      throw new RouteError(
+        500,
+        `${error instanceof Error ? error.message : 'Failed to update test.'} Previous saved exam content could not be restored automatically.`,
+      );
+    }
+
+    throw error;
+  }
 
   if (draft.status === 'Published') {
     const assignees = await listAssignableProfiles(admin, draft, currentUser);

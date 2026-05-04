@@ -24,6 +24,8 @@ interface TestsProps {
 const QUESTION_BANK_SIZE = 100;
 const QUESTIONS_PER_ATTEMPT = 25;
 const PASS_THRESHOLD = 20;
+const getTestBuilderDraftStorageKey = (userId: string, testId: string | null) =>
+  `tests:builder:${userId}:${testId || 'new'}`;
 
 const AUDIENCE_OPTIONS = [
   { value: 'Referee', label: 'Referee' },
@@ -45,6 +47,45 @@ const emptyQuestion = (): TestQuestionDraft => ({
     { label: 'No', isCorrect: false },
   ],
 });
+
+const normalizeQuestionBankForEditor = (questions: TestQuestionDraft[]) =>
+  Array.from({ length: QUESTION_BANK_SIZE }, (_, index) => ({
+    ...emptyQuestion(),
+    ...(questions[index] || {}),
+  }));
+
+const loadStoredTestBuilderDraft = (userId: string, testId: string | null) => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(getTestBuilderDraftStorageKey(userId, testId));
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue);
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    return {
+      title: String(parsed.title || ''),
+      description: String(parsed.description || ''),
+      audienceRole: (parsed.audienceRole === 'TO' || parsed.audienceRole === 'Both' ? parsed.audienceRole : 'Referee') as 'Referee' | 'TO' | 'Both',
+      status: (parsed.status === 'Published' ? 'Published' : 'Draft') as 'Draft' | 'Published',
+      assignmentMode: (parsed.assignmentMode === 'SelectedUsers' ? 'SelectedUsers' : 'AllEligible') as 'AllEligible' | 'SelectedUsers',
+      selectedUserIds: Array.isArray(parsed.selectedUserIds)
+        ? parsed.selectedUserIds.map((item: unknown) => String(item || '')).filter(Boolean)
+        : [],
+      deadlineAt: String(parsed.deadlineAt || ''),
+      questions: normalizeQuestionBankForEditor(Array.isArray(parsed.questions) ? parsed.questions : []),
+    };
+  } catch {
+    return null;
+  }
+};
 
 const formatDuration = (value: number | null) => {
   if (value === null) {
@@ -155,6 +196,14 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
   const canCreate = isInstructor;
   const isExamActive = Boolean(session && session.status === 'InProgress' && session.question);
 
+  const clearStoredBuilderDraft = useCallback((testId: string | null = editingTestId) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.removeItem(getTestBuilderDraftStorageKey(user.id, testId));
+  }, [editingTestId, user.id]);
+
   useExamProtection(isExamActive);
 
   const loadTests = useCallback(async () => {
@@ -187,6 +236,17 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
       questions: Array.from({ length: QUESTION_BANK_SIZE }, () => emptyQuestion()),
     });
   }, []);
+
+  useEffect(() => {
+    if (!showCreateForm || typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(
+      getTestBuilderDraftStorageKey(user.id, editingTestId),
+      JSON.stringify(form),
+    );
+  }, [editingTestId, form, showCreateForm, user.id]);
 
   const loadMembers = useCallback(async () => {
     if (!isInstructor) {
@@ -231,22 +291,25 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
   }, [isInstructor, isTOSupervisor]);
 
   const openEditor = useCallback((test: TestAdminSummary) => {
+    const storedDraft = loadStoredTestBuilderDraft(user.id, test.id);
     setEditingTestId(test.id);
     setShowCreateForm(true);
-    setForm({
-      title: test.title,
-      description: test.description,
-      audienceRole: test.audienceRole,
-      status: test.status,
-      assignmentMode: test.assignmentMode,
-      selectedUserIds: test.selectedUserIds || [],
-      deadlineAt: test.deadlineAt ? test.deadlineAt.slice(0, 16) : '',
-      questions:
-        test.questions && test.questions.length
-          ? test.questions
-          : Array.from({ length: QUESTION_BANK_SIZE }, () => emptyQuestion()),
-    });
-  }, []);
+    setForm(
+      storedDraft || {
+        title: test.title,
+        description: test.description,
+        audienceRole: test.audienceRole,
+        status: test.status,
+        assignmentMode: test.assignmentMode,
+        selectedUserIds: test.selectedUserIds || [],
+        deadlineAt: test.deadlineAt ? test.deadlineAt.slice(0, 16) : '',
+        questions:
+          test.questions && test.questions.length
+            ? normalizeQuestionBankForEditor(test.questions)
+            : Array.from({ length: QUESTION_BANK_SIZE }, () => emptyQuestion()),
+      },
+    );
+  }, [user.id]);
 
   const beginAttempt = useCallback(async (testId: string, latestAttempt?: TestAttemptSummary | null) => {
     setErrorMessage('');
@@ -406,6 +469,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
         ? await updateTest(editingTestId, payload)
         : await createTest(payload);
       setSuccessMessage(response.message);
+      clearStoredBuilderDraft(editingTestId);
       setShowCreateForm(false);
       resetForm();
       await loadTests();
@@ -446,7 +510,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
     return detail.attempts.filter(
       (attempt) => attempt.status === 'Completed' && attempt.resultStatus === 'FAILED',
     );
-  }, [detail]);
+  }, [clearStoredBuilderDraft, detail, editingTestId, loadDetail, loadTests, resetForm]);
 
   const resultTone =
     result?.resultStatus === 'SUCCESS'
@@ -494,6 +558,20 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                         resetForm();
                         return;
                       }
+                      const storedDraft = loadStoredTestBuilderDraft(user.id, null);
+                      setEditingTestId(null);
+                      setForm(
+                        storedDraft || {
+                          title: '',
+                          description: '',
+                          audienceRole: 'Referee',
+                          status: 'Draft',
+                          assignmentMode: 'AllEligible',
+                          selectedUserIds: [],
+                          deadlineAt: '',
+                          questions: Array.from({ length: QUESTION_BANK_SIZE }, () => emptyQuestion()),
+                        },
+                      );
                       setShowCreateForm(true);
                     }}
                     className="rounded-full bg-[#57131b] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#6b1b24]">
