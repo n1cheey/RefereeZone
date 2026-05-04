@@ -7,6 +7,7 @@ const TEST_QUESTION_TIME_LIMIT_SECONDS = 120;
 const TEST_LANGUAGES = ['en', 'az', 'ru'];
 const TEST_PUBLISH_STATUSES = ['Draft', 'Published'];
 const TEST_ASSIGNMENT_MODES = ['AllEligible', 'SelectedUsers'];
+const TEST_TRANSLATION_CHUNK_SIZE = 20;
 const BINARY_OPTION_LABELS = {
   en: ['Yes', 'No'],
   az: ['Bəli', 'Xeyr'],
@@ -320,6 +321,98 @@ const buildCanonicalTestOptions = (correctAnswer) => [
   },
 ];
 
+const parseJsonFromModelResponse = (value) => {
+  const source = String(value || '').trim();
+  const fencedMatch = source.match(/```json\s*([\s\S]*?)```/i);
+  if (fencedMatch) {
+    return JSON.parse(fencedMatch[1]);
+  }
+
+  const jsonMatch = source.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+  return JSON.parse(jsonMatch ? jsonMatch[0] : source);
+};
+
+const translateQuestionPromptsChunk = async (questions, language) => {
+  if (!questions.length || language === 'en') {
+    return questions.map((question) => question.prompt);
+  }
+
+  const ai = await getGeminiClient();
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents:
+      `Translate the following basketball exam questions from English into ${language === 'az' ? 'Azerbaijani' : 'Russian'}. ` +
+      'Return only valid JSON as an array. Each item must contain keys index and prompt. Preserve the original meaning.' +
+      `\nQuestions:\n${questions.map((question, index) => `${index + 1}. ${question.prompt}`).join('\n')}`,
+    config: {
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  });
+
+  const parsed = parseJsonFromModelResponse(response.text);
+  if (!Array.isArray(parsed)) {
+    throw new RouteError(500, `Failed to parse ${language.toUpperCase()} question translations.`);
+  }
+
+  const translatedPrompts = questions.map((question) => question.prompt);
+  parsed.forEach((item, index) => {
+    const translatedPrompt = String(item?.prompt || '').trim();
+    const rawIndex = Number(item?.index);
+    const targetIndex = Number.isInteger(rawIndex) && rawIndex >= 1 && rawIndex <= questions.length ? rawIndex - 1 : index;
+    if (translatedPrompt) {
+      translatedPrompts[targetIndex] = translatedPrompt;
+    }
+  });
+
+  return translatedPrompts;
+};
+
+const enrichQuestionsWithTranslations = async (questions) => {
+  const filledQuestions = questions
+    .map((question, index) => ({ question, index }))
+    .filter(({ question }) => String(question.prompt || '').trim());
+
+  if (!filledQuestions.length) {
+    return questions.map((question) => ({
+      ...question,
+      promptAz: null,
+      promptRu: null,
+    }));
+  }
+
+  const translatedByLanguage = {
+    az: new Map(),
+    ru: new Map(),
+  };
+
+  for (const language of ['az', 'ru']) {
+    try {
+      for (let chunkStart = 0; chunkStart < filledQuestions.length; chunkStart += TEST_TRANSLATION_CHUNK_SIZE) {
+        const chunk = filledQuestions.slice(chunkStart, chunkStart + TEST_TRANSLATION_CHUNK_SIZE);
+        const translatedPrompts = await translateQuestionPromptsChunk(
+          chunk.map(({ question }) => question),
+          language,
+        );
+
+        chunk.forEach(({ index }, chunkIndex) => {
+          const translatedPrompt = String(translatedPrompts[chunkIndex] || '').trim();
+          if (translatedPrompt) {
+            translatedByLanguage[language].set(index, translatedPrompt);
+          }
+        });
+      }
+    } catch {
+      // Keep English fallback when translation is unavailable.
+    }
+  }
+
+  return questions.map((question, index) => ({
+    ...question,
+    promptAz: translatedByLanguage.az.get(index) || null,
+    promptRu: translatedByLanguage.ru.get(index) || null,
+  }));
+};
+
 const saveQuestionsForTest = async (admin, testId, questions) => {
   if (!questions.length) {
     return;
@@ -328,8 +421,8 @@ const saveQuestionsForTest = async (admin, testId, questions) => {
   const questionRows = questions.map((questionDraft, questionIndex) => ({
     test_id: testId,
     prompt_en: questionDraft.prompt,
-    prompt_az: null,
-    prompt_ru: null,
+    prompt_az: questionDraft.promptAz || null,
+    prompt_ru: questionDraft.promptRu || null,
     question_type: questionDraft.type,
     order_index: questionIndex + 1,
   }));
@@ -637,50 +730,27 @@ const ensureQuestionTranslations = async (admin, question, options, language) =>
   }
 
   const promptField = language === 'az' ? 'prompt_az' : 'prompt_ru';
-  const optionField = language === 'az' ? 'label_az' : 'label_ru';
-  const alreadyTranslated =
-    question[promptField] &&
-    options.every((option) => option[optionField]);
+  const alreadyTranslated = question[promptField];
 
   if (alreadyTranslated) {
     return { question, options };
   }
 
   try {
-    const ai = await getGeminiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents:
-        `Translate the following basketball exam question from English into ${language === 'az' ? 'Azerbaijani' : 'Russian'}. ` +
-        `Return only valid JSON with keys prompt and options, where options is an array of translated answer strings in the same order. ` +
-        `Question: ${question.prompt_en}\nOptions:\n${options.map((option, index) => `${index + 1}. ${option.label_en}`).join('\n')}`,
-      config: {
-        thinkingConfig: { thinkingBudget: 0 },
-      },
-    });
+    const translatedPrompts = await translateQuestionPromptsChunk(
+      [{ prompt: question.prompt_en }],
+      language,
+    );
+    const translatedPrompt = String(translatedPrompts[0] || '').trim();
 
-    const source = String(response.text || '').trim();
-    const match = source.match(/\{[\s\S]*\}/);
-    const parsed = match ? JSON.parse(match[0]) : JSON.parse(source);
-    const translatedPrompt = String(parsed?.prompt || '').trim();
-    const translatedOptions = Array.isArray(parsed?.options) ? parsed.options : [];
-
-    if (!translatedPrompt || translatedOptions.length !== options.length) {
+    if (!translatedPrompt) {
       return { question, options };
     }
 
     const updatedQuestion = await updateQuestionTranslation(admin, question.id, {
       [promptField]: translatedPrompt,
     });
-    const updatedOptions = await Promise.all(
-      options.map((option, index) =>
-        updateQuestionOptionTranslation(admin, option.id, {
-          [optionField]: String(translatedOptions[index] || option.label_en).trim() || option.label_en,
-        }),
-      ),
-    );
-
-    return { question: updatedQuestion, options: updatedOptions };
+    return { question: updatedQuestion, options };
   } catch {
     return { question, options };
   }
@@ -837,6 +907,7 @@ export async function createTest(admin, currentUser, body) {
   }
 
   const draft = validateTestDraft(body);
+  const translatedQuestions = await enrichQuestionsWithTranslations(draft.questions);
   const nowIso = new Date().toISOString();
   const { data: insertedTest, error: testError } = await admin
     .from('tests')
@@ -862,7 +933,7 @@ export async function createTest(admin, currentUser, body) {
   const test = ensureSingle(insertedTest, testError, 'Failed to create test.', 'Failed to create test.');
 
   try {
-    await saveQuestionsForTest(admin, test.id, draft.questions);
+    await saveQuestionsForTest(admin, test.id, translatedQuestions);
   } catch (error) {
     try {
       await deleteTestById(admin, test.id);
@@ -907,6 +978,7 @@ export async function updateTest(admin, currentUser, testId, body) {
   }
 
   const draft = validateTestDraft(body);
+  const translatedQuestions = await enrichQuestionsWithTranslations(draft.questions);
   const previousQuestions = await loadQuestionDraftsByTestId(admin, existingTest.id);
   const nowIso = new Date().toISOString();
   const { data: updatedTestData, error: updateError } = await admin
@@ -929,7 +1001,7 @@ export async function updateTest(admin, currentUser, testId, body) {
   await deleteQuestionsByTestId(admin, existingTest.id);
 
   try {
-    await saveQuestionsForTest(admin, existingTest.id, draft.questions);
+    await saveQuestionsForTest(admin, existingTest.id, translatedQuestions);
   } catch (error) {
     try {
       await deleteQuestionsByTestId(admin, existingTest.id);
