@@ -363,12 +363,22 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
     }
   }, [activeAttemptId, activeTestId, language]);
 
+  const sessionTimerKey = session
+    ? `${session.attemptId}:${session.currentQuestionIndex}:${session.status}`
+    : null;
+
+  useEffect(() => {
+    if (!session || session.status !== 'InProgress') {
+      return;
+    }
+
+    setRemainingSeconds(session.remainingSeconds);
+  }, [sessionTimerKey]);
+
   useEffect(() => {
     if (!session || session.status !== 'InProgress') {
       return undefined;
     }
-
-    setRemainingSeconds(session.remainingSeconds);
     const intervalId = window.setInterval(() => {
       setRemainingSeconds((previous) => {
         if (previous <= 1) {
@@ -803,6 +813,21 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
               {tests.map((test) => {
                 const latestAttempt =
                   isUserTestSummary(test) ? test.latestAttempt : null;
+                const waitingForRetakeApproval = Boolean(
+                  isParticipant &&
+                  latestAttempt?.status === 'Completed' &&
+                  latestAttempt?.resultStatus === 'FAILED' &&
+                  !latestAttempt?.retakeAllowed,
+                );
+                const participantActionLabel = latestAttempt?.status === 'InProgress'
+                  ? 'Resume exam'
+                  : latestAttempt?.resultStatus === 'FAILED' && latestAttempt?.retakeAllowed
+                    ? 'Retake exam'
+                    : latestAttempt?.resultStatus === 'SUCCESS'
+                      ? 'Open result'
+                      : waitingForRetakeApproval
+                        ? 'Await retake approval'
+                        : 'Start exam';
 
                 return (
                   <div key={test.id} className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -865,14 +890,9 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                         {isParticipant ? (
                           <button
                             onClick={() => void beginAttempt(test.id, latestAttempt)}
-                            className="rounded-full bg-[#57131b] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#6b1b24]">
-                            {latestAttempt?.status === 'InProgress'
-                              ? 'Resume exam'
-                              : latestAttempt?.resultStatus === 'FAILED' && latestAttempt?.retakeAllowed
-                                ? 'Retake exam'
-                                : latestAttempt?.resultStatus === 'SUCCESS'
-                                  ? 'Open result'
-                                  : 'Start exam'}
+                            disabled={waitingForRetakeApproval}
+                            className="rounded-full bg-[#57131b] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#6b1b24] disabled:opacity-60">
+                            {participantActionLabel}
                           </button>
                         ) : null}
                       </div>
