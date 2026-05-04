@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   RouteError as TestsRouteError,
   createTest,
+  deleteTest,
   getTestDetail,
   getTestResult,
   getTestSession,
@@ -6243,6 +6244,10 @@ const routeRequest = async (event) => {
 
   if (method === 'PATCH' && testMatch) {
     return json(200, await updateTest(admin, currentUser, testMatch[1], body));
+  }
+
+  if (method === 'DELETE' && testMatch) {
+    return json(200, await deleteTest(admin, currentUser, testMatch[1]));
   }
 
   const startTestMatch = path.match(/^\/tests\/([^/]+)\/start$/);

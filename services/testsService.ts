@@ -49,6 +49,10 @@ export interface GrantRetakeResponse {
   message: string;
 }
 
+export interface DeleteTestResponse {
+  message: string;
+}
+
 export const getTests = () => apiRequest<TestsListResponse>('/api/tests');
 
 export const getTestDetail = (testId: string) =>
@@ -66,6 +70,11 @@ export const updateTest = (testId: string, payload: CreateTestPayload) =>
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  });
+
+export const deleteTest = (testId: string) =>
+  apiRequest<DeleteTestResponse>(`/api/tests/${encodeURIComponent(testId)}`, {
+    method: 'DELETE',
   });
 
 export const startTestAttempt = (testId: string) =>

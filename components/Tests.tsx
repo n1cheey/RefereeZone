@@ -3,6 +3,7 @@ import Layout from './Layout';
 import { User, TestAdminSummary, TestAttemptSummary, TestQuestionDraft, TestResultView, TestSessionState, UserTestSummary } from '../types';
 import {
   createTest,
+  deleteTest,
   getTestDetail,
   getTestResult,
   getTestSession,
@@ -175,6 +176,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [retakeLoadingId, setRetakeLoadingId] = useState<string | null>(null);
+  const [deletingTestId, setDeletingTestId] = useState<string | null>(null);
   const [editingTestId, setEditingTestId] = useState<string | null>(null);
   const [members, setMembers] = useState<User[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -478,6 +480,36 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to create test.');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleDeleteTest = async (testId: string) => {
+    const confirmed = window.confirm('Delete this test? It will disappear from all active test lists.');
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingTestId(testId);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      const response = await deleteTest(testId);
+      clearStoredBuilderDraft(testId);
+      if (editingTestId === testId) {
+        setShowCreateForm(false);
+        setEditingTestId(null);
+      }
+      if (activeTestId === testId) {
+        setActiveTestId(null);
+        setDetail(null);
+      }
+      setSuccessMessage(response.message);
+      await loadTests();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to delete test.');
+    } finally {
+      setDeletingTestId(null);
     }
   };
 
@@ -812,15 +844,23 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                           </button>
                         ) : null}
                         {isInstructor && test.createdById === user.id ? (
-                          <button
-                            onClick={() => void loadDetail(test.id).then((loadedTest) => {
-                              if (loadedTest) {
-                                openEditor(loadedTest);
-                              }
-                            })}
-                            className="rounded-full border border-[#57131b]/20 px-4 py-2 text-sm font-bold text-[#57131b] transition hover:bg-[#57131b]/5">
-                            Load for edit
-                          </button>
+                          <>
+                            <button
+                              onClick={() => void loadDetail(test.id).then((loadedTest) => {
+                                if (loadedTest) {
+                                  openEditor(loadedTest);
+                                }
+                              })}
+                              className="rounded-full border border-[#57131b]/20 px-4 py-2 text-sm font-bold text-[#57131b] transition hover:bg-[#57131b]/5">
+                              Load for edit
+                            </button>
+                            <button
+                              onClick={() => void handleDeleteTest(test.id)}
+                              disabled={deletingTestId === test.id}
+                              className="rounded-full border border-red-200 px-4 py-2 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60">
+                              {deletingTestId === test.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </>
                         ) : null}
                         {isParticipant ? (
                           <button
@@ -970,11 +1010,19 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                         <div className="mt-2 text-sm text-slate-500">{detail.description || 'No description provided.'}</div>
                       </div>
                       {isInstructor ? (
-                        <button
-                          onClick={() => openEditor(detail)}
-                          className="rounded-full border border-[#57131b]/20 px-4 py-2 text-sm font-bold text-[#57131b] transition hover:bg-[#57131b]/5">
-                          Edit exam
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => openEditor(detail)}
+                            className="rounded-full border border-[#57131b]/20 px-4 py-2 text-sm font-bold text-[#57131b] transition hover:bg-[#57131b]/5">
+                            Edit exam
+                          </button>
+                          <button
+                            onClick={() => void handleDeleteTest(detail.id)}
+                            disabled={deletingTestId === detail.id}
+                            className="rounded-full border border-red-200 px-4 py-2 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60">
+                            {deletingTestId === detail.id ? 'Deleting...' : 'Delete exam'}
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-600">

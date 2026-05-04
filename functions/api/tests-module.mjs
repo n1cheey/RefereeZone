@@ -321,42 +321,55 @@ const buildCanonicalTestOptions = (correctAnswer) => [
 ];
 
 const saveQuestionsForTest = async (admin, testId, questions) => {
-  for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
-    const questionDraft = questions[questionIndex];
-    const { data: insertedQuestion, error: questionError } = await admin
-      .from('test_questions')
-      .insert({
-        test_id: testId,
-        prompt_en: questionDraft.prompt,
-        prompt_az: null,
-        prompt_ru: null,
-        question_type: questionDraft.type,
-        order_index: questionIndex + 1,
-      })
-      .select('*')
-      .single();
+  if (!questions.length) {
+    return;
+  }
 
-    const question = ensureSingle(
-      insertedQuestion,
-      questionError,
-      'Failed to save test question.',
-      'Failed to save test question.',
-    );
+  const questionRows = questions.map((questionDraft, questionIndex) => ({
+    test_id: testId,
+    prompt_en: questionDraft.prompt,
+    prompt_az: null,
+    prompt_ru: null,
+    question_type: questionDraft.type,
+    order_index: questionIndex + 1,
+  }));
 
-    const canonicalOptions = buildCanonicalTestOptions(questionDraft.correctAnswer);
-    for (let optionIndex = 0; optionIndex < canonicalOptions.length; optionIndex += 1) {
-      const optionDraft = canonicalOptions[optionIndex];
-      const { error: optionError } = await admin.from('test_question_options').insert({
-        question_id: question.id,
-        label_en: optionDraft.label,
-        is_correct: optionDraft.isCorrect,
-        option_order: optionIndex + 1,
-      });
+  const { data: insertedQuestions, error: questionError } = await admin
+    .from('test_questions')
+    .insert(questionRows)
+    .select('id, order_index');
 
-      if (optionError) {
-        throw new RouteError(500, `Failed to save test option for question ${questionIndex + 1}: ${optionError.message || 'Unknown database error.'}`);
-      }
+  const savedQuestions = ensureResponseData(insertedQuestions || [], questionError, 'Failed to save test questions.');
+  if (savedQuestions.length !== questions.length) {
+    throw new RouteError(500, 'Failed to save all test questions.');
+  }
+
+  const questionIdByOrderIndex = new Map(
+    savedQuestions.map((question) => [Number(question.order_index || 0), question.id]),
+  );
+
+  const optionRows = questions.flatMap((questionDraft, questionIndex) => {
+    const questionId = questionIdByOrderIndex.get(questionIndex + 1);
+    if (!questionId) {
+      throw new RouteError(500, `Failed to map saved question ${questionIndex + 1}.`);
     }
+
+    return buildCanonicalTestOptions(questionDraft.correctAnswer).map((optionDraft, optionIndex) => ({
+      question_id: questionId,
+      label_en: optionDraft.label,
+      is_correct: optionDraft.isCorrect,
+      option_order: optionIndex + 1,
+    }));
+  });
+
+  if (!optionRows.length) {
+    return;
+  }
+
+  const { error: optionError } = await admin.from('test_question_options').insert(optionRows);
+
+  if (optionError) {
+    throw new RouteError(500, `Failed to save test options: ${optionError.message || 'Unknown database error.'}`);
   }
 };
 
@@ -966,6 +979,46 @@ export async function updateTest(admin, currentUser, testId, body) {
   return {
     message: draft.status === 'Draft' ? 'Draft updated.' : 'Test updated.',
     test: mapTestSummary(updatedTest, currentUser),
+  };
+}
+
+export async function deleteTest(admin, currentUser, testId) {
+  if (normalizeRole(currentUser.role) !== 'Instructor') {
+    throw new RouteError(403, 'Only Instructor accounts can delete tests.');
+  }
+
+  const existingTest = await loadTestById(admin, testId);
+  if (existingTest.created_by !== currentUser.id) {
+    throw new RouteError(403, 'This test belongs to another instructor.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const { error: testError } = await admin
+    .from('tests')
+    .update({
+      is_active: false,
+      updated_at: nowIso,
+    })
+    .eq('id', existingTest.id);
+
+  if (testError) {
+    throw new RouteError(500, 'Failed to delete test.');
+  }
+
+  const { error: assignmentError } = await admin
+    .from('test_assignments')
+    .update({
+      is_active: false,
+    })
+    .eq('test_id', existingTest.id)
+    .eq('is_active', true);
+
+  if (assignmentError) {
+    throw new RouteError(500, 'Failed to disable test assignments.');
+  }
+
+  return {
+    message: 'Test deleted.',
   };
 }
 
