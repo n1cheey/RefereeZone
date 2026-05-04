@@ -4359,7 +4359,7 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
 const assignNominationStatistics = async (admin, currentUser, nominationId, statisticianIds) => {
   requireStatisticSupervisor(currentUser);
   const nomination = await requireSingle(
-    admin.from('nominations').select('id, match_date, match_time').eq('id', nominationId),
+    admin.from('nominations').select('id, teams, match_date, match_time').eq('id', nominationId),
     'Nomination not found.',
     'Failed to load nomination.',
   );
@@ -4369,6 +4369,7 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
     STATISTIC_CREW_SLOT_NUMBERS.includes(Number(assignment.slot_number)),
   );
   const existingAssignmentsBySlot = new Map(existingAssignments.map((assignment) => [Number(assignment.slot_number), assignment]));
+  let assignedStatisticianIds = [];
 
   if (isPastMatch) {
     const normalizedStatisticSelections = normalizeTOSlotSelections(
@@ -4392,6 +4393,7 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
       admin,
       normalizedStatisticSelections.filter(Boolean),
     );
+    assignedStatisticianIds = [...new Set(normalizedStatisticSelections.filter(Boolean))];
 
     const { error: insertError } = await admin.from('nomination_tos').insert(
       normalizedStatisticSelections
@@ -4424,6 +4426,7 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
     }
 
     await requireTOUsers(admin, normalizedStatisticianIds.filter(Boolean));
+    assignedStatisticianIds = [...new Set(normalizedStatisticianIds.filter(Boolean))];
 
     const { error: deleteError } = await admin
       .from('nomination_tos')
@@ -4450,6 +4453,21 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
     if (insertError) {
       throw new HttpError(500, 'Failed to assign statistic crew.');
     }
+  }
+
+  if (assignedStatisticianIds.length) {
+    void sendPushNotifications(admin, assignedStatisticianIds, {
+      kind: 'assignment',
+      title: '📊 Statistic crew assignment',
+      body: `You were assigned to the statistic crew for ${String(nomination.teams || 'this game').trim()}.`,
+      path: '/(tabs)/nominations',
+      data: {
+        nominationId,
+        assignmentGroup: 'Statistic',
+      },
+    }).catch((pushError) => {
+      console.error('[push] Failed to send statistic crew assignment notification.', pushError);
+    });
   }
 
   clearGameDataCaches();
