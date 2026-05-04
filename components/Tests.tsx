@@ -808,6 +808,12 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
             <div className="rounded-3xl border border-slate-100 bg-white p-6 text-sm text-slate-500 shadow-sm">
               Loading tests...
             </div>
+          ) : tests.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">
+              {isInstructor
+                ? 'No tests are visible for this Instructor yet. Legacy exams with empty activity fields should appear again after the backend update is deployed.'
+                : 'No tests are available for this account yet.'}
+            </div>
           ) : (
             <div className="grid gap-4">
               {tests.map((test) => {

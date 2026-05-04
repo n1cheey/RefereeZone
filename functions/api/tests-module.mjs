@@ -130,7 +130,7 @@ const mapTestSummary = (test, creatorProfile) => ({
   title: test.title,
   description: test.description || '',
   audienceRole: test.audience_role,
-  status: test.status || 'Draft',
+  status: getNormalizedTestStatus(test),
   assignmentMode: test.assignment_mode || 'AllEligible',
   questionBankSize: Number(test.question_bank_size || 0),
   questionCount: Number(test.question_count || TEST_SESSION_QUESTION_COUNT),
@@ -200,6 +200,19 @@ const normalizeQuestionDraft = (question, index, config = {}) => {
     options: questionOptions,
   };
 };
+
+const getNormalizedTestStatus = (test) =>
+  TEST_PUBLISH_STATUSES.includes(String(test?.status || '').trim())
+    ? String(test.status).trim()
+    : 'Published';
+
+const isActiveTestRecord = (test) => test?.is_active !== false;
+
+const applyActiveTestFilter = (query) => query.or('is_active.is.null,is_active.eq.true');
+
+const applyPublishedOrLegacyFilter = (query) => query.or('status.eq.Published,status.is.null');
+
+const applyActiveAssignmentFilter = (query) => query.or('is_active.is.null,is_active.eq.true');
 
 const normalizeSelectedUserIds = (value) => {
   if (!Array.isArray(value)) {
@@ -783,23 +796,26 @@ const updateQuestionOptionTranslation = async (admin, optionId, patch) => {
 };
 
 const listTestsForAudience = async (admin, audienceRoles) => {
-  const { data, error } = await admin
-    .from('tests')
-    .select('*')
-    .in('audience_role', audienceRoles)
-    .eq('is_active', true)
-    .eq('status', 'Published')
-    .order('created_at', { ascending: false });
+  const { data, error } = await applyPublishedOrLegacyFilter(
+    applyActiveTestFilter(
+      admin
+        .from('tests')
+        .select('*')
+        .in('audience_role', audienceRoles)
+        .order('created_at', { ascending: false }),
+    ),
+  );
 
-  return ensureResponseData(data || [], error, 'Failed to load tests.');
+  return ensureResponseData((data || []).filter(isActiveTestRecord), error, 'Failed to load tests.');
 };
 
 const listAssignedTestsForUser = async (admin, userId) => {
-  const { data, error } = await admin
-    .from('test_assignments')
-    .select('test_id')
-    .eq('user_id', userId)
-    .eq('is_active', true);
+  const { data, error } = await applyActiveAssignmentFilter(
+    admin
+      .from('test_assignments')
+      .select('test_id')
+      .eq('user_id', userId),
+  );
 
   const rows = ensureResponseData(data || [], error, 'Failed to load assigned tests.');
   return [...new Set(rows.map((row) => row.test_id).filter(Boolean))];
@@ -846,25 +862,28 @@ const listTestsByIds = async (admin, ids) => {
     return [];
   }
 
-  const { data, error } = await admin
-    .from('tests')
-    .select('*')
-    .in('id', ids)
-    .eq('is_active', true)
-    .eq('status', 'Published')
-    .order('created_at', { ascending: false });
+  const { data, error } = await applyPublishedOrLegacyFilter(
+    applyActiveTestFilter(
+      admin
+        .from('tests')
+        .select('*')
+        .in('id', ids)
+        .order('created_at', { ascending: false }),
+    ),
+  );
 
-  return ensureResponseData(data || [], error, 'Failed to load assigned tests.');
+  return ensureResponseData((data || []).filter(isActiveTestRecord), error, 'Failed to load assigned tests.');
 };
 
 const hasActiveAssignment = async (admin, testId, userId) => {
   const assignment = await maybeSingle(
-    admin
-      .from('test_assignments')
-      .select('id')
-      .eq('test_id', testId)
-      .eq('user_id', userId)
-      .eq('is_active', true),
+    applyActiveAssignmentFilter(
+      admin
+        .from('test_assignments')
+        .select('id')
+        .eq('test_id', testId)
+        .eq('user_id', userId),
+    ),
     'Failed to load test assignment.',
   );
 
@@ -872,11 +891,12 @@ const hasActiveAssignment = async (admin, testId, userId) => {
 };
 
 const loadSelectedUserIdsByTestId = async (admin, testId) => {
-  const { data, error } = await admin
-    .from('test_assignments')
-    .select('user_id')
-    .eq('test_id', testId)
-    .eq('is_active', true);
+  const { data, error } = await applyActiveAssignmentFilter(
+    admin
+      .from('test_assignments')
+      .select('user_id')
+      .eq('test_id', testId),
+  );
 
   const rows = ensureResponseData(data || [], error, 'Failed to load test assignees.');
   return [...new Set(rows.map((row) => row.user_id).filter(Boolean))];
@@ -1102,13 +1122,14 @@ export async function listTests(admin, currentUser) {
   const role = normalizeRole(currentUser.role);
 
   if (role === 'Instructor') {
-    const { data, error } = await admin
-      .from('tests')
-      .select('*')
-      .eq('created_by', currentUser.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
-    const tests = ensureResponseData(data || [], error, 'Failed to load tests.');
+    const { data, error } = await applyActiveTestFilter(
+      admin
+        .from('tests')
+        .select('*')
+        .eq('created_by', currentUser.id)
+        .order('created_at', { ascending: false }),
+    );
+    const tests = ensureResponseData((data || []).filter(isActiveTestRecord), error, 'Failed to load tests.');
     const attempts = await listAttemptsForTests(admin, tests.map((item) => item.id));
     const profiles = await listByIds(
       admin,
@@ -1188,6 +1209,9 @@ export async function listTests(admin, currentUser) {
 
 export async function getTestDetail(admin, currentUser, testId) {
   const test = await loadTestById(admin, testId);
+  if (!isActiveTestRecord(test)) {
+    throw new RouteError(404, 'Test not found.');
+  }
   ensureRoleCanAccessTest(currentUser, test);
 
   const creator = await maybeSingle(
@@ -1235,8 +1259,11 @@ export async function startTestAttempt(admin, currentUser, testId) {
   }
 
   const test = await loadTestById(admin, testId);
+  if (!isActiveTestRecord(test)) {
+    throw new RouteError(404, 'Test not found.');
+  }
   ensureRoleCanAccessTest(currentUser, test);
-  if ((test.status || 'Draft') !== 'Published') {
+  if (getNormalizedTestStatus(test) !== 'Published') {
     throw new RouteError(409, 'This exam is not published yet.');
   }
   ensureDeadlineIsOpen(test);
@@ -1319,8 +1346,11 @@ export async function getTestSession(admin, currentUser, testId, attemptId, lang
 
   const language = normalizeLanguage(languageInput);
   const test = await loadTestById(admin, testId);
+  if (!isActiveTestRecord(test)) {
+    throw new RouteError(404, 'Test not found.');
+  }
   ensureRoleCanAccessTest(currentUser, test);
-  if ((test.status || 'Draft') !== 'Published') {
+  if (getNormalizedTestStatus(test) !== 'Published') {
     throw new RouteError(409, 'This exam is not published yet.');
   }
 
@@ -1407,8 +1437,11 @@ export async function submitTestAnswer(admin, currentUser, testId, body) {
   }
 
   const test = await loadTestById(admin, testId);
+  if (!isActiveTestRecord(test)) {
+    throw new RouteError(404, 'Test not found.');
+  }
   ensureRoleCanAccessTest(currentUser, test);
-  if ((test.status || 'Draft') !== 'Published') {
+  if (getNormalizedTestStatus(test) !== 'Published') {
     throw new RouteError(409, 'This exam is not published yet.');
   }
 
@@ -1483,10 +1516,13 @@ export async function submitTestAnswer(admin, currentUser, testId, body) {
 
 export async function getTestResult(admin, currentUser, testId, attemptId) {
   const test = await loadTestById(admin, testId);
+  if (!isActiveTestRecord(test)) {
+    throw new RouteError(404, 'Test not found.');
+  }
   ensureRoleCanAccessTest(currentUser, test);
   if (
     ['Referee', 'TO'].includes(normalizeRole(currentUser.role)) &&
-    (test.status || 'Draft') !== 'Published'
+    getNormalizedTestStatus(test) !== 'Published'
   ) {
     throw new RouteError(409, 'This exam is not published yet.');
   }
