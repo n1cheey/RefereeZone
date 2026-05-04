@@ -573,7 +573,11 @@ const sendTestPushNotifications = async (admin, targetUserIds, payload) => {
 const ensureRoleCanAccessTest = (currentUser, test) => {
   const currentRole = normalizeRole(currentUser.role);
   if (currentRole === 'Instructor') {
-    return;
+    if (test.created_by === currentUser.id) {
+      return;
+    }
+
+    throw new RouteError(403, 'This test belongs to another instructor.');
   }
 
   if (currentRole === 'TO Supervisor') {
