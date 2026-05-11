@@ -49,13 +49,6 @@ export interface GrantRetakeResponse {
   message: string;
 }
 
-<<<<<<< HEAD
-=======
-export interface DeleteTestResponse {
-  message: string;
-}
-
->>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 export const getTests = () => apiRequest<TestsListResponse>('/api/tests');
 
 export const getTestDetail = (testId: string) =>
@@ -75,14 +68,6 @@ export const updateTest = (testId: string, payload: CreateTestPayload) =>
     body: JSON.stringify(payload),
   });
 
-<<<<<<< HEAD
-=======
-export const deleteTest = (testId: string) =>
-  apiRequest<DeleteTestResponse>(`/api/tests/${encodeURIComponent(testId)}`, {
-    method: 'DELETE',
-  });
-
->>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 export const startTestAttempt = (testId: string) =>
   apiRequest<StartTestResponse>(`/api/tests/${encodeURIComponent(testId)}/start`, {
     method: 'POST',

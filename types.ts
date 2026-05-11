@@ -357,13 +357,9 @@ export interface TestQuestionOptionDraft {
 
 export interface TestQuestionDraft {
   id?: string;
-<<<<<<< HEAD
   promptEn: string;
   promptAz: string;
   promptRu: string;
-=======
-  prompt: string;
->>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   type: TestQuestionType;
   correctAnswer?: 'Yes' | 'No';
   options: TestQuestionOptionDraft[];
