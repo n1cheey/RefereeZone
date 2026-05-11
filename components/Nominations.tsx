@@ -380,9 +380,24 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     const occupied = new Set(
       nomination.referees.filter((item) => item.slotNumber !== slotNumber).map((item) => item.refereeId),
     );
+    const matchDate =
+      editingNominationId === nomination.id ? String(editSelections.matchDate || nomination.matchDate) : nomination.matchDate;
 
-    return referees.filter((referee) => !occupied.has(referee.id));
+    return referees.filter(
+      (referee) =>
+        !occupied.has(referee.id) &&
+        !(referee.availabilityRanges || []).some((range) => range.startDate <= matchDate && range.endDate >= matchDate),
+    );
   };
+
+  const getAvailableTOOptions = (nomination: InstructorNomination, currentSelection = '') =>
+    toOfficials.filter(
+      (official) =>
+        official.id === currentSelection ||
+        !(official.availabilityRanges || []).some(
+          (range) => range.startDate <= nomination.matchDate && range.endDate >= nomination.matchDate,
+        ),
+    );
 
   const handleStartEditNomination = (nomination: InstructorNomination) => {
     const [team1 = '', team2 = ''] = splitMatchTeams(nomination.teams);
@@ -978,7 +993,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                         className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
                       >
                         <option value="">{t('dashboard.selectTO')}</option>
-                        {toOfficials.map((option) => (
+                        {getAvailableTOOptions(nomination, currentSelection).map((option) => (
                           <option key={option.id} value={option.id}>
                             {option.fullName}
                           </option>
@@ -1057,7 +1072,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                       className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
                     >
                       <option value="">{t('dashboard.selectStatistician')}</option>
-                      {toOfficials.map((option) => (
+                      {getAvailableTOOptions(nomination, currentSelection).map((option) => (
                         <option key={option.id} value={option.id}>
                           {option.fullName}
                         </option>

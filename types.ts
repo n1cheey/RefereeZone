@@ -26,6 +26,10 @@ export interface RefereeDirectoryItem {
   email: string;
   licenseNumber: string;
   role: UserRole;
+  availabilityRanges?: {
+    startDate: string;
+    endDate: string;
+  }[];
 }
 
 export interface AllowedAccessItem {
@@ -339,4 +343,111 @@ export interface AvailabilityOverview {
   myRequests: AvailabilityRequest[];
   pendingApprovals: AvailabilityRequest[];
   upcomingApproved: AvailabilityRequest[];
+}
+
+export type TestAudienceRole = 'Referee' | 'TO' | 'Both';
+export type TestQuestionType = 'single' | 'multiple';
+export type TestAttemptStatus = 'NotStarted' | 'InProgress' | 'Completed';
+export type TestResultStatus = 'SUCCESS' | 'FAILED';
+export type TestLanguage = 'en' | 'az' | 'ru';
+export type TestPublishStatus = 'Draft' | 'Published';
+export type TestAssignmentMode = 'AllEligible' | 'SelectedUsers';
+
+export interface TestQuestionOptionDraft {
+  id?: string;
+  label: string;
+  isCorrect: boolean;
+}
+
+export interface TestQuestionDraft {
+  id?: string;
+  promptEn: string;
+  promptAz: string;
+  promptRu: string;
+  type: TestQuestionType;
+  correctAnswer?: 'Yes' | 'No';
+  options: TestQuestionOptionDraft[];
+}
+
+export interface TestSummary {
+  id: string;
+  title: string;
+  description: string;
+  audienceRole: TestAudienceRole;
+  status: TestPublishStatus;
+  assignmentMode: TestAssignmentMode;
+  questionBankSize: number;
+  questionCount: number;
+  questionTimeLimitSeconds: number;
+  passThreshold: number;
+  deadlineAt: string | null;
+  createdAt: string;
+  createdById: string;
+  createdByName: string;
+}
+
+export interface TestAttemptSummary {
+  id: string;
+  testId: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  startedAt: string;
+  completedAt: string | null;
+  totalDurationSeconds: number | null;
+  correctAnswers: number;
+  totalQuestions: number;
+  resultStatus: TestResultStatus | null;
+  status: TestAttemptStatus;
+  retakeAllowed: boolean;
+}
+
+export interface UserTestSummary extends TestSummary {
+  latestAttempt: TestAttemptSummary | null;
+}
+
+export interface TestAdminSummary extends TestSummary {
+  attempts: TestAttemptSummary[];
+  questions?: TestQuestionDraft[];
+  selectedUserIds?: string[];
+}
+
+export interface TestQuestionOption {
+  id: string;
+  label: string;
+}
+
+export interface TestQuestionView {
+  id: string;
+  type: TestQuestionType;
+  prompt: string;
+  options: TestQuestionOption[];
+}
+
+export interface TestSessionState {
+  attemptId: string;
+  testId: string;
+  title: string;
+  description: string;
+  status: TestAttemptStatus;
+  resultStatus: TestResultStatus | null;
+  currentQuestionIndex: number;
+  totalQuestions: number;
+  remainingSeconds: number;
+  questionTimeLimitSeconds: number;
+  question: TestQuestionView | null;
+  completedAt: string | null;
+  correctAnswers: number | null;
+}
+
+export interface TestResultView {
+  attemptId: string;
+  testId: string;
+  title: string;
+  correctAnswers: number;
+  totalQuestions: number;
+  passThreshold: number;
+  resultStatus: TestResultStatus;
+  completedAt: string;
+  totalDurationSeconds: number;
 }
