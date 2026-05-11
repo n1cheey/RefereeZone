@@ -692,7 +692,6 @@ const assertUsersAvailableOnMatchDate = async (admin, rows, matchDate, entityLab
     throw new HttpError(409, `${blockedNames.join(', ')} cannot be assigned because they are on approved leave for this match date.`);
   }
 };
-
 const listLastSeenMap = async (admin, ids) => {
   if (!ids.length) {
     return new Map();
