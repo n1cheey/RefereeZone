@@ -1239,7 +1239,7 @@ export async function getTestSession(admin, currentUser, testId, attemptId, lang
   );
 
   const nowIso = new Date().toISOString();
-  const currentAttempt = await autoAdvanceExpiredQuestions(admin, attempt, test, nowIso);
+  let currentAttempt = await autoAdvanceExpiredQuestions(admin, attempt, test, nowIso);
 
   if (currentAttempt.status === 'Completed') {
     return {
