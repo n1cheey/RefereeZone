@@ -1,10 +1,20 @@
+<<<<<<< HEAD
 const TEST_QUESTION_BANK_SIZE = 50;
+=======
+let googleGenAiModulePromise = null;
+
+const TEST_QUESTION_BANK_SIZE = 100;
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 const TEST_SESSION_QUESTION_COUNT = 25;
 const TEST_PASS_THRESHOLD = 20;
 const TEST_QUESTION_TIME_LIMIT_SECONDS = 120;
 const TEST_LANGUAGES = ['en', 'az', 'ru'];
 const TEST_PUBLISH_STATUSES = ['Draft', 'Published'];
 const TEST_ASSIGNMENT_MODES = ['AllEligible', 'SelectedUsers'];
+<<<<<<< HEAD
+=======
+const TEST_TRANSLATION_CHUNK_SIZE = 20;
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 const BINARY_OPTION_LABELS = {
   en: ['Yes', 'No'],
   az: ['Bəli', 'Xeyr'],
@@ -64,6 +74,20 @@ const listByIds = async (admin, table, ids, select, failureMessage) => {
   return ensureResponseData(data || [], error, failureMessage);
 };
 
+<<<<<<< HEAD
+=======
+const getGeminiClient = async () => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new RouteError(500, 'GEMINI_API_KEY is missing.');
+  }
+
+  googleGenAiModulePromise ||= import('@google/genai');
+  const { GoogleGenAI } = await googleGenAiModulePromise;
+  return new GoogleGenAI({ apiKey });
+};
+
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 const normalizeAudienceRole = (value) => {
   const normalized = String(value || '').trim();
   if (normalized === 'Referee' || normalized === 'TO' || normalized === 'Both') {
@@ -116,7 +140,11 @@ const mapTestSummary = (test, creatorProfile) => ({
   title: test.title,
   description: test.description || '',
   audienceRole: test.audience_role,
+<<<<<<< HEAD
   status: test.status || 'Draft',
+=======
+  status: getNormalizedTestStatus(test),
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   assignmentMode: test.assignment_mode || 'AllEligible',
   questionBankSize: Number(test.question_bank_size || 0),
   questionCount: Number(test.question_count || TEST_SESSION_QUESTION_COUNT),
@@ -155,10 +183,16 @@ const shuffleArray = (items) => {
   return copy;
 };
 
+<<<<<<< HEAD
 const normalizeQuestionDraft = (question, index, status) => {
   const promptEn = String(question?.promptEn ?? question?.prompt_en ?? question?.prompt ?? '').trim();
   const promptAz = String(question?.promptAz ?? question?.prompt_az ?? '').trim();
   const promptRu = String(question?.promptRu ?? question?.prompt_ru ?? '').trim();
+=======
+const normalizeQuestionDraft = (question, index, config = {}) => {
+  const { allowIncomplete = false } = config;
+  const prompt = String(question?.prompt || '').trim();
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   const type = 'single';
   const rawCorrectAnswer = String(question?.correctAnswer || '').trim().toLowerCase();
   const normalizedCorrectAnswer =
@@ -166,6 +200,7 @@ const normalizeQuestionDraft = (question, index, status) => {
       ? 'Yes'
       : rawCorrectAnswer === 'no' || rawCorrectAnswer === 'false' || rawCorrectAnswer === '0'
         ? 'No'
+<<<<<<< HEAD
         : status === 'Draft'
           ? 'Yes'
           : null;
@@ -176,10 +211,15 @@ const normalizeQuestionDraft = (question, index, status) => {
   }
 
   const options = [
+=======
+        : null;
+  const questionOptions = [
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
     { label: 'Yes', isCorrect: normalizedCorrectAnswer === 'Yes' },
     { label: 'No', isCorrect: normalizedCorrectAnswer === 'No' },
   ];
 
+<<<<<<< HEAD
   if (status === 'Published' && !promptEn) {
     throw new RouteError(400, `Question ${index + 1} is missing the English prompt.`);
   }
@@ -193,10 +233,18 @@ const normalizeQuestionDraft = (question, index, status) => {
   }
 
   if (!normalizedCorrectAnswer) {
+=======
+  if (!allowIncomplete && !prompt) {
+    throw new RouteError(400, `Question ${index + 1} is missing a prompt.`);
+  }
+
+  if (!allowIncomplete && !normalizedCorrectAnswer) {
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
     throw new RouteError(400, `Question ${index + 1} must have a Yes/No correct answer.`);
   }
 
   return {
+<<<<<<< HEAD
     promptEn,
     promptAz,
     promptRu,
@@ -206,6 +254,28 @@ const normalizeQuestionDraft = (question, index, status) => {
   };
 };
 
+=======
+    prompt,
+    type,
+    correctAnswer: normalizedCorrectAnswer || 'Yes',
+    options: questionOptions,
+  };
+};
+
+const getNormalizedTestStatus = (test) =>
+  TEST_PUBLISH_STATUSES.includes(String(test?.status || '').trim())
+    ? String(test.status).trim()
+    : 'Published';
+
+const isActiveTestRecord = (test) => test?.is_active !== false;
+
+const applyActiveTestFilter = (query) => query.or('is_active.is.null,is_active.eq.true');
+
+const applyPublishedOrLegacyFilter = (query) => query.or('status.eq.Published,status.is.null');
+
+const applyActiveAssignmentFilter = (query) => query.or('is_active.is.null,is_active.eq.true');
+
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 const normalizeSelectedUserIds = (value) => {
   if (!Array.isArray(value)) {
     return [];
@@ -256,10 +326,13 @@ const validateTestDraft = (body) => {
     throw new RouteError(400, 'Choose at least one assignee for selected-user exams.');
   }
 
+<<<<<<< HEAD
   const normalizedQuestions = questions
     .map((question, index) => normalizeQuestionDraft(question, index, status))
     .filter(Boolean);
 
+=======
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   return {
     title,
     description,
@@ -268,7 +341,13 @@ const validateTestDraft = (body) => {
     assignmentMode,
     selectedUserIds,
     deadlineAt,
+<<<<<<< HEAD
     questions: normalizedQuestions,
+=======
+    questions: questions.map((question, index) =>
+      normalizeQuestionDraft(question, index, { allowIncomplete: status === 'Draft' }),
+    ),
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   };
 };
 
@@ -310,6 +389,7 @@ const deleteQuestionsByTestId = async (admin, testId) => {
   }
 };
 
+<<<<<<< HEAD
 const deleteQuestionOptionsByIds = async (admin, optionIds) => {
   if (!optionIds.length) {
     return;
@@ -469,6 +549,169 @@ const syncQuestionsForTest = async (admin, testId, questions) => {
     .map((question) => question.id)
     .filter(Boolean);
   await deleteQuestionsByIds(admin, extraQuestionIds);
+=======
+const deleteTestById = async (admin, testId) => {
+  const { error } = await admin.from('tests').delete().eq('id', testId);
+  if (error) {
+    throw new RouteError(500, 'Failed to roll back test after save error.');
+  }
+};
+
+const buildCanonicalTestOptions = (correctAnswer) => [
+  {
+    label: 'Yes',
+    isCorrect: correctAnswer === 'Yes',
+  },
+  {
+    label: 'No',
+    isCorrect: correctAnswer === 'No',
+  },
+];
+
+const parseJsonFromModelResponse = (value) => {
+  const source = String(value || '').trim();
+  const fencedMatch = source.match(/```json\s*([\s\S]*?)```/i);
+  if (fencedMatch) {
+    return JSON.parse(fencedMatch[1]);
+  }
+
+  const jsonMatch = source.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+  return JSON.parse(jsonMatch ? jsonMatch[0] : source);
+};
+
+const translateQuestionPromptsChunk = async (questions, language) => {
+  if (!questions.length || language === 'en') {
+    return questions.map((question) => question.prompt);
+  }
+
+  const ai = await getGeminiClient();
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents:
+      `Translate the following basketball exam questions from English into ${language === 'az' ? 'Azerbaijani' : 'Russian'}. ` +
+      'Return only valid JSON as an array. Each item must contain keys index and prompt. Preserve the original meaning.' +
+      `\nQuestions:\n${questions.map((question, index) => `${index + 1}. ${question.prompt}`).join('\n')}`,
+    config: {
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  });
+
+  const parsed = parseJsonFromModelResponse(response.text);
+  if (!Array.isArray(parsed)) {
+    throw new RouteError(500, `Failed to parse ${language.toUpperCase()} question translations.`);
+  }
+
+  const translatedPrompts = questions.map((question) => question.prompt);
+  parsed.forEach((item, index) => {
+    const translatedPrompt = String(item?.prompt || '').trim();
+    const rawIndex = Number(item?.index);
+    const targetIndex = Number.isInteger(rawIndex) && rawIndex >= 1 && rawIndex <= questions.length ? rawIndex - 1 : index;
+    if (translatedPrompt) {
+      translatedPrompts[targetIndex] = translatedPrompt;
+    }
+  });
+
+  return translatedPrompts;
+};
+
+const enrichQuestionsWithTranslations = async (questions) => {
+  const filledQuestions = questions
+    .map((question, index) => ({ question, index }))
+    .filter(({ question }) => String(question.prompt || '').trim());
+
+  if (!filledQuestions.length) {
+    return questions.map((question) => ({
+      ...question,
+      promptAz: null,
+      promptRu: null,
+    }));
+  }
+
+  const translatedByLanguage = {
+    az: new Map(),
+    ru: new Map(),
+  };
+
+  for (const language of ['az', 'ru']) {
+    try {
+      for (let chunkStart = 0; chunkStart < filledQuestions.length; chunkStart += TEST_TRANSLATION_CHUNK_SIZE) {
+        const chunk = filledQuestions.slice(chunkStart, chunkStart + TEST_TRANSLATION_CHUNK_SIZE);
+        const translatedPrompts = await translateQuestionPromptsChunk(
+          chunk.map(({ question }) => question),
+          language,
+        );
+
+        chunk.forEach(({ index }, chunkIndex) => {
+          const translatedPrompt = String(translatedPrompts[chunkIndex] || '').trim();
+          if (translatedPrompt) {
+            translatedByLanguage[language].set(index, translatedPrompt);
+          }
+        });
+      }
+    } catch {
+      // Keep English fallback when translation is unavailable.
+    }
+  }
+
+  return questions.map((question, index) => ({
+    ...question,
+    promptAz: translatedByLanguage.az.get(index) || null,
+    promptRu: translatedByLanguage.ru.get(index) || null,
+  }));
+};
+
+const saveQuestionsForTest = async (admin, testId, questions) => {
+  if (!questions.length) {
+    return;
+  }
+
+  const questionRows = questions.map((questionDraft, questionIndex) => ({
+    test_id: testId,
+    prompt_en: questionDraft.prompt,
+    prompt_az: questionDraft.promptAz || null,
+    prompt_ru: questionDraft.promptRu || null,
+    question_type: questionDraft.type,
+    order_index: questionIndex + 1,
+  }));
+
+  const { data: insertedQuestions, error: questionError } = await admin
+    .from('test_questions')
+    .insert(questionRows)
+    .select('id, order_index');
+
+  const savedQuestions = ensureResponseData(insertedQuestions || [], questionError, 'Failed to save test questions.');
+  if (savedQuestions.length !== questions.length) {
+    throw new RouteError(500, 'Failed to save all test questions.');
+  }
+
+  const questionIdByOrderIndex = new Map(
+    savedQuestions.map((question) => [Number(question.order_index || 0), question.id]),
+  );
+
+  const optionRows = questions.flatMap((questionDraft, questionIndex) => {
+    const questionId = questionIdByOrderIndex.get(questionIndex + 1);
+    if (!questionId) {
+      throw new RouteError(500, `Failed to map saved question ${questionIndex + 1}.`);
+    }
+
+    return buildCanonicalTestOptions(questionDraft.correctAnswer).map((optionDraft, optionIndex) => ({
+      question_id: questionId,
+      label_en: optionDraft.label,
+      is_correct: optionDraft.isCorrect,
+      option_order: optionIndex + 1,
+    }));
+  });
+
+  if (!optionRows.length) {
+    return;
+  }
+
+  const { error: optionError } = await admin.from('test_question_options').insert(optionRows);
+
+  if (optionError) {
+    throw new RouteError(500, `Failed to save test options: ${optionError.message || 'Unknown database error.'}`);
+  }
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 };
 
 const getAudienceRoles = (audienceRole) => {
@@ -578,7 +821,15 @@ const sendTestPushNotifications = async (admin, targetUserIds, payload) => {
 const ensureRoleCanAccessTest = (currentUser, test) => {
   const currentRole = normalizeRole(currentUser.role);
   if (currentRole === 'Instructor') {
+<<<<<<< HEAD
     return;
+=======
+    if (test.created_by === currentUser.id) {
+      return;
+    }
+
+    throw new RouteError(403, 'This test belongs to another instructor.');
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   }
 
   if (currentRole === 'TO Supervisor') {
@@ -616,9 +867,15 @@ const toTranslatedQuestion = (question, options, language) => {
       id: option.id,
       label:
         language === 'az'
+<<<<<<< HEAD
           ? option.label_az || BINARY_OPTION_LABELS.az[index] || option.label_en
           : language === 'ru'
             ? option.label_ru || BINARY_OPTION_LABELS.ru[index] || option.label_en
+=======
+          ? BINARY_OPTION_LABELS.az[index] || option.label_az || option.label_en
+          : language === 'ru'
+            ? BINARY_OPTION_LABELS.ru[index] || option.label_ru || option.label_en
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
             : BINARY_OPTION_LABELS.en[index] || option.label_en,
     })),
   };
@@ -729,6 +986,7 @@ const autoAdvanceExpiredQuestions = async (admin, attempt, test, nowIso) => {
   return currentAttempt;
 };
 
+<<<<<<< HEAD
 const repairBrokenAttemptIfPossible = async (admin, attempt, test) => {
   if (attempt.status !== 'InProgress') {
     return attempt;
@@ -779,6 +1037,83 @@ const listAssignedTestsForUser = async (admin, userId) => {
     .select('test_id')
     .eq('user_id', userId)
     .eq('is_active', true);
+=======
+const ensureQuestionTranslations = async (admin, question, options, language) => {
+  if (language === 'en') {
+    return { question, options };
+  }
+
+  const promptField = language === 'az' ? 'prompt_az' : 'prompt_ru';
+  const alreadyTranslated = question[promptField];
+
+  if (alreadyTranslated) {
+    return { question, options };
+  }
+
+  try {
+    const translatedPrompts = await translateQuestionPromptsChunk(
+      [{ prompt: question.prompt_en }],
+      language,
+    );
+    const translatedPrompt = String(translatedPrompts[0] || '').trim();
+
+    if (!translatedPrompt) {
+      return { question, options };
+    }
+
+    const updatedQuestion = await updateQuestionTranslation(admin, question.id, {
+      [promptField]: translatedPrompt,
+    });
+    return { question: updatedQuestion, options };
+  } catch {
+    return { question, options };
+  }
+};
+
+const updateQuestionTranslation = async (admin, questionId, patch) => {
+  const { data, error } = await admin
+    .from('test_questions')
+    .update(patch)
+    .eq('id', questionId)
+    .select('*')
+    .single();
+
+  return ensureSingle(data, error, 'Question not found.', 'Failed to save question translation.');
+};
+
+const updateQuestionOptionTranslation = async (admin, optionId, patch) => {
+  const { data, error } = await admin
+    .from('test_question_options')
+    .update(patch)
+    .eq('id', optionId)
+    .select('*')
+    .single();
+
+  return ensureSingle(data, error, 'Option not found.', 'Failed to save question option translation.');
+};
+
+const listTestsForAudience = async (admin, audienceRoles) => {
+  const { data, error } = await applyPublishedOrLegacyFilter(
+    applyActiveTestFilter(
+      admin
+        .from('tests')
+        .select('*')
+        .in('audience_role', audienceRoles)
+        .order('created_at', { ascending: false }),
+    ),
+  );
+
+  return ensureResponseData((data || []).filter(isActiveTestRecord), error, 'Failed to load tests.');
+};
+
+const listAssignedTestsForUser = async (admin, userId) => {
+  const { data, error } = await applyActiveAssignmentFilter(
+    admin
+      .from('test_assignments')
+      .select('test_id')
+      .eq('user_id', userId),
+  );
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 
   const rows = ensureResponseData(data || [], error, 'Failed to load assigned tests.');
   return [...new Set(rows.map((row) => row.test_id).filter(Boolean))];
@@ -825,6 +1160,7 @@ const listTestsByIds = async (admin, ids) => {
     return [];
   }
 
+<<<<<<< HEAD
   const { data, error } = await admin
     .from('tests')
     .select('*')
@@ -834,16 +1170,39 @@ const listTestsByIds = async (admin, ids) => {
     .order('created_at', { ascending: false });
 
   return ensureResponseData(data || [], error, 'Failed to load assigned tests.');
+=======
+  const { data, error } = await applyPublishedOrLegacyFilter(
+    applyActiveTestFilter(
+      admin
+        .from('tests')
+        .select('*')
+        .in('id', ids)
+        .order('created_at', { ascending: false }),
+    ),
+  );
+
+  return ensureResponseData((data || []).filter(isActiveTestRecord), error, 'Failed to load assigned tests.');
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 };
 
 const hasActiveAssignment = async (admin, testId, userId) => {
   const assignment = await maybeSingle(
+<<<<<<< HEAD
     admin
       .from('test_assignments')
       .select('id')
       .eq('test_id', testId)
       .eq('user_id', userId)
       .eq('is_active', true),
+=======
+    applyActiveAssignmentFilter(
+      admin
+        .from('test_assignments')
+        .select('id')
+        .eq('test_id', testId)
+        .eq('user_id', userId),
+    ),
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
     'Failed to load test assignment.',
   );
 
@@ -851,11 +1210,20 @@ const hasActiveAssignment = async (admin, testId, userId) => {
 };
 
 const loadSelectedUserIdsByTestId = async (admin, testId) => {
+<<<<<<< HEAD
   const { data, error } = await admin
     .from('test_assignments')
     .select('user_id')
     .eq('test_id', testId)
     .eq('is_active', true);
+=======
+  const { data, error } = await applyActiveAssignmentFilter(
+    admin
+      .from('test_assignments')
+      .select('user_id')
+      .eq('test_id', testId),
+  );
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 
   const rows = ensureResponseData(data || [], error, 'Failed to load test assignees.');
   return [...new Set(rows.map((row) => row.user_id).filter(Boolean))];
@@ -865,6 +1233,7 @@ const loadQuestionDraftsByTestId = async (admin, testId) => {
   const questions = await listQuestionsByTestId(admin, testId);
   const options = await listQuestionOptions(admin, questions.map((question) => question.id));
 
+<<<<<<< HEAD
   return questions.map((question) => ({
     id: question.id,
     promptEn: question.prompt_en || '',
@@ -879,6 +1248,20 @@ const loadQuestionDraftsByTestId = async (admin, testId) => {
     options: options
       .filter((option) => option.question_id === question.id)
       .map((option) => ({
+=======
+    return questions.map((question) => ({
+      id: question.id,
+      prompt: question.prompt_en,
+      type: question.question_type,
+      correctAnswer: options
+        .filter((option) => option.question_id === question.id)
+        .find((option) => Boolean(option.is_correct))?.label_en === 'No'
+          ? 'No'
+          : 'Yes',
+      options: options
+        .filter((option) => option.question_id === question.id)
+        .map((option) => ({
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
         id: option.id,
         label: option.label_en,
         isCorrect: Boolean(option.is_correct),
@@ -892,6 +1275,10 @@ export async function createTest(admin, currentUser, body) {
   }
 
   const draft = validateTestDraft(body);
+<<<<<<< HEAD
+=======
+  const translatedQuestions = await enrichQuestionsWithTranslations(draft.questions);
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   const nowIso = new Date().toISOString();
   const { data: insertedTest, error: testError } = await admin
     .from('tests')
@@ -916,7 +1303,20 @@ export async function createTest(admin, currentUser, body) {
 
   const test = ensureSingle(insertedTest, testError, 'Failed to create test.', 'Failed to create test.');
 
+<<<<<<< HEAD
   await saveQuestionsForTest(admin, test.id, draft.questions);
+=======
+  try {
+    await saveQuestionsForTest(admin, test.id, translatedQuestions);
+  } catch (error) {
+    try {
+      await deleteTestById(admin, test.id);
+    } catch {
+      // Keep original save error as the primary failure.
+    }
+    throw error;
+  }
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 
   if (draft.status === 'Published') {
     const assignees = await listAssignableProfiles(admin, draft, currentUser);
@@ -953,6 +1353,11 @@ export async function updateTest(admin, currentUser, testId, body) {
   }
 
   const draft = validateTestDraft(body);
+<<<<<<< HEAD
+=======
+  const translatedQuestions = await enrichQuestionsWithTranslations(draft.questions);
+  const previousQuestions = await loadQuestionDraftsByTestId(admin, existingTest.id);
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   const nowIso = new Date().toISOString();
   const { data: updatedTestData, error: updateError } = await admin
     .from('tests')
@@ -971,7 +1376,39 @@ export async function updateTest(admin, currentUser, testId, body) {
 
   const updatedTest = ensureSingle(updatedTestData, updateError, 'Test not found.', 'Failed to update test.');
 
+<<<<<<< HEAD
   await syncQuestionsForTest(admin, existingTest.id, draft.questions);
+=======
+  await deleteQuestionsByTestId(admin, existingTest.id);
+
+  try {
+    await saveQuestionsForTest(admin, existingTest.id, translatedQuestions);
+  } catch (error) {
+    try {
+      await deleteQuestionsByTestId(admin, existingTest.id);
+      await saveQuestionsForTest(admin, existingTest.id, previousQuestions);
+      await admin
+        .from('tests')
+        .update({
+          title: existingTest.title,
+          description: existingTest.description,
+          audience_role: existingTest.audience_role,
+          status: existingTest.status,
+          assignment_mode: existingTest.assignment_mode,
+          deadline_at: existingTest.deadline_at,
+          updated_at: existingTest.updated_at || nowIso,
+        })
+        .eq('id', existingTest.id);
+    } catch {
+      throw new RouteError(
+        500,
+        `${error instanceof Error ? error.message : 'Failed to update test.'} Previous saved exam content could not be restored automatically.`,
+      );
+    }
+
+    throw error;
+  }
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 
   if (draft.status === 'Published') {
     const assignees = await listAssignableProfiles(admin, draft, currentUser);
@@ -999,10 +1436,54 @@ export async function updateTest(admin, currentUser, testId, body) {
   };
 }
 
+<<<<<<< HEAD
+=======
+export async function deleteTest(admin, currentUser, testId) {
+  if (normalizeRole(currentUser.role) !== 'Instructor') {
+    throw new RouteError(403, 'Only Instructor accounts can delete tests.');
+  }
+
+  const existingTest = await loadTestById(admin, testId);
+  if (existingTest.created_by !== currentUser.id) {
+    throw new RouteError(403, 'This test belongs to another instructor.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const { error: testError } = await admin
+    .from('tests')
+    .update({
+      is_active: false,
+      updated_at: nowIso,
+    })
+    .eq('id', existingTest.id);
+
+  if (testError) {
+    throw new RouteError(500, 'Failed to delete test.');
+  }
+
+  const { error: assignmentError } = await admin
+    .from('test_assignments')
+    .update({
+      is_active: false,
+    })
+    .eq('test_id', existingTest.id)
+    .eq('is_active', true);
+
+  if (assignmentError) {
+    throw new RouteError(500, 'Failed to disable test assignments.');
+  }
+
+  return {
+    message: 'Test deleted.',
+  };
+}
+
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 export async function listTests(admin, currentUser) {
   const role = normalizeRole(currentUser.role);
 
   if (role === 'Instructor') {
+<<<<<<< HEAD
     const { data, error } = await admin
       .from('tests')
       .select('*')
@@ -1010,6 +1491,16 @@ export async function listTests(admin, currentUser) {
       .eq('is_active', true)
       .order('created_at', { ascending: false });
     const tests = ensureResponseData(data || [], error, 'Failed to load tests.');
+=======
+    const { data, error } = await applyActiveTestFilter(
+      admin
+        .from('tests')
+        .select('*')
+        .eq('created_by', currentUser.id)
+        .order('created_at', { ascending: false }),
+    );
+    const tests = ensureResponseData((data || []).filter(isActiveTestRecord), error, 'Failed to load tests.');
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
     const attempts = await listAttemptsForTests(admin, tests.map((item) => item.id));
     const profiles = await listByIds(
       admin,
@@ -1089,6 +1580,12 @@ export async function listTests(admin, currentUser) {
 
 export async function getTestDetail(admin, currentUser, testId) {
   const test = await loadTestById(admin, testId);
+<<<<<<< HEAD
+=======
+  if (!isActiveTestRecord(test)) {
+    throw new RouteError(404, 'Test not found.');
+  }
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   ensureRoleCanAccessTest(currentUser, test);
 
   const creator = await maybeSingle(
@@ -1136,8 +1633,16 @@ export async function startTestAttempt(admin, currentUser, testId) {
   }
 
   const test = await loadTestById(admin, testId);
+<<<<<<< HEAD
   ensureRoleCanAccessTest(currentUser, test);
   if ((test.status || 'Draft') !== 'Published') {
+=======
+  if (!isActiveTestRecord(test)) {
+    throw new RouteError(404, 'Test not found.');
+  }
+  ensureRoleCanAccessTest(currentUser, test);
+  if (getNormalizedTestStatus(test) !== 'Published') {
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
     throw new RouteError(409, 'This exam is not published yet.');
   }
   ensureDeadlineIsOpen(test);
@@ -1220,8 +1725,16 @@ export async function getTestSession(admin, currentUser, testId, attemptId, lang
 
   const language = normalizeLanguage(languageInput);
   const test = await loadTestById(admin, testId);
+<<<<<<< HEAD
   ensureRoleCanAccessTest(currentUser, test);
   if ((test.status || 'Draft') !== 'Published') {
+=======
+  if (!isActiveTestRecord(test)) {
+    throw new RouteError(404, 'Test not found.');
+  }
+  ensureRoleCanAccessTest(currentUser, test);
+  if (getNormalizedTestStatus(test) !== 'Published') {
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
     throw new RouteError(409, 'This exam is not published yet.');
   }
 
@@ -1260,12 +1773,17 @@ export async function getTestSession(admin, currentUser, testId, attemptId, lang
   }
 
   const questionIds = Array.isArray(currentAttempt.question_ids) ? currentAttempt.question_ids : [];
+<<<<<<< HEAD
   let currentQuestionId = questionIds[Number(currentAttempt.current_question_index || 0)];
+=======
+  const currentQuestionId = questionIds[Number(currentAttempt.current_question_index || 0)];
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   let question = await maybeSingle(
     admin.from('test_questions').select('*').eq('id', currentQuestionId),
     'Failed to load current question.',
   );
   if (!question) {
+<<<<<<< HEAD
     currentAttempt = await repairBrokenAttemptIfPossible(admin, currentAttempt, test);
     const repairedQuestionIds = Array.isArray(currentAttempt.question_ids) ? currentAttempt.question_ids : [];
     currentQuestionId = repairedQuestionIds[Number(currentAttempt.current_question_index || 0)];
@@ -1281,6 +1799,13 @@ export async function getTestSession(admin, currentUser, testId, attemptId, lang
   }
 
   const options = await listQuestionOptions(admin, [question.id]);
+=======
+    throw new RouteError(409, 'Current question could not be loaded.');
+  }
+
+  let options = await listQuestionOptions(admin, [question.id]);
+  ({ question, options } = await ensureQuestionTranslations(admin, question, options, language));
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 
   const deadlineMs = new Date(currentAttempt.question_deadline_at || nowIso).getTime();
   const remainingSeconds = Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000));
@@ -1318,8 +1843,16 @@ export async function submitTestAnswer(admin, currentUser, testId, body) {
   }
 
   const test = await loadTestById(admin, testId);
+<<<<<<< HEAD
   ensureRoleCanAccessTest(currentUser, test);
   if ((test.status || 'Draft') !== 'Published') {
+=======
+  if (!isActiveTestRecord(test)) {
+    throw new RouteError(404, 'Test not found.');
+  }
+  ensureRoleCanAccessTest(currentUser, test);
+  if (getNormalizedTestStatus(test) !== 'Published') {
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
     throw new RouteError(409, 'This exam is not published yet.');
   }
 
@@ -1342,6 +1875,7 @@ export async function submitTestAnswer(admin, currentUser, testId, body) {
   }
 
   const currentIndex = Number(currentAttempt.current_question_index || 0);
+<<<<<<< HEAD
   let questionIds = Array.isArray(currentAttempt.question_ids) ? currentAttempt.question_ids : [];
   let currentQuestionId = questionIds[currentIndex];
   if (currentQuestionId) {
@@ -1355,6 +1889,10 @@ export async function submitTestAnswer(admin, currentUser, testId, body) {
       currentQuestionId = questionIds[Number(currentAttempt.current_question_index || 0)];
     }
   }
+=======
+  const questionIds = Array.isArray(currentAttempt.question_ids) ? currentAttempt.question_ids : [];
+  const currentQuestionId = questionIds[currentIndex];
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   if (!currentQuestionId) {
     throw new RouteError(409, 'Current question is missing.');
   }
@@ -1405,10 +1943,20 @@ export async function submitTestAnswer(admin, currentUser, testId, body) {
 
 export async function getTestResult(admin, currentUser, testId, attemptId) {
   const test = await loadTestById(admin, testId);
+<<<<<<< HEAD
   ensureRoleCanAccessTest(currentUser, test);
   if (
     ['Referee', 'TO'].includes(normalizeRole(currentUser.role)) &&
     (test.status || 'Draft') !== 'Published'
+=======
+  if (!isActiveTestRecord(test)) {
+    throw new RouteError(404, 'Test not found.');
+  }
+  ensureRoleCanAccessTest(currentUser, test);
+  if (
+    ['Referee', 'TO'].includes(normalizeRole(currentUser.role)) &&
+    getNormalizedTestStatus(test) !== 'Published'
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   ) {
     throw new RouteError(409, 'This exam is not published yet.');
   }

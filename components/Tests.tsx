@@ -3,6 +3,10 @@ import Layout from './Layout';
 import { User, TestAdminSummary, TestAttemptSummary, TestQuestionDraft, TestResultView, TestSessionState, UserTestSummary } from '../types';
 import {
   createTest,
+<<<<<<< HEAD
+=======
+  deleteTest,
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   getTestDetail,
   getTestResult,
   getTestSession,
@@ -21,7 +25,15 @@ interface TestsProps {
   onBack: () => void;
 }
 
+<<<<<<< HEAD
 const QUESTION_BANK_SIZE = 50;
+=======
+const QUESTION_BANK_SIZE = 100;
+const QUESTIONS_PER_ATTEMPT = 25;
+const PASS_THRESHOLD = 20;
+const getTestBuilderDraftStorageKey = (userId: string, testId: string | null) =>
+  `tests:builder:${userId}:${testId || 'new'}`;
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 
 const AUDIENCE_OPTIONS = [
   { value: 'Referee', label: 'Referee' },
@@ -35,9 +47,13 @@ const ASSIGNMENT_MODE_OPTIONS = [
 ] as const;
 
 const emptyQuestion = (): TestQuestionDraft => ({
+<<<<<<< HEAD
   promptEn: '',
   promptAz: '',
   promptRu: '',
+=======
+  prompt: '',
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   type: 'single',
   correctAnswer: 'Yes',
   options: [
@@ -46,6 +62,7 @@ const emptyQuestion = (): TestQuestionDraft => ({
   ],
 });
 
+<<<<<<< HEAD
 const padQuestionDrafts = (questions: TestQuestionDraft[] = []) => {
   const safeQuestions = questions.slice(0, QUESTION_BANK_SIZE);
   return [
@@ -60,6 +77,46 @@ const countReadyQuestions = (questions: TestQuestionDraft[]) =>
     question.promptAz.trim() &&
     question.promptRu.trim(),
   ).length;
+=======
+const normalizeQuestionBankForEditor = (questions: TestQuestionDraft[]) =>
+  Array.from({ length: QUESTION_BANK_SIZE }, (_, index) => ({
+    ...emptyQuestion(),
+    ...(questions[index] || {}),
+  }));
+
+const loadStoredTestBuilderDraft = (userId: string, testId: string | null) => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(getTestBuilderDraftStorageKey(userId, testId));
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue);
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    return {
+      title: String(parsed.title || ''),
+      description: String(parsed.description || ''),
+      audienceRole: (parsed.audienceRole === 'TO' || parsed.audienceRole === 'Both' ? parsed.audienceRole : 'Referee') as 'Referee' | 'TO' | 'Both',
+      status: (parsed.status === 'Published' ? 'Published' : 'Draft') as 'Draft' | 'Published',
+      assignmentMode: (parsed.assignmentMode === 'SelectedUsers' ? 'SelectedUsers' : 'AllEligible') as 'AllEligible' | 'SelectedUsers',
+      selectedUserIds: Array.isArray(parsed.selectedUserIds)
+        ? parsed.selectedUserIds.map((item: unknown) => String(item || '')).filter(Boolean)
+        : [],
+      deadlineAt: String(parsed.deadlineAt || ''),
+      questions: normalizeQuestionBankForEditor(Array.isArray(parsed.questions) ? parsed.questions : []),
+    };
+  } catch {
+    return null;
+  }
+};
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 
 const formatDuration = (value: number | null) => {
   if (value === null) {
@@ -149,6 +206,10 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [retakeLoadingId, setRetakeLoadingId] = useState<string | null>(null);
+<<<<<<< HEAD
+=======
+  const [deletingTestId, setDeletingTestId] = useState<string | null>(null);
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   const [editingTestId, setEditingTestId] = useState<string | null>(null);
   const [members, setMembers] = useState<User[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -160,7 +221,11 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
     assignmentMode: 'AllEligible' as 'AllEligible' | 'SelectedUsers',
     selectedUserIds: [] as string[],
     deadlineAt: '',
+<<<<<<< HEAD
     questions: padQuestionDrafts(),
+=======
+    questions: Array.from({ length: QUESTION_BANK_SIZE }, () => emptyQuestion()),
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   });
 
   const role = user.role;
@@ -170,6 +235,17 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
   const canCreate = isInstructor;
   const isExamActive = Boolean(session && session.status === 'InProgress' && session.question);
 
+<<<<<<< HEAD
+=======
+  const clearStoredBuilderDraft = useCallback((testId: string | null = editingTestId) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.removeItem(getTestBuilderDraftStorageKey(user.id, testId));
+  }, [editingTestId, user.id]);
+
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   useExamProtection(isExamActive);
 
   const loadTests = useCallback(async () => {
@@ -199,10 +275,28 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
       assignmentMode: 'AllEligible',
       selectedUserIds: [],
       deadlineAt: '',
+<<<<<<< HEAD
       questions: padQuestionDrafts(),
     });
   }, []);
 
+=======
+      questions: Array.from({ length: QUESTION_BANK_SIZE }, () => emptyQuestion()),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!showCreateForm || typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(
+      getTestBuilderDraftStorageKey(user.id, editingTestId),
+      JSON.stringify(form),
+    );
+  }, [editingTestId, form, showCreateForm, user.id]);
+
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   const loadMembers = useCallback(async () => {
     if (!isInstructor) {
       return;
@@ -246,6 +340,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
   }, [isInstructor, isTOSupervisor]);
 
   const openEditor = useCallback((test: TestAdminSummary) => {
+<<<<<<< HEAD
     setEditingTestId(test.id);
     setShowCreateForm(true);
     setForm({
@@ -259,6 +354,27 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
       questions: padQuestionDrafts(test.questions || []),
     });
   }, []);
+=======
+    const storedDraft = loadStoredTestBuilderDraft(user.id, test.id);
+    setEditingTestId(test.id);
+    setShowCreateForm(true);
+    setForm(
+      storedDraft || {
+        title: test.title,
+        description: test.description,
+        audienceRole: test.audienceRole,
+        status: test.status,
+        assignmentMode: test.assignmentMode,
+        selectedUserIds: test.selectedUserIds || [],
+        deadlineAt: test.deadlineAt ? test.deadlineAt.slice(0, 16) : '',
+        questions:
+          test.questions && test.questions.length
+            ? normalizeQuestionBankForEditor(test.questions)
+            : Array.from({ length: QUESTION_BANK_SIZE }, () => emptyQuestion()),
+      },
+    );
+  }, [user.id]);
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 
   const beginAttempt = useCallback(async (testId: string, latestAttempt?: TestAttemptSummary | null) => {
     setErrorMessage('');
@@ -310,12 +426,30 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
     }
   }, [activeAttemptId, activeTestId, language]);
 
+<<<<<<< HEAD
+=======
+  const sessionTimerKey = session
+    ? `${session.attemptId}:${session.currentQuestionIndex}:${session.status}`
+    : null;
+
+  useEffect(() => {
+    if (!session || session.status !== 'InProgress') {
+      return;
+    }
+
+    setRemainingSeconds(session.remainingSeconds);
+  }, [sessionTimerKey]);
+
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   useEffect(() => {
     if (!session || session.status !== 'InProgress') {
       return undefined;
     }
+<<<<<<< HEAD
 
     setRemainingSeconds(session.remainingSeconds);
+=======
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
     const intervalId = window.setInterval(() => {
       setRemainingSeconds((previous) => {
         if (previous <= 1) {
@@ -418,6 +552,10 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
         ? await updateTest(editingTestId, payload)
         : await createTest(payload);
       setSuccessMessage(response.message);
+<<<<<<< HEAD
+=======
+      clearStoredBuilderDraft(editingTestId);
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
       setShowCreateForm(false);
       resetForm();
       await loadTests();
@@ -429,6 +567,39 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
     }
   };
 
+<<<<<<< HEAD
+=======
+  const handleDeleteTest = async (testId: string) => {
+    const confirmed = window.confirm('Delete this test? It will disappear from all active test lists.');
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingTestId(testId);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      const response = await deleteTest(testId);
+      clearStoredBuilderDraft(testId);
+      if (editingTestId === testId) {
+        setShowCreateForm(false);
+        setEditingTestId(null);
+      }
+      if (activeTestId === testId) {
+        setActiveTestId(null);
+        setDetail(null);
+      }
+      setSuccessMessage(response.message);
+      await loadTests();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to delete test.');
+    } finally {
+      setDeletingTestId(null);
+    }
+  };
+
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
   const updateQuestion = (questionIndex: number, patch: Partial<TestQuestionDraft>) => {
     setForm((current) => {
       const nextQuestions = [...current.questions];
@@ -458,10 +629,17 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
     return detail.attempts.filter(
       (attempt) => attempt.status === 'Completed' && attempt.resultStatus === 'FAILED',
     );
+<<<<<<< HEAD
   }, [detail]);
 
   const resultTone =
     result && result.correctAnswers >= result.passThreshold
+=======
+  }, [clearStoredBuilderDraft, detail, editingTestId, loadDetail, loadTests, resetForm]);
+
+  const resultTone =
+    result?.resultStatus === 'SUCCESS'
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
       ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
       : 'border-red-200 bg-red-50 text-red-900';
 
@@ -495,7 +673,11 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                   <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Exam desk</div>
                   <h2 className="mt-2 text-2xl font-black text-slate-900">Role-based exam control</h2>
                   <p className="mt-2 max-w-3xl text-sm text-slate-500">
+<<<<<<< HEAD
                     Instructors manage the full 50-question bank, while each Referee and TO receives 25 randomized questions with a 2-minute limit on each step.
+=======
+                    Instructors manage the full 100-question bank, while the live exam serves 25 randomized questions per official with a 2-minute limit on each step.
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
                   </p>
                 </div>
                 {canCreate ? (
@@ -506,6 +688,23 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                         resetForm();
                         return;
                       }
+<<<<<<< HEAD
+=======
+                      const storedDraft = loadStoredTestBuilderDraft(user.id, null);
+                      setEditingTestId(null);
+                      setForm(
+                        storedDraft || {
+                          title: '',
+                          description: '',
+                          audienceRole: 'Referee',
+                          status: 'Draft',
+                          assignmentMode: 'AllEligible',
+                          selectedUserIds: [],
+                          deadlineAt: '',
+                          questions: Array.from({ length: QUESTION_BANK_SIZE }, () => emptyQuestion()),
+                        },
+                      );
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
                       setShowCreateForm(true);
                     }}
                     className="rounded-full bg-[#57131b] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#6b1b24]">
@@ -524,11 +723,19 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                     {editingTestId ? 'Edit exam draft' : 'Create exam'}
                   </h3>
                   <p className="mt-1 text-sm text-slate-500">
+<<<<<<< HEAD
                     Enter every question manually in English, Azerbaijani and Russian.
                   </p>
                 </div>
                 <div className="rounded-full bg-amber-50 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-900">
                   50 question bank / 25 served per user
+=======
+                    Enter the exam in English. Translations for Azerbaijani and Russian will be generated automatically per question.
+                  </p>
+                </div>
+                <div className="rounded-full bg-amber-50 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-900">
+                  100 question bank / 25 served per user
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
                 </div>
               </div>
 
@@ -641,10 +848,17 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
 
               <div className="mt-6 flex items-center justify-between">
                 <div className="text-sm font-semibold text-slate-700">
+<<<<<<< HEAD
                   Question bank progress: {countReadyQuestions(form.questions)} / {QUESTION_BANK_SIZE}
                 </div>
                 <div className="text-xs text-slate-500">
                   Each question needs English, Azerbaijani and Russian text, then you choose the Yes/No correct answer.
+=======
+                  Question bank progress: {form.questions.filter((question) => question.prompt.trim()).length} / {QUESTION_BANK_SIZE}
+                </div>
+                <div className="text-xs text-slate-500">
+                  Each question is answered with Yes or No, and you choose which one is correct.
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
                 </div>
               </div>
 
@@ -658,6 +872,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                       </div>
                     </div>
                     <textarea
+<<<<<<< HEAD
                       value={question.promptEn}
                       onChange={(event) => updateQuestion(questionIndex, { promptEn: event.target.value })}
                       className="mt-3 min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]"
@@ -674,6 +889,12 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                       onChange={(event) => updateQuestion(questionIndex, { promptRu: event.target.value })}
                       className="mt-3 min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]"
                       placeholder="Question in Russian"
+=======
+                      value={question.prompt}
+                      onChange={(event) => updateQuestion(questionIndex, { prompt: event.target.value })}
+                      className="mt-3 min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]"
+                      placeholder="Write the question in English."
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
                     />
                     <label className="mt-3 flex flex-col gap-2">
                       <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Correct answer</span>
@@ -712,11 +933,38 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
             <div className="rounded-3xl border border-slate-100 bg-white p-6 text-sm text-slate-500 shadow-sm">
               Loading tests...
             </div>
+<<<<<<< HEAD
+=======
+          ) : tests.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">
+              {isInstructor
+                ? 'No tests are visible for this Instructor yet. Legacy exams with empty activity fields should appear again after the backend update is deployed.'
+                : 'No tests are available for this account yet.'}
+            </div>
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
           ) : (
             <div className="grid gap-4">
               {tests.map((test) => {
                 const latestAttempt =
                   isUserTestSummary(test) ? test.latestAttempt : null;
+<<<<<<< HEAD
+=======
+                const waitingForRetakeApproval = Boolean(
+                  isParticipant &&
+                  latestAttempt?.status === 'Completed' &&
+                  latestAttempt?.resultStatus === 'FAILED' &&
+                  !latestAttempt?.retakeAllowed,
+                );
+                const participantActionLabel = latestAttempt?.status === 'InProgress'
+                  ? 'Resume exam'
+                  : latestAttempt?.resultStatus === 'FAILED' && latestAttempt?.retakeAllowed
+                    ? 'Retake exam'
+                    : latestAttempt?.resultStatus === 'SUCCESS'
+                      ? 'Open result'
+                      : waitingForRetakeApproval
+                        ? 'Await retake approval'
+                        : 'Start exam';
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
 
                 return (
                   <div key={test.id} className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -758,6 +1006,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                           </button>
                         ) : null}
                         {isInstructor && test.createdById === user.id ? (
+<<<<<<< HEAD
                           <button
                             onClick={() => void loadDetail(test.id).then((loadedTest) => {
                               if (loadedTest) {
@@ -767,10 +1016,30 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                             className="rounded-full border border-[#57131b]/20 px-4 py-2 text-sm font-bold text-[#57131b] transition hover:bg-[#57131b]/5">
                             Load for edit
                           </button>
+=======
+                          <>
+                            <button
+                              onClick={() => void loadDetail(test.id).then((loadedTest) => {
+                                if (loadedTest) {
+                                  openEditor(loadedTest);
+                                }
+                              })}
+                              className="rounded-full border border-[#57131b]/20 px-4 py-2 text-sm font-bold text-[#57131b] transition hover:bg-[#57131b]/5">
+                              Load for edit
+                            </button>
+                            <button
+                              onClick={() => void handleDeleteTest(test.id)}
+                              disabled={deletingTestId === test.id}
+                              className="rounded-full border border-red-200 px-4 py-2 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60">
+                              {deletingTestId === test.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </>
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
                         ) : null}
                         {isParticipant ? (
                           <button
                             onClick={() => void beginAttempt(test.id, latestAttempt)}
+<<<<<<< HEAD
                             className="rounded-full bg-[#57131b] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#6b1b24]">
                             {latestAttempt?.status === 'InProgress'
                               ? 'Resume exam'
@@ -779,6 +1048,11 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                                 : latestAttempt?.resultStatus === 'SUCCESS'
                                   ? 'Open result'
                                   : 'Start exam'}
+=======
+                            disabled={waitingForRetakeApproval}
+                            className="rounded-full bg-[#57131b] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#6b1b24] disabled:opacity-60">
+                            {participantActionLabel}
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
                           </button>
                         ) : null}
                       </div>
@@ -886,7 +1160,11 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                 </div>
               </div>
               <div className="mt-5 text-sm font-semibold">
+<<<<<<< HEAD
                 {result.correctAnswers >= result.passThreshold
+=======
+                {result.correctAnswers >= PASS_THRESHOLD
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
                   ? 'You passed this exam.'
                   : 'You did not reach the pass threshold yet.'}
               </div>
@@ -916,11 +1194,27 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                         <div className="mt-2 text-sm text-slate-500">{detail.description || 'No description provided.'}</div>
                       </div>
                       {isInstructor ? (
+<<<<<<< HEAD
                         <button
                           onClick={() => openEditor(detail)}
                           className="rounded-full border border-[#57131b]/20 px-4 py-2 text-sm font-bold text-[#57131b] transition hover:bg-[#57131b]/5">
                           Edit exam
                         </button>
+=======
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => openEditor(detail)}
+                            className="rounded-full border border-[#57131b]/20 px-4 py-2 text-sm font-bold text-[#57131b] transition hover:bg-[#57131b]/5">
+                            Edit exam
+                          </button>
+                          <button
+                            onClick={() => void handleDeleteTest(detail.id)}
+                            disabled={deletingTestId === detail.id}
+                            className="rounded-full border border-red-200 px-4 py-2 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:opacity-60">
+                            {deletingTestId === detail.id ? 'Deleting...' : 'Delete exam'}
+                          </button>
+                        </div>
+>>>>>>> 3551f15290eb32b836a9dd83f38df669108c7ad3
                       ) : null}
                     </div>
                     <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-600">
