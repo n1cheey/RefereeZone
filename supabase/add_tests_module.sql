@@ -3,7 +3,7 @@ create table if not exists public.tests (
   title text not null,
   description text not null default '',
   audience_role text not null check (audience_role in ('Referee', 'TO', 'Both')),
-  question_bank_size integer not null default 100,
+  question_bank_size integer not null default 50,
   question_count integer not null default 25,
   question_time_limit_seconds integer not null default 120,
   pass_threshold integer not null default 20,

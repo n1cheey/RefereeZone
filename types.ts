@@ -1,4 +1,15 @@
 
+export type LeagueSeasonId = '2025-2026' | '2026-2027';
+export type LeagueSeasonStatus = 'archive' | 'active' | 'upcoming';
+
+export interface LeagueSeason {
+  id: LeagueSeasonId;
+  label: string;
+  shortLabel: string;
+  status: LeagueSeasonStatus;
+  description: string;
+}
+
 export type UserRole = 'Instructor' | 'TO' | 'TO Supervisor' | 'Referee' | 'Staff' | 'Financialist';
 export type AssignmentStatus = 'Pending' | 'Accepted' | 'Declined' | 'Assigned';
 export type ReportStatus = 'Draft' | 'Submitted' | 'Reviewed';
@@ -26,10 +37,12 @@ export interface RefereeDirectoryItem {
   email: string;
   licenseNumber: string;
   role: UserRole;
-  availabilityRanges?: {
-    startDate: string;
-    endDate: string;
-  }[];
+  unavailableRanges?: AvailabilityDateRange[];
+}
+
+export interface AvailabilityDateRange {
+  startDate: string;
+  endDate: string;
 }
 
 export interface AllowedAccessItem {
@@ -56,8 +69,15 @@ export interface TONominationSlot {
   respondedAt: string | null;
 }
 
+export interface LocalizedTextValue {
+  az?: string | null;
+  en?: string | null;
+  ru?: string | null;
+}
+
 export interface InstructorNomination {
   id: string;
+  seasonId?: LeagueSeasonId | null;
   gameCode: string;
   teams: string;
   matchDate: string;
@@ -79,6 +99,7 @@ export interface InstructorNomination {
 export interface RefereeNomination {
   id: string;
   nominationId: string;
+  seasonId?: LeagueSeasonId | null;
   gameCode: string;
   teams: string;
   matchDate: string;
@@ -101,9 +122,36 @@ export interface RefereeNomination {
   statisticCrew: TONominationSlot[];
 }
 
+export interface UnifiedMatchRecord {
+  id: string;
+  nominationId: string;
+  seasonId?: LeagueSeasonId | null;
+  gameCode: string;
+  teams: string;
+  matchDate: string;
+  matchTime: string;
+  venue: string;
+  finalScore: string | null;
+  matchVideoUrl: string | null;
+  matchProtocolUrl: string | null;
+  refereeFee: number | null;
+  toFee: number | null;
+  source: 'instructor' | 'assignment';
+  createdAt?: string | null;
+  createdById?: string | null;
+  createdByName?: string | null;
+  instructorName?: string | null;
+  assignmentGroup?: 'Referee' | 'TO';
+  assignmentLabel?: string | null;
+  referees: NominationSlot[];
+  toCrew: TONominationSlot[];
+  statisticCrew: TONominationSlot[];
+}
+
 export interface ReplacementNotice {
   id: string;
   nominationId: string;
+  seasonId?: LeagueSeasonId | null;
   gameCode: string;
   teams: string;
   matchDate: string;
@@ -131,6 +179,7 @@ export interface ReportEntry {
 export interface ReportListItem {
   nominationId: string;
   refereeId: string;
+  seasonId?: LeagueSeasonId | null;
   gameCode: string;
   teams: string;
   matchDate: string;
@@ -187,6 +236,7 @@ export interface RankingPoint {
 
 export interface RankingEvaluation {
   id: string;
+  seasonId?: LeagueSeasonId | null;
   refereeId: string;
   refereeName: string;
   gameCode: string;
@@ -218,6 +268,7 @@ export interface RankingPerformanceProfile {
 
 export interface RankingPerformanceEntry {
   id: string;
+  seasonId?: LeagueSeasonId | null;
   refereeId: string;
   refereeName: string;
   gameCode: string;
@@ -343,6 +394,28 @@ export interface AvailabilityOverview {
   myRequests: AvailabilityRequest[];
   pendingApprovals: AvailabilityRequest[];
   upcomingApproved: AvailabilityRequest[];
+}
+
+export type NotificationSeverity = 'critical' | 'warning' | 'info' | 'success';
+export type NotificationKind =
+  | 'announcement'
+  | 'assignment_pending'
+  | 'report_due'
+  | 'report_overdue'
+  | 'report_review_pending'
+  | 'availability_pending'
+  | 'availability_upcoming';
+
+export interface NotificationCenterItem {
+  id: string;
+  kind: NotificationKind;
+  severity: NotificationSeverity;
+  title: string;
+  description: string;
+  dueAt: string | null;
+  targetView?: 'announcement' | 'availability' | 'nominations' | 'reports' | 'calendar';
+  targetId?: string | null;
+  targetDate?: string | null;
 }
 
 export type TestAudienceRole = 'Referee' | 'TO' | 'Both';

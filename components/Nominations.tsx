@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Layout from './Layout';
 import MatchTeamsHeader from './MatchTeamsHeader';
-import { formatMatchTeams, splitMatchTeams, TEAM_OPTIONS } from '../teamLogos';
+import { formatMatchTeams, getCanonicalVenueName, getDisplayGameCode, getDisplayPersonName, splitMatchTeams, TEAM_OPTIONS } from '../teamLogos';
 import { User, InstructorNomination, RefereeDirectoryItem, RefereeNomination } from '../types';
 import { getNominationSlotLabel, getStatisticSlotLabel, getTOSlotLabel } from '../slotLabels';
 import { formatAutoDeclineCountdown } from '../assignmentCountdown';
@@ -19,17 +19,22 @@ import {
   updateNominationScore,
 } from '../services/nominationService';
 import { consumeNavigationIntent } from '../services/navigationIntent';
+import { getOfficialUnavailabilityRange, isOfficialUnavailableOnMatchDate } from '../services/officialAvailability';
+import { setNavigationIntent } from '../services/navigationIntent';
 import { readViewCache, writeViewCache } from '../services/viewCache';
 import { getAssignmentStatusLabel, useI18n } from '../i18n';
+import { useSeason } from '../services/seasonContext';
+import { AppView } from '../services/appViews';
 
 interface NominationsProps {
   user: User;
   onBack: () => void;
+  onNavigate: (view: AppView) => void;
 }
 
 const POLL_INTERVAL_MS = 45000;
-const getNominationsCacheKey = (userId: string, role: User['role']) => `nominations:${userId}:${role}`;
-const getDashboardCacheKey = (userId: string, role: User['role']) => `dashboard:${userId}:${role}`;
+const getNominationsCacheKey = (userId: string, role: User['role'], seasonId: string) => `nominations:${userId}:${role}:${seasonId}`;
+const getDashboardCacheKey = (userId: string, role: User['role'], seasonId: string) => `dashboard:${userId}:${role}:${seasonId}`;
 const TO_CREW_SLOT_NUMBERS = [1, 2, 3, 4];
 const STATISTIC_CREW_SLOT_NUMBERS = [1, 2, 3];
 const REQUIRED_STATISTIC_CREW_SLOT_NUMBERS = [1, 2];
@@ -70,8 +75,9 @@ const getAssignmentStatusClasses = (status: string) => {
   return 'bg-amber-100 text-amber-700';
 };
 
-const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
+const Nominations: React.FC<NominationsProps> = ({ user, onBack, onNavigate }) => {
   const { language, t } = useI18n();
+  const { activeSeasonId } = useSeason();
   const [referees, setReferees] = useState<RefereeDirectoryItem[]>([]);
   const [toOfficials, setTOOfficials] = useState<RefereeDirectoryItem[]>([]);
   const [instructorNominations, setInstructorNominations] = useState<InstructorNomination[]>([]);
@@ -98,14 +104,15 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
   const isStaff = user.role === 'Staff';
   const isFinancialist = user.role === 'Financialist';
   const isTOSupervisor = user.role === 'TO Supervisor';
+  const canOpenMatchCenter = isInstructor || isTOSupervisor;
   const isStatisticSupervisor = isTOSupervisor && user.licenseNumber === STATISTIC_SUPERVISOR_LICENSE;
   const isTO = user.role === 'TO';
 
   useEffect(() => {
     let isMounted = true;
     let intervalId: number | null = null;
-    const cacheKey = getNominationsCacheKey(user.id, user.role);
-    const dashboardCacheKey = getDashboardCacheKey(user.id, user.role);
+    const cacheKey = getNominationsCacheKey(user.id, user.role, activeSeasonId);
+    const dashboardCacheKey = getDashboardCacheKey(user.id, user.role, activeSeasonId);
 
     const applyCachedData = () => {
       const cached = readViewCache<{
@@ -134,7 +141,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
 
       try {
         if (user.role === 'Instructor' || user.role === 'TO Supervisor') {
-          const dashboardResponse = await getInstructorDashboard(user.id);
+          const dashboardResponse = await getInstructorDashboard(user.id, activeSeasonId);
           if (isMounted) {
             setReferees(dashboardResponse.referees);
             setTOOfficials(dashboardResponse.toOfficials);
@@ -157,7 +164,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             });
           }
         } else if (user.role === 'Staff' || user.role === 'Financialist') {
-          const response = await getInstructorNominations(user.id);
+          const response = await getInstructorNominations(user.id, activeSeasonId);
           if (isMounted) {
             setInstructorNominations(response.nominations);
             setRefereeAssignments([]);
@@ -170,7 +177,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             });
           }
         } else if (user.role === 'Referee' || user.role === 'TO') {
-          const response = await getRefereeNominations(user.id);
+          const response = await getRefereeNominations(user.id, activeSeasonId);
           if (isMounted) {
             setRefereeAssignments(response.nominations);
             setErrorMessage('');
@@ -238,7 +245,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       }
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [user.id, user.role]);
+  }, [activeSeasonId, user.id, user.role]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -260,6 +267,13 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
       return;
     }
 
+    if (intent.targetAction === 'edit') {
+      const nominationToEdit = instructorNominations.find((item) => item.id === intent.targetId);
+      if (nominationToEdit && (isInstructor || isStaff)) {
+        handleStartEditNomination(nominationToEdit);
+      }
+    }
+
     setHighlightedNominationId(intent.targetId);
     window.setTimeout(() => {
       document
@@ -274,7 +288,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     return () => {
       window.clearTimeout(clearTimer);
     };
-  }, [instructorNominations, refereeAssignments, isLoading]);
+  }, [instructorNominations, refereeAssignments, isInstructor, isLoading, isStaff]);
 
   const instructorSections = useMemo(
     () => splitMatchesByTime(instructorNominations, countdownNow),
@@ -285,6 +299,17 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     [refereeAssignments, countdownNow],
   );
 
+  const openMatchCenter = (nominationId: string) => {
+    if (!canOpenMatchCenter) {
+      return;
+    }
+    setNavigationIntent({
+      view: 'matchCenter',
+      targetId: nominationId,
+    });
+    onNavigate('matchCenter');
+  };
+
   const handleStatusChange = async (nominationId: string, status: 'Accepted' | 'Declined', assignmentId: string) => {
     setActionAssignmentId(assignmentId);
     try {
@@ -293,7 +318,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         refereeId: user.id,
         response: status,
       });
-      const response = await getRefereeNominations(user.id);
+      const response = await getRefereeNominations(user.id, activeSeasonId);
       setRefereeAssignments(response.nominations);
       setErrorMessage('');
     } catch (error) {
@@ -309,7 +334,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         nominationId,
         instructorId: user.id,
       });
-      const response = await getInstructorDashboard(user.id);
+      const response = await getInstructorDashboard(user.id, activeSeasonId);
       setReferees(response.referees);
       setTOOfficials(response.toOfficials);
       setInstructorNominations(response.nominations);
@@ -343,7 +368,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         toFee,
       });
 
-      const response = await getInstructorDashboard(user.id);
+      const response = await getInstructorDashboard(user.id, activeSeasonId);
       setReferees(response.referees);
       setTOOfficials(response.toOfficials);
       setInstructorNominations(response.nominations);
@@ -380,24 +405,26 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
     const occupied = new Set(
       nomination.referees.filter((item) => item.slotNumber !== slotNumber).map((item) => item.refereeId),
     );
-    const matchDate =
-      editingNominationId === nomination.id ? String(editSelections.matchDate || nomination.matchDate) : nomination.matchDate;
 
     return referees.filter(
       (referee) =>
         !occupied.has(referee.id) &&
-        !(referee.availabilityRanges || []).some((range) => range.startDate <= matchDate && range.endDate >= matchDate),
+        !isOfficialUnavailableOnMatchDate(referee, nomination.matchDate),
     );
   };
 
-  const getAvailableTOOptions = (nomination: InstructorNomination, currentSelection = '') =>
-    toOfficials.filter(
-      (official) =>
-        official.id === currentSelection ||
-        !(official.availabilityRanges || []).some(
-          (range) => range.startDate <= nomination.matchDate && range.endDate >= nomination.matchDate,
-        ),
-    );
+  const getOfficialOptionLabel = (official: RefereeDirectoryItem, matchDate: string, includeRole = false) => {
+    const availability = getOfficialUnavailabilityRange(official, matchDate);
+    const baseLabel = includeRole
+      ? `${getDisplayPersonName(official.fullName)} (${official.role})`
+      : getDisplayPersonName(official.fullName);
+
+    if (!availability) {
+      return baseLabel;
+    }
+
+    return `${baseLabel} - Leave ${availability.startDate} to ${availability.endDate}`;
+  };
 
   const handleStartEditNomination = (nomination: InstructorNomination) => {
     const [team1 = '', team2 = ''] = splitMatchTeams(nomination.teams);
@@ -453,6 +480,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         matchDate,
         matchTime,
         venue,
+        seasonId: activeSeasonId,
       });
 
       if (response.nomination) {
@@ -525,7 +553,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         toIds: payloadTOs,
       });
 
-      const response = await getInstructorDashboard(user.id);
+      const response = await getInstructorDashboard(user.id, activeSeasonId);
       setReferees(response.referees);
       setTOOfficials(response.toOfficials);
       setInstructorNominations(response.nominations);
@@ -583,7 +611,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         statisticianIds: payloadStatisticians,
       });
 
-      const response = await getInstructorDashboard(user.id);
+      const response = await getInstructorDashboard(user.id, activeSeasonId);
       setReferees(response.referees);
       setTOOfficials(response.toOfficials);
       setInstructorNominations(response.nominations);
@@ -603,7 +631,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
         {crew.map((official) => (
           <div key={`${official.refereeId}-${official.slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
             <div className="text-[11px] font-bold uppercase text-slate-500">{getNominationSlotLabel(official.slotNumber, language)}</div>
-            <div className="mt-1 text-sm font-semibold text-slate-900">{official.refereeName}</div>
+            <div className="rz-ui-text mt-1 text-sm font-semibold text-slate-900">{getDisplayPersonName(official.refereeName)}</div>
             <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${
               official.status === 'Accepted'
                 ? 'bg-green-100 text-green-700'
@@ -837,8 +865,8 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             ) : (
               <MatchTeamsHeader teams={nomination.teams} className="mb-3" titleClassName="text-lg font-bold text-slate-800" />
             )}
-            <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nomination.gameCode}</div>
-            <div className="text-xs text-slate-500">Created by: {nomination.createdByName}</div>
+            <div className="rz-game-code mb-2 text-xs uppercase text-[#581c1c]">{getDisplayGameCode(nomination.gameCode)}</div>
+            <div className="text-xs text-slate-500">Created by: {getDisplayPersonName(nomination.createdByName)}</div>
             {editingNominationId === nomination.id ? (
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <div>
@@ -889,6 +917,12 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
           {isInstructor && nomination.createdById === user.id ? (
             <div className="flex flex-wrap items-center gap-2">
               <button
+                onClick={() => openMatchCenter(nomination.id)}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#57131b] px-3 py-2 text-xs font-bold text-white"
+              >
+                Match Center
+              </button>
+              <button
                 onClick={() =>
                   editingNominationId === nomination.id ? handleCancelEditNomination() : handleStartEditNomination(nomination)
                 }
@@ -905,7 +939,18 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                 Delete
               </button>
             </div>
-          ) : null}
+          ) : (
+            canOpenMatchCenter ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => openMatchCenter(nomination.id)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#57131b] px-3 py-2 text-xs font-bold text-white"
+                >
+                  Match Center
+                </button>
+              </div>
+            ) : null
+          )}
         </div>
         {editingNominationId === nomination.id ? null : (
           <div className="grid grid-cols-2 gap-y-2 text-sm text-slate-600">
@@ -919,7 +964,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
             </div>
             <div className="flex items-center gap-2 col-span-2">
               <MapPin size={14} className="text-[#f97316]" />
-              {nomination.venue}
+              {getCanonicalVenueName(nomination.venue)}
             </div>
           </div>
         )}
@@ -947,14 +992,21 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                     .concat(referees.filter((option) => option.id === referee.refereeId))
                     .filter((option, index, array) => array.findIndex((item) => item.id === option.id) === index)
                     .map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {`${option.fullName} (${option.role})`}
+                      <option
+                        key={option.id}
+                        value={option.id}
+                        disabled={
+                          option.id !== editSelections[`referee${referee.slotNumber}`] &&
+                          isOfficialUnavailableOnMatchDate(option, editSelections.matchDate || nomination.matchDate)
+                        }
+                      >
+                        {getOfficialOptionLabel(option, editSelections.matchDate || nomination.matchDate, true)}
                       </option>
                     ))}
                 </select>
               ) : (
                 <>
-                  <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
+                  <div className="rz-ui-text mt-1 font-semibold text-slate-900">{getDisplayPersonName(referee.refereeName)}</div>
                   <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${
                     referee.status === 'Accepted'
                       ? 'bg-green-100 text-green-700'
@@ -993,9 +1045,16 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                         className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
                       >
                         <option value="">{t('dashboard.selectTO')}</option>
-                        {getAvailableTOOptions(nomination, currentSelection).map((option) => (
-                          <option key={option.id} value={option.id}>
-                            {option.fullName}
+                        {toOfficials.map((option) => (
+                          <option
+                            key={option.id}
+                            value={option.id}
+                            disabled={
+                              option.id !== currentSelection &&
+                              isOfficialUnavailableOnMatchDate(option, nomination.matchDate)
+                            }
+                          >
+                            {getOfficialOptionLabel(option, nomination.matchDate)}
                           </option>
                         ))}
                       </select>
@@ -1072,9 +1131,16 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
                       className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
                     >
                       <option value="">{t('dashboard.selectStatistician')}</option>
-                      {getAvailableTOOptions(nomination, currentSelection).map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.fullName}
+                      {toOfficials.map((option) => (
+                        <option
+                          key={option.id}
+                          value={option.id}
+                          disabled={
+                            option.id !== currentSelection &&
+                            isOfficialUnavailableOnMatchDate(option, nomination.matchDate)
+                          }
+                        >
+                          {getOfficialOptionLabel(option, nomination.matchDate)}
                         </option>
                       ))}
                     </select>
@@ -1172,8 +1238,18 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
           </div>
         ) : null}
         <MatchTeamsHeader teams={nom.teams} className="mb-3" titleClassName="text-lg font-bold text-slate-800" />
-        <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nom.gameCode}</div>
-        <div className="text-xs font-bold uppercase text-[#581c1c] mb-2">{nom.assignmentLabel}</div>
+        <div className="rz-game-code mb-2 text-xs uppercase text-[#581c1c]">{getDisplayGameCode(nom.gameCode)}</div>
+        <div className="rz-ui-text mb-2 text-xs font-bold uppercase text-[#581c1c]">{nom.assignmentLabel}</div>
+        {canOpenMatchCenter ? (
+          <div className="mb-3 flex justify-end">
+            <button
+              onClick={() => openMatchCenter(nom.nominationId)}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#57131b] px-3 py-2 text-xs font-bold text-white"
+            >
+              Match Center
+            </button>
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-y-2 text-sm text-slate-600">
           <div className="flex items-center gap-2">
             <Calendar size={14} className="text-[#f97316]" />
@@ -1185,7 +1261,7 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack }) => {
           </div>
           <div className="flex items-center gap-2 col-span-2">
             <MapPin size={14} className="text-[#f97316]" />
-            {nom.venue}
+            {getCanonicalVenueName(nom.venue)}
           </div>
           <div className="col-span-2 text-xs uppercase font-semibold tracking-wide text-slate-500">
             Instructor: {nom.instructorName}

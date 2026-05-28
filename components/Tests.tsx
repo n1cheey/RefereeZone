@@ -22,6 +22,8 @@ interface TestsProps {
 }
 
 const QUESTION_BANK_SIZE = 50;
+const QUESTIONS_PER_ATTEMPT = 25;
+const PASS_THRESHOLD = 20;
 
 const AUDIENCE_OPTIONS = [
   { value: 'Referee', label: 'Referee' },
@@ -46,20 +48,19 @@ const emptyQuestion = (): TestQuestionDraft => ({
   ],
 });
 
-const padQuestionDrafts = (questions: TestQuestionDraft[] = []) => {
-  const safeQuestions = questions.slice(0, QUESTION_BANK_SIZE);
-  return [
-    ...safeQuestions,
-    ...Array.from({ length: Math.max(0, QUESTION_BANK_SIZE - safeQuestions.length) }, () => emptyQuestion()),
-  ];
-};
+const expandQuestionBank = (questions?: TestQuestionDraft[] | null) => {
+  const nextQuestions = Array.from({ length: QUESTION_BANK_SIZE }, () => emptyQuestion());
 
-const countReadyQuestions = (questions: TestQuestionDraft[]) =>
-  questions.filter((question) =>
-    question.promptEn.trim() &&
-    question.promptAz.trim() &&
-    question.promptRu.trim(),
-  ).length;
+  (questions || []).slice(0, QUESTION_BANK_SIZE).forEach((question, index) => {
+    nextQuestions[index] = {
+      ...emptyQuestion(),
+      ...question,
+      options: question.options && question.options.length ? question.options : emptyQuestion().options,
+    };
+  });
+
+  return nextQuestions;
+};
 
 const formatDuration = (value: number | null) => {
   if (value === null) {
@@ -132,7 +133,7 @@ const useExamProtection = (enabled: boolean) => {
 };
 
 const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
-  const { language } = useI18n();
+  const { language, t } = useI18n();
   const [tests, setTests] = useState<Array<UserTestSummary | TestAdminSummary>>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
@@ -152,6 +153,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
   const [editingTestId, setEditingTestId] = useState<string | null>(null);
   const [members, setMembers] = useState<User[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
+  const currentSessionLanguage = getSessionLanguage(language);
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -160,7 +162,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
     assignmentMode: 'AllEligible' as 'AllEligible' | 'SelectedUsers',
     selectedUserIds: [] as string[],
     deadlineAt: '',
-    questions: padQuestionDrafts(),
+    questions: Array.from({ length: QUESTION_BANK_SIZE }, () => emptyQuestion()),
   });
 
   const role = user.role;
@@ -199,7 +201,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
       assignmentMode: 'AllEligible',
       selectedUserIds: [],
       deadlineAt: '',
-      questions: padQuestionDrafts(),
+      questions: expandQuestionBank(),
     });
   }, []);
 
@@ -256,7 +258,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
       assignmentMode: test.assignmentMode,
       selectedUserIds: test.selectedUserIds || [],
       deadlineAt: test.deadlineAt ? test.deadlineAt.slice(0, 16) : '',
-      questions: padQuestionDrafts(test.questions || []),
+      questions: expandQuestionBank(test.questions),
     });
   }, []);
 
@@ -281,24 +283,38 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
           : (await startTestAttempt(testId)).attemptId;
 
       setActiveAttemptId(attemptId);
-      const nextSession = await getTestSession(testId, attemptId, getSessionLanguage(language));
+      const nextSession = await getTestSession(testId, attemptId, currentSessionLanguage);
       setSession(nextSession);
       setRemainingSeconds(nextSession.remainingSeconds);
       setActiveTestId(testId);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to start exam.');
     }
-  }, [language]);
+  }, [currentSessionLanguage]);
 
-  const refreshSession = useCallback(async () => {
+  const refreshSession = useCallback(async (options?: { preserveCountdown?: boolean; languageOverride?: string }) => {
     if (!activeTestId || !activeAttemptId) {
       return;
     }
 
     try {
-      const nextSession = await getTestSession(activeTestId, activeAttemptId, getSessionLanguage(language));
+      const nextSession = await getTestSession(
+        activeTestId,
+        activeAttemptId,
+        options?.languageOverride || currentSessionLanguage,
+      );
       setSession(nextSession);
-      setRemainingSeconds(nextSession.remainingSeconds);
+      setRemainingSeconds((previous) => {
+        if (!options?.preserveCountdown) {
+          return nextSession.remainingSeconds;
+        }
+
+        if (previous <= 0) {
+          return nextSession.remainingSeconds;
+        }
+
+        return Math.min(previous, nextSession.remainingSeconds);
+      });
 
       if (nextSession.status === 'Completed') {
         const resultResponse = await getTestResult(activeTestId, activeAttemptId);
@@ -308,7 +324,18 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
       const message = error instanceof Error ? error.message : 'Failed to refresh exam session.';
       setErrorMessage(message);
     }
-  }, [activeAttemptId, activeTestId, language]);
+  }, [activeAttemptId, activeTestId, currentSessionLanguage]);
+
+  useEffect(() => {
+    if (!isExamActive) {
+      return;
+    }
+
+    void refreshSession({
+      preserveCountdown: true,
+      languageOverride: currentSessionLanguage,
+    });
+  }, [currentSessionLanguage, isExamActive, refreshSession]);
 
   useEffect(() => {
     if (!session || session.status !== 'InProgress') {
@@ -316,6 +343,13 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
     }
 
     setRemainingSeconds(session.remainingSeconds);
+  }, [session?.attemptId, session?.currentQuestionIndex, session?.status]);
+
+  useEffect(() => {
+    if (!session || session.status !== 'InProgress') {
+      return undefined;
+    }
+
     const intervalId = window.setInterval(() => {
       setRemainingSeconds((previous) => {
         if (previous <= 1) {
@@ -330,7 +364,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [refreshSession, session]);
+  }, [refreshSession, session?.attemptId, session?.currentQuestionIndex, session?.status]);
 
   const handleOptionToggle = (optionId: string) => {
     if (!session?.question) {
@@ -461,7 +495,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
   }, [detail]);
 
   const resultTone =
-    result && result.correctAnswers >= result.passThreshold
+    result?.resultStatus === 'SUCCESS'
       ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
       : 'border-red-200 bg-red-50 text-red-900';
 
@@ -474,7 +508,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
   }, [form.audienceRole, members]);
 
   return (
-    <Layout title="Tests" onBack={onBack} onLogout={undefined}>
+    <Layout title={t('tests.title')} onBack={onBack} onLogout={undefined}>
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,0.9fr)]">
         <div className="space-y-6">
           {errorMessage ? (
@@ -495,7 +529,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                   <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Exam desk</div>
                   <h2 className="mt-2 text-2xl font-black text-slate-900">Role-based exam control</h2>
                   <p className="mt-2 max-w-3xl text-sm text-slate-500">
-                    Instructors manage the full 50-question bank, while each Referee and TO receives 25 randomized questions with a 2-minute limit on each step.
+                    Instructors manage the full 50-question bank, while the live exam serves 25 randomized questions per official with a 2-minute limit on each step.
                   </p>
                 </div>
                 {canCreate ? (
@@ -524,7 +558,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                     {editingTestId ? 'Edit exam draft' : 'Create exam'}
                   </h3>
                   <p className="mt-1 text-sm text-slate-500">
-                    Enter every question manually in English, Azerbaijani and Russian.
+                    Enter each question in English, Azerbaijani and Russian so participants see the correct language during the exam.
                   </p>
                 </div>
                 <div className="rounded-full bg-amber-50 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-amber-900">
@@ -641,10 +675,10 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
 
               <div className="mt-6 flex items-center justify-between">
                 <div className="text-sm font-semibold text-slate-700">
-                  Question bank progress: {countReadyQuestions(form.questions)} / {QUESTION_BANK_SIZE}
+                  Question bank progress: {form.questions.filter((question) => question.promptEn.trim() || question.promptAz.trim() || question.promptRu.trim()).length} / {QUESTION_BANK_SIZE}
                 </div>
                 <div className="text-xs text-slate-500">
-                  Each question needs English, Azerbaijani and Russian text, then you choose the Yes/No correct answer.
+                  Each question is answered with Yes or No, and you choose which one is correct.
                 </div>
               </div>
 
@@ -657,24 +691,26 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                         Yes / No
                       </div>
                     </div>
-                    <textarea
-                      value={question.promptEn}
-                      onChange={(event) => updateQuestion(questionIndex, { promptEn: event.target.value })}
-                      className="mt-3 min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]"
-                      placeholder="Question in English"
-                    />
-                    <textarea
-                      value={question.promptAz}
-                      onChange={(event) => updateQuestion(questionIndex, { promptAz: event.target.value })}
-                      className="mt-3 min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]"
-                      placeholder="Question in Azerbaijani"
-                    />
-                    <textarea
-                      value={question.promptRu}
-                      onChange={(event) => updateQuestion(questionIndex, { promptRu: event.target.value })}
-                      className="mt-3 min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]"
-                      placeholder="Question in Russian"
-                    />
+                    <div className="mt-3 grid gap-3">
+                      <textarea
+                        value={question.promptEn}
+                        onChange={(event) => updateQuestion(questionIndex, { promptEn: event.target.value })}
+                        className="min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]"
+                        placeholder="Question in English"
+                      />
+                      <textarea
+                        value={question.promptAz}
+                        onChange={(event) => updateQuestion(questionIndex, { promptAz: event.target.value })}
+                        className="min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]"
+                        placeholder="Question in Azerbaijani"
+                      />
+                      <textarea
+                        value={question.promptRu}
+                        onChange={(event) => updateQuestion(questionIndex, { promptRu: event.target.value })}
+                        className="min-h-20 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-[#57131b]"
+                        placeholder="Question in Russian"
+                      />
+                    </div>
                     <label className="mt-3 flex flex-col gap-2">
                       <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Correct answer</span>
                       <select
@@ -717,6 +753,13 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
               {tests.map((test) => {
                 const latestAttempt =
                   isUserTestSummary(test) ? test.latestAttempt : null;
+                const waitingForRetakeApproval =
+                  isParticipant &&
+                  latestAttempt?.status === 'Completed' &&
+                  latestAttempt?.resultStatus === 'FAILED' &&
+                  !latestAttempt?.retakeAllowed;
+                const canOpenParticipantAction =
+                  !waitingForRetakeApproval;
 
                 return (
                   <div key={test.id} className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
@@ -771,11 +814,14 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                         {isParticipant ? (
                           <button
                             onClick={() => void beginAttempt(test.id, latestAttempt)}
-                            className="rounded-full bg-[#57131b] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#6b1b24]">
+                            disabled={!canOpenParticipantAction}
+                            className="rounded-full bg-[#57131b] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#6b1b24] disabled:cursor-not-allowed disabled:opacity-60">
                             {latestAttempt?.status === 'InProgress'
                               ? 'Resume exam'
                               : latestAttempt?.resultStatus === 'FAILED' && latestAttempt?.retakeAllowed
                                 ? 'Retake exam'
+                                : waitingForRetakeApproval
+                                  ? 'Await instructor retake'
                                 : latestAttempt?.resultStatus === 'SUCCESS'
                                   ? 'Open result'
                                   : 'Start exam'}
@@ -802,6 +848,11 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                           <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Duration</div>
                           <div className="mt-2 text-sm font-bold text-slate-900">{formatDuration(latestAttempt.totalDurationSeconds)}</div>
                         </div>
+                      </div>
+                    ) : null}
+                    {waitingForRetakeApproval ? (
+                      <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+                        Retake is locked until an Instructor grants access.
                       </div>
                     ) : null}
                   </div>
@@ -886,7 +937,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                 </div>
               </div>
               <div className="mt-5 text-sm font-semibold">
-                {result.correctAnswers >= result.passThreshold
+                {result.correctAnswers >= PASS_THRESHOLD
                   ? 'You passed this exam.'
                   : 'You did not reach the pass threshold yet.'}
               </div>
@@ -915,7 +966,7 @@ const Tests: React.FC<TestsProps> = ({ user, onBack }) => {
                         <div className="text-lg font-black text-slate-900">{detail.title}</div>
                         <div className="mt-2 text-sm text-slate-500">{detail.description || 'No description provided.'}</div>
                       </div>
-                      {isInstructor ? (
+                      {isInstructor && detail.createdById === user.id ? (
                         <button
                           onClick={() => openEditor(detail)}
                           className="rounded-full border border-[#57131b]/20 px-4 py-2 text-sm font-bold text-[#57131b] transition hover:bg-[#57131b]/5">

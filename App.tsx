@@ -1,23 +1,10 @@
-import React, { startTransition, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, startTransition, useEffect, useRef, useState } from 'react';
 import { User } from './types';
 import Login from './components/Login';
-import Dashboard from './components/Dashboard';
-import EarningsCalculation from './components/EarningsCalculation';
-import FinancialCalculations from './components/FinancialCalculations';
-import Nominations from './components/Nominations';
-import Teyinat from './components/Teyinat';
-import Ranking from './components/Ranking';
-import Reports from './components/Reports';
-import News from './components/News';
-import Members from './components/Members';
-import AccessManager from './components/AccessManager';
-import Activity from './components/Activity';
-import AnnouncementManager from './components/AnnouncementManager';
-import Chat from './components/Chat';
-import CalendarView from './components/CalendarView';
-import Availability from './components/Availability';
-import Tests from './components/Tests';
 import { I18nProvider, useI18n } from './i18n';
+import { SeasonProvider } from './services/seasonContext';
+import { AppView } from './services/appViews';
+import { canAccessView } from './services/accessControl';
 import {
   getCurrentUserProfile,
   isPasswordRecoveryMode,
@@ -26,25 +13,25 @@ import {
   subscribeToAuthChanges,
 } from './services/authService';
 
-type View =
-  | 'login'
-  | 'dashboard'
-  | 'nominations'
-  | 'teyinat'
-  | 'ranking'
-  | 'toRanking'
-  | 'reports'
-  | 'toReports'
-  | 'news'
-  | 'announcement'
-  | 'chat'
-  | 'tests'
-  | 'calendar'
-  | 'calculation'
-  | 'availability'
-  | 'members'
-  | 'access'
-  | 'activity';
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const MatchCenter = lazy(() => import('./components/MatchCenter'));
+const FinanceCenter = lazy(() => import('./components/FinanceCenter'));
+const GovernanceCenter = lazy(() => import('./components/GovernanceCenter'));
+const EarningsCalculation = lazy(() => import('./components/EarningsCalculation'));
+const FinancialCalculations = lazy(() => import('./components/FinancialCalculations'));
+const Nominations = lazy(() => import('./components/Nominations'));
+const Ranking = lazy(() => import('./components/Ranking'));
+const Reports = lazy(() => import('./components/Reports'));
+const News = lazy(() => import('./components/News'));
+const Members = lazy(() => import('./components/Members'));
+const AccessManager = lazy(() => import('./components/AccessManager'));
+const Activity = lazy(() => import('./components/Activity'));
+const AnnouncementManager = lazy(() => import('./components/AnnouncementManager'));
+const Chat = lazy(() => import('./components/Chat'));
+const NotificationCenter = lazy(() => import('./components/NotificationCenter'));
+const CalendarView = lazy(() => import('./components/CalendarView'));
+const Availability = lazy(() => import('./components/Availability'));
+const Tests = lazy(() => import('./components/Tests'));
 
 const AUTH_LOADING_TIMEOUT_MS = 4000;
 const SESSION_SYNC_COOLDOWN_MS = 60000;
@@ -93,11 +80,13 @@ const writeCachedUser = (user: User | null) => {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
 };
 
-const normalizeStoredView = (value: unknown): View => {
+const normalizeStoredView = (value: unknown): AppView => {
   switch (value) {
     case 'dashboard':
+    case 'matchCenter':
+    case 'financeCenter':
+    case 'governanceCenter':
     case 'nominations':
-    case 'teyinat':
     case 'ranking':
     case 'toRanking':
     case 'reports':
@@ -105,6 +94,7 @@ const normalizeStoredView = (value: unknown): View => {
     case 'news':
     case 'announcement':
     case 'chat':
+    case 'notifications':
     case 'tests':
     case 'calendar':
     case 'calculation':
@@ -134,7 +124,7 @@ const readCachedView = (hasUser: boolean) => {
   }
 };
 
-const writeCachedView = (view: View) => {
+const writeCachedView = (view: AppView) => {
   window.localStorage.setItem(VIEW_STORAGE_KEY, view);
 };
 
@@ -151,10 +141,11 @@ const AppContent: React.FC = () => {
   const recoveryModeRef = useRef(typeof window !== 'undefined' && (isPasswordRecoveryMode() || isPasswordResetPage()));
   const sessionSyncPromiseRef = useRef<Promise<void> | null>(null);
   const lastSessionSyncAtRef = useRef(0);
+  const viewHistoryRef = useRef<AppView[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(() =>
     typeof window === 'undefined' || isPasswordRecoveryMode() || isPasswordResetPage() ? null : readCachedUser(),
   );
-  const [currentView, setCurrentView] = useState<View>(() => {
+  const [currentView, setCurrentView] = useState<AppView>(() => {
     if (typeof window === 'undefined') {
       return 'login';
     }
@@ -353,6 +344,7 @@ const AppContent: React.FC = () => {
   const handleLogin = (user: User) => {
     writeCachedUser(user);
     writeCachedView('dashboard');
+    viewHistoryRef.current = [];
     startTransition(() => {
       setCurrentUser(user);
       setCurrentView('dashboard');
@@ -370,6 +362,7 @@ const AppContent: React.FC = () => {
   const handleLogout = () => {
     writeCachedUser(null);
     writeCachedView('login');
+    viewHistoryRef.current = [];
     startTransition(() => {
       setCurrentUser(null);
       setCurrentView('login');
@@ -378,6 +371,33 @@ const AppContent: React.FC = () => {
 
     void logoutUser().catch((error) => {
       console.error('Logout failed', error);
+    });
+  };
+
+  const navigateTo = (view: AppView, options?: { replace?: boolean }) => {
+    startTransition(() => {
+      setCurrentView((previousView) => {
+        if (!options?.replace && previousView !== view && previousView !== 'login') {
+          viewHistoryRef.current.push(previousView);
+        }
+
+        return view;
+      });
+    });
+  };
+
+  const navigateBack = () => {
+    startTransition(() => {
+      setCurrentView((previousView) => {
+        while (viewHistoryRef.current.length > 0) {
+          const candidate = viewHistoryRef.current.pop();
+          if (candidate && candidate !== previousView) {
+            return candidate;
+          }
+        }
+
+        return 'dashboard';
+      });
     });
   };
 
@@ -390,27 +410,51 @@ const AppContent: React.FC = () => {
       return null;
     }
 
+    if (currentUser && !canAccessView(currentUser, currentView)) {
+      return (
+        <Dashboard
+          user={currentUser}
+          onNavigate={navigateTo}
+          onLogout={handleLogout}
+          onUpdateUser={handleUpdateUser}
+        />
+      );
+    }
+
     switch (currentView) {
       case 'login':
         return <Login onLogin={handleLogin} />;
       case 'dashboard':
-        return (
-          <Dashboard
+      return (
+        <Dashboard
             user={currentUser!}
-            onNavigate={(view: View) => setCurrentView(view)}
+            onNavigate={navigateTo}
             onLogout={handleLogout}
             onUpdateUser={handleUpdateUser}
           />
         );
+      case 'matchCenter':
+        return currentUser!.role === 'Instructor' || currentUser!.role === 'TO Supervisor'
+          ? <MatchCenter user={currentUser!} onBack={navigateBack} onNavigate={navigateTo} />
+          : (
+            <Dashboard
+              user={currentUser!}
+              onNavigate={navigateTo}
+              onLogout={handleLogout}
+              onUpdateUser={handleUpdateUser}
+            />
+          );
+      case 'financeCenter':
+        return <FinanceCenter user={currentUser!} onBack={navigateBack} onNavigate={navigateTo} />;
+      case 'governanceCenter':
+        return <GovernanceCenter user={currentUser!} onBack={navigateBack} onNavigate={navigateTo} />;
       case 'nominations':
-        return <Nominations user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
-      case 'teyinat':
-        return <Teyinat user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+        return <Nominations user={currentUser!} onBack={navigateBack} onNavigate={navigateTo} />;
       case 'ranking':
         return (
           <Ranking
             user={currentUser!}
-            onBack={() => setCurrentView('dashboard')}
+            onBack={navigateBack}
             rankingMode={currentUser!.role === 'TO' || currentUser!.role === 'TO Supervisor' ? 'to' : 'referee'}
           />
         );
@@ -418,33 +462,35 @@ const AppContent: React.FC = () => {
         return (
           <Ranking
             user={currentUser!}
-            onBack={() => setCurrentView('dashboard')}
+            onBack={navigateBack}
             rankingMode="to"
           />
         );
       case 'reports':
-        return <Reports user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+        return <Reports user={currentUser!} onBack={navigateBack} />;
       case 'toReports':
-        return <Reports user={currentUser!} onBack={() => setCurrentView('dashboard')} reportMode="to" />;
+        return <Reports user={currentUser!} onBack={navigateBack} reportMode="to" />;
       case 'news':
-        return <News user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+        return <News user={currentUser!} onBack={navigateBack} />;
       case 'announcement':
-        return <AnnouncementManager user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+        return <AnnouncementManager user={currentUser!} onBack={navigateBack} />;
         case 'chat':
-          return <Chat user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+          return <Chat user={currentUser!} onBack={navigateBack} />;
+        case 'notifications':
+          return <NotificationCenter user={currentUser!} onBack={navigateBack} onNavigate={navigateTo} />;
         case 'tests':
-          return <Tests user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+          return <Tests user={currentUser!} onBack={navigateBack} />;
         case 'calendar':
-        return <CalendarView user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+        return <CalendarView user={currentUser!} onBack={navigateBack} />;
       case 'calculation':
         return currentUser!.role === 'Financialist'
-          ? <FinancialCalculations user={currentUser!} onBack={() => setCurrentView('dashboard')} />
+          ? <FinancialCalculations user={currentUser!} onBack={navigateBack} />
           : currentUser!.role === 'Referee' || currentUser!.role === 'TO'
-            ? <EarningsCalculation user={currentUser!} onBack={() => setCurrentView('dashboard')} />
+            ? <EarningsCalculation user={currentUser!} onBack={navigateBack} />
             : (
               <Dashboard
                 user={currentUser!}
-                onNavigate={(view: View) => setCurrentView(view)}
+                onNavigate={navigateTo}
                 onLogout={handleLogout}
                 onUpdateUser={handleUpdateUser}
               />
@@ -454,29 +500,31 @@ const AppContent: React.FC = () => {
           ? (
               <Dashboard
                 user={currentUser!}
-                onNavigate={(view: View) => setCurrentView(view)}
+                onNavigate={navigateTo}
                 onLogout={handleLogout}
                 onUpdateUser={handleUpdateUser}
               />
             )
-          : <Availability user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+          : <Availability user={currentUser!} onBack={navigateBack} />;
       case 'members':
-        return <Members user={currentUser!} onBack={() => setCurrentView('dashboard')} onCurrentUserUpdated={handleUpdateUser} />;
+        return <Members user={currentUser!} onBack={navigateBack} onCurrentUserUpdated={handleUpdateUser} />;
       case 'access':
-        return <AccessManager user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+        return <AccessManager user={currentUser!} onBack={navigateBack} />;
       case 'activity':
-        return <Activity user={currentUser!} onBack={() => setCurrentView('dashboard')} />;
+        return <Activity user={currentUser!} onBack={navigateBack} />;
       default:
         return <Login onLogin={handleLogin} />;
     }
   };
 
-  return renderView();
+  return <Suspense fallback={<LoadingScreen label={t('common.loadingSession')} />}>{renderView()}</Suspense>;
 };
 
 const App: React.FC = () => (
   <I18nProvider>
-    <AppContent />
+    <SeasonProvider>
+      <AppContent />
+    </SeasonProvider>
   </I18nProvider>
 );
 

@@ -34,6 +34,7 @@ const REPORT_MODE = {
   TO: 'to',
   TEST_TO: 'test_to',
 };
+const LEAGUE_SEASON_IDS = ['2025-2026', '2026-2027'];
 const TEST_REPORT_TO_TABLE = 'test_report_tos';
 const REPORT_DEADLINE_EXTENSION_MS = 24 * 60 * 60 * 1000;
 const REPORT_DEADLINE_BASE_MS = 48 * 60 * 60 * 1000;
@@ -140,6 +141,14 @@ const normalizeProfileRow = (profile) => ({
   ...profile,
   role: normalizeRole(profile.role),
 });
+const isArchivedProfile = (profile) => Boolean(profile?.archived_at);
+const assertActiveProfile = (profile) => {
+  if (isArchivedProfile(profile)) {
+    throw new HttpError(403, 'This account has been deleted.');
+  }
+
+  return profile;
+};
 const normalizeReportMode = (mode) => {
   if (mode === REPORT_MODE.TEST_TO) {
     return REPORT_MODE.TEST_TO;
@@ -150,6 +159,42 @@ const normalizeReportMode = (mode) => {
   }
 
   return REPORT_MODE.STANDARD;
+};
+
+const normalizeSeasonId = (seasonId) => (LEAGUE_SEASON_IDS.includes(String(seasonId || '').trim()) ? String(seasonId).trim() : null);
+
+const inferSeasonIdFromDate = (dateValue) => {
+  const normalizedDate = String(dateValue || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+    return null;
+  }
+
+  return normalizedDate >= '2026-09-01' ? '2026-2027' : '2025-2026';
+};
+
+const resolveSeasonId = (seasonId, dateValue) => normalizeSeasonId(seasonId) || inferSeasonIdFromDate(dateValue);
+
+const matchesSeasonId = (seasonId, dateValue, expectedSeasonId) => {
+  const normalizedExpectedSeasonId = normalizeSeasonId(expectedSeasonId);
+  if (!normalizedExpectedSeasonId) {
+    return true;
+  }
+
+  return resolveSeasonId(seasonId, dateValue) === normalizedExpectedSeasonId;
+};
+
+const filterRowsBySeason = (rows, expectedSeasonId, getStoredSeasonId, getDateValue) => {
+  const normalizedExpectedSeasonId = normalizeSeasonId(expectedSeasonId);
+  if (!normalizedExpectedSeasonId) {
+    return rows;
+  }
+
+  return rows.filter((row) => matchesSeasonId(getStoredSeasonId(row), getDateValue(row), normalizedExpectedSeasonId));
+};
+
+const applySeasonFilter = (query, seasonId) => {
+  const normalizedSeasonId = normalizeSeasonId(seasonId);
+  return normalizedSeasonId ? query.eq('season_id', normalizedSeasonId) : query;
 };
 const normalizeVisibleToRefereeIds = (value) => {
   if (!Array.isArray(value)) {
@@ -240,22 +285,89 @@ const createClients = () => {
   };
 };
 
-const mapOfficialDirectoryItem = (row, options = {}) => ({
+const mapOfficialDirectoryItem = (row) => ({
   id: row.id,
   fullName: row.full_name,
   email: row.email,
   licenseNumber: row.license_number || 'Pending',
   role: normalizeRole(row.role),
-  availabilityRanges: options.availabilityRanges || [],
 });
 
-const isDateWithinInclusiveRange = (date, startDate, endDate) =>
-  Boolean(date && startDate && endDate && startDate <= date && endDate >= date);
+const listApprovedAvailabilityForUsers = async (admin, userIds) => {
+  const normalizedUserIds = [...new Set((userIds || []).map((item) => String(item || '').trim()).filter(Boolean))];
+  if (!normalizedUserIds.length) {
+    return [];
+  }
 
-const mapAvailabilityRange = (row) => ({
-  startDate: row.start_date,
-  endDate: row.end_date,
-});
+  const { data, error } = await admin
+    .from('availability_requests')
+    .select('user_id, start_date, end_date')
+    .in('user_id', normalizedUserIds)
+    .eq('status', AVAILABILITY_STATUS.APPROVED)
+    .order('start_date', { ascending: true });
+
+  return ensureData(data || [], error, 'Failed to load approved availability.');
+};
+
+const attachAvailabilityRangesToDirectoryItems = async (admin, items) => {
+  if (!items.length) {
+    return items;
+  }
+
+  const availabilityRows = await listApprovedAvailabilityForUsers(
+    admin,
+    items.map((item) => item.id),
+  );
+  const rangesByUserId = new Map();
+
+  availabilityRows.forEach((row) => {
+    const currentRanges = rangesByUserId.get(row.user_id) || [];
+    currentRanges.push({
+      startDate: row.start_date,
+      endDate: row.end_date,
+    });
+    rangesByUserId.set(row.user_id, currentRanges);
+  });
+
+  return items.map((item) => ({
+    ...item,
+    unavailableRanges: rangesByUserId.get(item.id) || [],
+  }));
+};
+
+const assertUsersAvailableOnMatchDate = async (admin, userIds, matchDate, entityLabel = 'officials') => {
+  const normalizedUserIds = [...new Set((userIds || []).map((item) => String(item || '').trim()).filter(Boolean))];
+  if (!normalizedUserIds.length || !matchDate) {
+    return;
+  }
+
+  const { data, error } = await admin
+    .from('availability_requests')
+    .select('user_id')
+    .in('user_id', normalizedUserIds)
+    .eq('status', AVAILABILITY_STATUS.APPROVED)
+    .lte('start_date', matchDate)
+    .gte('end_date', matchDate);
+  const blockedRows = ensureData(data || [], error, 'Failed to validate availability.');
+
+  if (!blockedRows.length) {
+    return;
+  }
+
+  const blockedProfiles = await listProfilesByIds(
+    admin,
+    [...new Set(blockedRows.map((row) => row.user_id))],
+  );
+  const blockedNames = blockedProfiles
+    .map((profile) => profile.full_name)
+    .filter(Boolean)
+    .sort((left, right) => left.localeCompare(right));
+
+  throw new HttpError(
+    409,
+    `Cannot assign ${entityLabel} on ${matchDate}. Unavailable: ${blockedNames.join(', ')}.`,
+  );
+};
 
 const getNominationSlotLabel = (slotNumber) => {
   if (slotNumber === 1) {
@@ -566,6 +678,8 @@ const requireProfileById = async (admin, id) =>
     return normalizeProfileRow(profile);
   };
 
+const requireActiveProfileById = async (admin, id) => assertActiveProfile(await requireProfileById(admin, id));
+
 const loadProfileByEmail = async (admin, email) =>
   {
     const profile = await maybeSingle(
@@ -577,6 +691,7 @@ const loadProfileByEmail = async (admin, email) =>
 
 const requireRole = async (admin, userId, role) => {
   const profile = await requireProfileById(admin, userId);
+  assertActiveProfile(profile);
   if (!hasRole(profile.role, role)) {
     throw new HttpError(403, `Only ${role} accounts can perform this action.`);
   }
@@ -623,6 +738,9 @@ const listProfilesByIds = async (admin, ids) => {
   return ensureData(data || [], error, 'Failed to load user profiles.').map(normalizeProfileRow);
 };
 
+const listActiveProfilesByIds = async (admin, ids) =>
+  (await listProfilesByIds(admin, ids)).filter((profile) => !isArchivedProfile(profile));
+
 const listProfilesByRoles = async (admin, roles) => {
   if (!roles.length) {
     return [];
@@ -633,65 +751,11 @@ const listProfilesByRoles = async (admin, roles) => {
     .select('id, email, full_name, photo_url, license_number, role')
     .in('role', roles.map(toStorageRole));
 
-  return ensureData(data || [], error, 'Failed to load user profiles by role.').map(normalizeProfileRow);
+  return ensureData(data || [], error, 'Failed to load user profiles by role.')
+    .map(normalizeProfileRow)
+    .filter((profile) => !isArchivedProfile(profile));
 };
 
-const listApprovedAvailabilityRequestsForUsers = async (admin, userIds, targetDate = null) => {
-  const normalizedUserIds = [...new Set((userIds || []).map((userId) => String(userId || '').trim()).filter(Boolean))];
-  if (!normalizedUserIds.length) {
-    return [];
-  }
-
-  let query = admin
-    .from('availability_requests')
-    .select('user_id, start_date, end_date')
-    .in('user_id', normalizedUserIds)
-    .eq('status', AVAILABILITY_STATUS.APPROVED);
-
-  if (targetDate) {
-    query = query.lte('start_date', targetDate).gte('end_date', targetDate);
-  }
-
-  const { data, error } = await query;
-  return ensureData(data || [], error, 'Failed to load approved availability requests.');
-};
-
-const groupAvailabilityRangesByUserId = (requests = []) => {
-  const map = new Map();
-
-  requests.forEach((request) => {
-    const current = map.get(request.user_id) || [];
-    current.push(mapAvailabilityRange(request));
-    map.set(request.user_id, current);
-  });
-
-  return map;
-};
-
-const assertUsersAvailableOnMatchDate = async (admin, rows, matchDate, entityLabel = 'users') => {
-  if (!matchDate || !rows.length) {
-    return;
-  }
-
-  const approvedRequests = await listApprovedAvailabilityRequestsForUsers(
-    admin,
-    rows.map((row) => row.id),
-    matchDate,
-  );
-
-  if (!approvedRequests.length) {
-    return;
-  }
-
-  const blockedUserIds = new Set(approvedRequests.map((request) => request.user_id));
-  const blockedNames = rows
-    .filter((row) => blockedUserIds.has(row.id))
-    .map((row) => row.full_name || row.fullName || row.email || 'Unknown user');
-
-  if (blockedNames.length) {
-    throw new HttpError(409, `${blockedNames.join(', ')} cannot be assigned because they are on approved leave for this match date.`);
-  }
-};
 const listLastSeenMap = async (admin, ids) => {
   if (!ids.length) {
     return new Map();
@@ -778,13 +842,7 @@ const mapChatMessage = (message) => ({
 const getChatUsers = async (admin, currentUser) => {
   const profiles = (
     await getTimedCacheValue(chatDirectoryCache, 'profiles', CHAT_DIRECTORY_CACHE_TTL_MS, async () => {
-      const { data, error } = await admin
-        .from('profiles')
-        .select('id, email, full_name, photo_url, license_number, role')
-        .order('role', { ascending: true })
-        .order('full_name', { ascending: true });
-
-      return ensureData(data || [], error, 'Failed to load chat users.').map(normalizeProfileRow);
+      return listProfilesByRoles(admin, ROLE_OPTIONS);
     })
   )
     .filter((profile) => String(profile.id || '') !== String(currentUser.id || ''))
@@ -1042,7 +1100,7 @@ const listChatConversations = async (admin, currentUser) => {
       ),
     ),
   ];
-  const otherUsers = await listProfilesByIds(admin, otherUserIds);
+  const otherUsers = await listActiveProfilesByIds(admin, otherUserIds);
   const lastSeenMap = await listLastSeenMap(admin, otherUserIds);
   const otherUserMap = new Map(otherUsers.map((profile) => [profile.id, profile]));
 
@@ -1075,7 +1133,7 @@ const listChatConversations = async (admin, currentUser) => {
 };
 
 const openChatConversation = async (admin, currentUser, otherUserId) => {
-  const otherUser = await requireProfileById(admin, otherUserId);
+  const otherUser = await requireActiveProfileById(admin, otherUserId);
 
   if (isTestLicenseProfile(currentUser) || isTestLicenseProfile(otherUser)) {
     throw new HttpError(403, 'Chat is unavailable for users with Test license.');
@@ -1331,6 +1389,7 @@ const clearGameDataCaches = () => {
 
 const clearChatBootstrapCache = () => {
   chatBootstrapCache.clear();
+  chatDirectoryCache.clear();
 };
 
 const getTodayDateString = () => BAKU_DATE_FORMATTER.format(new Date());
@@ -2236,7 +2295,7 @@ const requireReferees = async (admin, refereeIds) => {
   return rows;
 };
 
-const requireTOUsers = async (admin, toIds, matchDate = null) => {
+const requireTOUsers = async (admin, toIds) => {
   const rows = await listProfilesByIds(admin, toIds);
 
   if (rows.length !== toIds.length) {
@@ -2249,7 +2308,6 @@ const requireTOUsers = async (admin, toIds, matchDate = null) => {
     }
   });
 
-  await assertUsersAvailableOnMatchDate(admin, rows, matchDate, 'TO users');
   return rows;
 };
 
@@ -2303,7 +2361,7 @@ const listReplacementNotices = async (admin, refereeId) => {
     .filter(Boolean);
 };
 
-const requireAssignableOfficials = async (admin, refereeIds, matchDate = null) => {
+const requireAssignableOfficials = async (admin, refereeIds) => {
   const rows = await listProfilesByIds(admin, refereeIds);
 
   if (rows.length !== refereeIds.length) {
@@ -2316,7 +2374,6 @@ const requireAssignableOfficials = async (admin, refereeIds, matchDate = null) =
     }
   });
 
-  await assertUsersAvailableOnMatchDate(admin, rows, matchDate, 'officials');
   return rows;
 };
 
@@ -2387,10 +2444,43 @@ const getCurrentUser = async (admin, event) => {
       throw new HttpError(401, 'Invalid or expired session.');
     }
 
-    const profile = await loadProfileById(admin, data.user.id);
+    let profile =
+      (await loadProfileById(admin, data.user.id)) ||
+      (data.user.email ? await loadProfileByEmail(admin, data.user.email) : null);
+
+    if (!profile && data.user.email) {
+      const allowedAccess = await loadAllowedAccessByEmail(admin, data.user.email);
+      if (allowedAccess) {
+        const fallbackRole = ROLE_OPTIONS.includes(normalizeRole(data.user.user_metadata?.role))
+          ? normalizeRole(data.user.user_metadata?.role)
+          : normalizeRole(allowedAccess.allowed_role || 'Referee');
+        const fallbackFullName =
+          String(data.user.user_metadata?.full_name || '').trim() ||
+          String(data.user.email || '').split('@')[0] ||
+          'ABL Official';
+        const fallbackLicenseNumber =
+          String(allowedAccess.license_number || '').trim() || (await getNextLicenseNumber(admin, fallbackRole));
+        const insertResult = await admin.from('profiles').insert({
+          id: data.user.id,
+          email: normalizeEmail(data.user.email),
+          full_name: fallbackFullName,
+          role: toStorageRole(fallbackRole),
+          photo_url: DEFAULT_PHOTO_URL,
+          license_number: fallbackLicenseNumber,
+          allowed_access_id: allowedAccess.id,
+        });
+
+      if (!insertResult.error) {
+          profile = await loadProfileById(admin, data.user.id);
+        }
+      }
+    }
+
     if (!profile) {
       throw new HttpError(401, 'Profile is missing for the authenticated user.');
     }
+
+    assertActiveProfile(profile);
 
     currentUserCache.set(token, {
       expiresAt: Date.now() + CURRENT_USER_CACHE_TTL_MS,
@@ -2747,20 +2837,29 @@ const generateAiLogo = async () => {
   }
 };
 
-const getInstructorNominationsData = async (admin, instructorId, force = false) => {
+const getInstructorNominationsData = async (admin, instructorId, force = false, seasonId = null) => {
   const currentUser = await requireProfileById(admin, instructorId);
-  if (!['Instructor', 'Staff', 'TO Supervisor', 'Financialist'].includes(currentUser.role)) {
-    throw new HttpError(403, 'Only Instructor, TO Supervisor, Staff and Financialist accounts can load nominations.');
+  if (!['Instructor', 'Staff', 'TO Supervisor', 'Financialist', 'Referee', 'TO'].includes(currentUser.role)) {
+    throw new HttpError(403, 'This role cannot load season nominations.');
   }
 
-  return getTimedCacheValue(instructorNominationsCache, instructorId, HEAVY_VIEW_CACHE_TTL_MS, async () => {
-    const { data, error } = await admin
+  const normalizedSeasonId = normalizeSeasonId(seasonId);
+
+  return getTimedCacheValue(instructorNominationsCache, `${instructorId}:${normalizedSeasonId || 'all'}`, HEAVY_VIEW_CACHE_TTL_MS, async () => {
+    const nominationsQuery = admin
       .from('nominations')
       .select('*')
       .order('match_date', { ascending: false })
       .order('match_time', { ascending: false });
 
-    const nominations = ensureData(data || [], error, 'Failed to load instructor nominations.');
+    const { data, error } = await nominationsQuery;
+
+    const nominations = filterRowsBySeason(
+      ensureData(data || [], error, 'Failed to load instructor nominations.'),
+      normalizedSeasonId,
+      (nomination) => nomination.season_id,
+      (nomination) => nomination.match_date,
+    );
     if (!nominations.length) {
       return [];
     }
@@ -2790,6 +2889,7 @@ const getInstructorNominationsData = async (admin, instructorId, force = false) 
     return nominations
       .map((nomination) => ({
         id: nomination.id,
+        seasonId: nomination.season_id || null,
         gameCode: nomination.game_code || 'ABL-NEW',
         teams: nomination.teams,
         matchDate: nomination.match_date,
@@ -2820,13 +2920,15 @@ const getInstructorNominationsData = async (admin, instructorId, force = false) 
   }, force);
 };
 
-const getRefereeAssignmentsData = async (admin, refereeId, force = false) => {
+const getRefereeAssignmentsData = async (admin, refereeId, force = false, seasonId = null) => {
   const user = await requireProfileById(admin, refereeId);
   if (!['Referee', 'Instructor', 'TO'].includes(user.role)) {
     throw new HttpError(403, 'Only Referee, Instructor and TO accounts have game assignments.');
   }
 
-  return getTimedCacheValue(refereeAssignmentsCache, `${refereeId}:${user.role}`, HEAVY_VIEW_CACHE_TTL_MS, async () => {
+  const normalizedSeasonId = normalizeSeasonId(seasonId);
+
+  return getTimedCacheValue(refereeAssignmentsCache, `${refereeId}:${user.role}:${normalizedSeasonId || 'all'}`, HEAVY_VIEW_CACHE_TTL_MS, async () => {
     const replacementNotices = user.role === 'TO' ? [] : await listReplacementNotices(admin, refereeId);
 
     if (user.role === 'TO') {
@@ -2845,9 +2947,15 @@ const getRefereeAssignmentsData = async (admin, refereeId, force = false) => {
         admin,
         [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
       );
+      const filteredNominations = filterRowsBySeason(
+        nominations,
+        normalizedSeasonId,
+        (nomination) => nomination.season_id,
+        (nomination) => nomination.match_date,
+      );
       const instructors = await listProfilesByIds(
         admin,
-        [...new Set(nominations.map((nomination) => nomination.created_by))],
+        [...new Set(filteredNominations.map((nomination) => nomination.created_by))],
       );
       const nominationAssignments = await listAssignmentsByNominationIds(
         admin,
@@ -2865,7 +2973,7 @@ const getRefereeAssignmentsData = async (admin, refereeId, force = false) => {
         admin,
         [...new Set(toAssignments.map((assignment) => assignment.to_id))],
       );
-      const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+      const nominationMap = new Map(filteredNominations.map((nomination) => [nomination.id, nomination]));
       const instructorMap = new Map(instructors.map((instructor) => [instructor.id, instructor]));
       const refereeCrewMap = new Map(refereeCrewProfiles.map((item) => [item.id, item]));
       const toCrewMap = new Map(toCrewProfiles.map((item) => [item.id, item]));
@@ -2883,6 +2991,7 @@ const getRefereeAssignmentsData = async (admin, refereeId, force = false) => {
             return {
               id: assignment.id,
               nominationId: nomination.id,
+              seasonId: nomination.season_id || null,
               gameCode: nomination.game_code || 'ABL-NEW',
               teams: nomination.teams,
               matchDate: nomination.match_date,
@@ -2944,9 +3053,14 @@ const getRefereeAssignmentsData = async (admin, refereeId, force = false) => {
       };
     }
 
-    const nominations = await listNominationsByIds(
-      admin,
-      [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
+    const nominations = filterRowsBySeason(
+      await listNominationsByIds(
+        admin,
+        [...new Set(visibleAssignments.map((assignment) => assignment.nomination_id))],
+      ),
+      normalizedSeasonId,
+      (nomination) => nomination.season_id,
+      (nomination) => nomination.match_date,
     );
     const instructors = await listProfilesByIds(
       admin,
@@ -2986,6 +3100,7 @@ const getRefereeAssignmentsData = async (admin, refereeId, force = false) => {
           return {
             id: assignment.id,
             nominationId: nomination.id,
+            seasonId: nomination.season_id || inferSeasonIdFromDate(nomination.match_date) || null,
             gameCode: nomination.game_code || 'ABL-NEW',
             teams: nomination.teams,
             matchDate: nomination.match_date,
@@ -3029,13 +3144,15 @@ const getRefereeAssignmentsData = async (admin, refereeId, force = false) => {
   }, force);
 };
 
-const getInstructorDashboardData = async (admin, instructorId, force = false) => {
+const getInstructorDashboardData = async (admin, instructorId, force = false, seasonId = null) => {
   const currentUser = await requireProfileById(admin, instructorId);
   if (!['Instructor', 'TO Supervisor'].includes(currentUser.role)) {
     throw new HttpError(403, 'Only Instructor and TO Supervisor accounts can load this dashboard.');
   }
 
-  return getTimedCacheValue(instructorDashboardCache, `${instructorId}:${currentUser.role}`, HEAVY_VIEW_CACHE_TTL_MS, async () => {
+  const normalizedSeasonId = normalizeSeasonId(seasonId);
+
+  return getTimedCacheValue(instructorDashboardCache, `${instructorId}:${currentUser.role}:${normalizedSeasonId || 'all'}`, HEAVY_VIEW_CACHE_TTL_MS, async () => {
     const [
       { data: officialRows, error: officialsError },
       { data: toRows, error: toError },
@@ -3045,12 +3162,14 @@ const getInstructorDashboardData = async (admin, instructorId, force = false) =>
         .from('profiles')
         .select('id, full_name, email, license_number, role')
         .in('role', ['Referee', 'Instructor'])
+        .is('archived_at', null)
         .order('role', { ascending: true })
         .order('full_name', { ascending: true }),
       admin
         .from('profiles')
         .select('id, full_name, email, license_number, role')
         .eq('role', 'TO')
+        .is('archived_at', null)
         .order('full_name', { ascending: true }),
       admin
         .from('nominations')
@@ -3059,26 +3178,30 @@ const getInstructorDashboardData = async (admin, instructorId, force = false) =>
         .order('match_time', { ascending: false }),
     ]);
 
-    const officialSource = ensureData(officialRows || [], officialsError, 'Failed to load referees.');
-    const toSource = ensureData(toRows || [], toError, 'Failed to load TO users.');
-    const approvedAvailabilityByUserId = groupAvailabilityRangesByUserId(
-      await listApprovedAvailabilityRequestsForUsers(admin, [
-        ...officialSource.map((row) => row.id),
-        ...toSource.map((row) => row.id),
-      ]),
+    const baseOfficials = ensureData(officialRows || [], officialsError, 'Failed to load referees.').map(mapOfficialDirectoryItem);
+    const baseTOOfficials = ensureData(toRows || [], toError, 'Failed to load TO users.').map(mapOfficialDirectoryItem);
+    const officialsWithAvailability = await attachAvailabilityRangesToDirectoryItems(
+      admin,
+      [...baseOfficials, ...baseTOOfficials],
     );
-    const officials = officialSource.map((row) =>
-      mapOfficialDirectoryItem(row, {
-        availabilityRanges: approvedAvailabilityByUserId.get(row.id) || [],
-      }),
+    const availabilityByUserId = new Map(
+      officialsWithAvailability.map((item) => [item.id, item.unavailableRanges || []]),
     );
-    const toOfficials = toSource.map((row) =>
-      mapOfficialDirectoryItem(row, {
-        availabilityRanges: approvedAvailabilityByUserId.get(row.id) || [],
-      }),
-    );
+    const officials = baseOfficials.map((item) => ({
+      ...item,
+      unavailableRanges: availabilityByUserId.get(item.id) || [],
+    }));
+    const toOfficials = baseTOOfficials.map((item) => ({
+      ...item,
+      unavailableRanges: availabilityByUserId.get(item.id) || [],
+    }));
     const officialMap = new Map(officials.map((official) => [official.id, official]));
-    const nominationsSource = ensureData(nominationRows || [], nominationsError, 'Failed to load instructor nominations.');
+    const nominationsSource = filterRowsBySeason(
+      ensureData(nominationRows || [], nominationsError, 'Failed to load instructor nominations.'),
+      normalizedSeasonId,
+      (nomination) => nomination.season_id,
+      (nomination) => nomination.match_date,
+    );
 
     const nominationIds = nominationsSource.map((nomination) => nomination.id);
     await expirePendingAssignments(admin, nominationIds);
@@ -3099,6 +3222,7 @@ const getInstructorDashboardData = async (admin, instructorId, force = false) =>
 
     const nominations = nominationsSource.map((nomination) => ({
       id: nomination.id,
+      seasonId: nomination.season_id || null,
       gameCode: nomination.game_code || 'ABL-NEW',
       teams: nomination.teams,
       matchDate: nomination.match_date,
@@ -3136,6 +3260,7 @@ const getInstructorDashboardData = async (admin, instructorId, force = false) =>
         return {
           id: assignment.id,
           nominationId: nomination.id,
+          seasonId: nomination.season_id || null,
           gameCode: nomination.game_code || 'ABL-NEW',
           teams: nomination.teams,
           matchDate: nomination.match_date,
@@ -3241,24 +3366,31 @@ const buildRankingState = async (
     subjectIdColumn = 'referee_id',
     performanceFieldMap = rankingRefereePerformanceFieldMap,
     notFoundMessage = 'Failed to load referees.',
+    seasonId = null,
   } = {},
 ) => {
-  const refereeResponse = await admin
-    .from('profiles')
-    .select('id, full_name, photo_url')
-    .eq('role', toStorageRole(subjectRole))
-    .order('full_name', { ascending: true });
-  const referees = ensureData(refereeResponse.data || [], refereeResponse.error, notFoundMessage);
+  const referees = await listProfilesByRoles(admin, [subjectRole]).then((rows) =>
+    rows.map((row) => ({
+      id: row.id,
+      full_name: row.full_name,
+      photo_url: row.photo_url,
+    })),
+  );
 
   const evaluationsResponse = await admin
     .from('ranking_evaluations')
     .select('*')
     .order('evaluation_date', { ascending: true })
     .order('created_at', { ascending: true });
-  const evaluationRows = ensureData(
-    evaluationsResponse.data || [],
-    evaluationsResponse.error,
-    'Failed to load ranking evaluations.',
+  const evaluationRows = filterRowsBySeason(
+    ensureData(
+      evaluationsResponse.data || [],
+      evaluationsResponse.error,
+      'Failed to load ranking evaluations.',
+    ),
+    seasonId,
+    (evaluation) => evaluation.season_id,
+    (evaluation) => evaluation.evaluation_date,
   );
 
   const performanceResponse = await admin
@@ -3266,18 +3398,28 @@ const buildRankingState = async (
     .select('*')
     .order('evaluation_date', { ascending: true })
     .order('created_at', { ascending: true });
-  const performanceRows = ensureData(
-    performanceResponse.data || [],
-    performanceResponse.error,
-    'Failed to load ranking performance entries.',
+  const performanceRows = filterRowsBySeason(
+    ensureData(
+      performanceResponse.data || [],
+      performanceResponse.error,
+      'Failed to load ranking performance entries.',
+    ),
+    seasonId,
+    (row) => row.season_id,
+    (row) => row.evaluation_date,
   );
   const nominationsResponse = await admin
     .from('nominations')
-    .select('game_code, match_date, teams');
-  const nominationRows = ensureData(
-    nominationsResponse.data || [],
-    nominationsResponse.error,
-    'Failed to load ranking game teams.',
+    .select('game_code, match_date, teams, season_id');
+  const nominationRows = filterRowsBySeason(
+    ensureData(
+      nominationsResponse.data || [],
+      nominationsResponse.error,
+      'Failed to load ranking game teams.',
+    ),
+    seasonId,
+    (nomination) => nomination.season_id,
+    (nomination) => nomination.match_date,
   );
   const nominationTeamsMap = new Map(
     nominationRows.map((nomination) => [
@@ -3289,6 +3431,7 @@ const buildRankingState = async (
   const refereeNameMap = new Map(referees.map((referee) => [referee.id, referee.full_name]));
   const evaluations = evaluationRows.map((evaluation) => ({
     id: evaluation.id,
+    seasonId: evaluation.season_id || seasonId || null,
     refereeId: evaluation.referee_id,
     refereeName: refereeNameMap.get(evaluation.referee_id) || 'Unknown referee',
     gameCode: evaluation.game_code,
@@ -3300,6 +3443,7 @@ const buildRankingState = async (
   const performanceEntries = performanceRows.map((row) => {
     const entry = {
       id: row.id,
+      seasonId: row.season_id || seasonId || null,
       refereeId: row[subjectIdColumn],
       refereeName: refereeNameMap.get(row[subjectIdColumn]) || `Unknown ${subjectRole}`,
       gameCode: row.game_code,
@@ -3445,6 +3589,7 @@ const getRankingStateCacheKey = (rankingConfig) =>
     rankingConfig.subjectRole,
     rankingConfig.performanceTable,
     rankingConfig.subjectIdColumn,
+    rankingConfig.seasonId || 'all',
     (rankingConfig.performanceFieldMap || [])
       .map(([clientKey, columnKey]) => `${clientKey}:${columnKey}`)
       .join(','),
@@ -3621,41 +3766,32 @@ const upsertTestReportTO = async ({
 
 const listReferees = async (admin, currentUser) => {
   await requireRole(admin, currentUser.id, 'Instructor');
-  const { data, error } = await admin
-    .from('profiles')
-    .select('id, full_name, email, license_number, role')
-    .in('role', ['Referee', 'Instructor'])
-    .order('role', { ascending: true })
-    .order('full_name', { ascending: true });
-
-  return ensureData(data || [], error, 'Failed to load referees.').map((row) => ({
+  const profiles = await listProfilesByRoles(admin, ['Referee', 'Instructor']);
+  const items = profiles.map((row) => ({
     id: row.id,
     fullName: row.full_name,
     email: row.email,
     licenseNumber: row.license_number || 'Pending',
     role: row.role,
   }));
+
+  return attachAvailabilityRangesToDirectoryItems(admin, items);
 };
 
 const listMembers = async (admin, currentUser) => {
   await requireRole(admin, currentUser.id, 'Instructor');
-  const { data, error } = await admin
-    .from('profiles')
-    .select('id, email, full_name, license_number, role, photo_url')
-    .order('role', { ascending: true })
-    .order('full_name', { ascending: true });
-
-  return ensureData(data || [], error, 'Failed to load members.').map(mapUser);
+  const profiles = await listProfilesByRoles(admin, ROLE_OPTIONS);
+  return profiles.map(mapUser);
 };
 
 const getMemberProfile = async (admin, currentUser, memberId) => {
   await requireRole(admin, currentUser.id, 'Instructor');
-  return mapUser(await requireProfileById(admin, memberId));
+  return mapUser(await requireActiveProfileById(admin, memberId));
 };
 
 const updateMemberProfile = async (admin, currentUser, memberId, email, fullName, licenseNumber, photoUrl) => {
   await requireRole(admin, currentUser.id, 'Instructor');
-  const member = await requireProfileById(admin, memberId);
+  const member = await requireActiveProfileById(admin, memberId);
   const normalizedEmail = normalizeEmail(email);
   const trimmedName = String(fullName || '').trim();
   const trimmedLicenseNumber = String(licenseNumber || '').trim();
@@ -3832,6 +3968,158 @@ const hasUpcomingTOAssignments = async (admin, userId) => {
   return nominations.some((nomination) => !hasMatchStarted(nomination.match_date, nomination.match_time));
 };
 
+const splitAssignmentsByUpcomingNominations = async (admin, assignments, fallbackMessage) => {
+  if (!assignments.length) {
+    return {
+      pastAssignments: [],
+      upcomingAssignments: [],
+    };
+  }
+
+  const nominationIds = [...new Set(assignments.map((assignment) => assignment.nomination_id).filter(Boolean))];
+  if (!nominationIds.length) {
+    return {
+      pastAssignments: [],
+      upcomingAssignments: assignments,
+    };
+  }
+
+  const { data, error } = await admin
+    .from('nominations')
+    .select('id, match_date, match_time')
+    .in('id', nominationIds);
+  const nominations = ensureData(data || [], error, fallbackMessage);
+  const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+
+  const pastAssignments = [];
+  const upcomingAssignments = [];
+
+  assignments.forEach((assignment) => {
+    const nomination = nominationMap.get(assignment.nomination_id);
+    if (nomination && hasMatchStarted(nomination.match_date, nomination.match_time)) {
+      pastAssignments.push(assignment);
+      return;
+    }
+
+    upcomingAssignments.push(assignment);
+  });
+
+  return {
+    pastAssignments,
+    upcomingAssignments,
+  };
+};
+
+const archiveMember = async (admin, currentUser, member) => {
+  const archivedEmail = `deleted+${member.id}@archived.refzone.local`;
+  const archivedAt = new Date().toISOString();
+
+  const [refereeAssignmentsResponse, toAssignmentsResponse] = await Promise.all([
+    admin.from('nomination_referees').select('id, nomination_id').eq('referee_id', member.id),
+    admin.from('nomination_tos').select('id, nomination_id').eq('to_id', member.id),
+  ]);
+
+  const refereeAssignments = ensureData(
+    refereeAssignmentsResponse.data || [],
+    refereeAssignmentsResponse.error,
+    'Failed to load referee assignments for deletion.',
+  );
+  const toAssignments = ensureData(
+    toAssignmentsResponse.data || [],
+    toAssignmentsResponse.error,
+    'Failed to load TO assignments for deletion.',
+  );
+
+  const [{ upcomingAssignments: upcomingRefereeAssignments }, { upcomingAssignments: upcomingTOAssignments }] = await Promise.all([
+    splitAssignmentsByUpcomingNominations(admin, refereeAssignments, 'Failed to validate referee assignments for deletion.'),
+    splitAssignmentsByUpcomingNominations(admin, toAssignments, 'Failed to validate TO assignments for deletion.'),
+  ]);
+
+  if (upcomingRefereeAssignments.length) {
+    const { error } = await admin
+      .from('nomination_referees')
+      .delete()
+      .in('id', upcomingRefereeAssignments.map((assignment) => assignment.id));
+
+    if (error) {
+      throw new HttpError(500, 'Failed to remove upcoming referee assignments.');
+    }
+  }
+
+  if (upcomingTOAssignments.length) {
+    const { error } = await admin
+      .from('nomination_tos')
+      .delete()
+      .in('id', upcomingTOAssignments.map((assignment) => assignment.id));
+
+    if (error) {
+      throw new HttpError(500, 'Failed to remove upcoming TO assignments.');
+    }
+  }
+
+  const cleanupOperations = [
+    admin.from('availability_requests').delete().eq('user_id', member.id),
+    admin.from('push_notification_tokens').delete().eq('user_id', member.id),
+    admin.from('push_notification_delivery_history').delete().eq('user_id', member.id),
+    admin.from('user_activity').delete().eq('user_id', member.id),
+    admin.from('test_assignments').delete().eq('user_id', member.id),
+    admin.from('test_attempts').delete().eq('user_id', member.id),
+    admin.from('replacement_notices').delete().or(`replaced_referee_id.eq.${member.id},new_referee_id.eq.${member.id},created_by.eq.${member.id}`),
+    admin.from('ranking_evaluations').delete().eq('referee_id', member.id),
+    admin.from('ranking_match_performance').delete().eq('referee_id', member.id),
+    admin.from('ranking_performance').delete().eq('referee_id', member.id),
+    admin.from('ranking_to_match_performance').delete().eq('to_id', member.id),
+    admin.from('chat_conversations').delete().or(`user_a_id.eq.${member.id},user_b_id.eq.${member.id}`),
+  ];
+
+  const cleanupResults = await Promise.all(cleanupOperations);
+  cleanupResults.forEach((result) => {
+    if (result.error) {
+      throw new HttpError(500, 'Failed to clean archived member data.');
+    }
+  });
+
+  const { error: profileError } = await admin
+    .from('profiles')
+    .update({
+      email: archivedEmail,
+      allowed_access_id: null,
+      archived_at: archivedAt,
+      archived_by: currentUser.id,
+      archived_original_email: member.email,
+    })
+    .eq('id', member.id);
+
+  if (profileError) {
+    throw new HttpError(500, 'Failed to archive member profile.');
+  }
+
+  await admin.auth.admin.updateUserById(member.id, {
+    email: archivedEmail,
+    email_confirm: true,
+    user_metadata: {
+      full_name: member.full_name,
+      role: normalizeRole(member.role),
+      archived: true,
+    },
+  }).catch(() => {
+    throw new HttpError(500, 'Failed to disable member authentication.');
+  });
+
+  if (member.allowed_access_id) {
+    const { error: accessError } = await admin.from('allowed_access').delete().eq('id', member.allowed_access_id);
+    if (accessError) {
+      throw new HttpError(500, 'Failed to remove member access record.');
+    }
+  }
+
+  currentUserCache.clear();
+  clearChatBootstrapCache();
+  clearGameDataCaches();
+  clearRankingStateCache();
+  clearAvailabilityOverviewCache();
+};
+
 const updateOwnProfile = async (admin, currentUser, fullName, photoUrl) => {
   const trimmedName = String(fullName || '').trim();
   const trimmedPhotoUrl = String(photoUrl || '').trim();
@@ -3906,28 +4194,12 @@ const deleteMember = async (admin, currentUser, memberId) => {
     throw new HttpError(400, 'Instructor cannot delete their own account.');
   }
 
-  await requireProfileById(admin, memberId);
-
-  const createdNominations = await maybeSingle(
-    admin.from('nominations').select('id').eq('created_by', memberId).limit(1),
-    'Failed to check created nominations.',
-  );
-  if (createdNominations) {
-    throw new HttpError(409, 'Cannot delete a user who has created nominations.');
+  const member = await requireActiveProfileById(admin, memberId);
+  if (!['Referee', 'TO'].includes(member.role)) {
+    throw new HttpError(409, 'Only Referee and TO accounts can be deleted with history preserved.');
   }
 
-  const activeAssignments = await maybeSingle(
-    admin.from('nomination_referees').select('id').eq('referee_id', memberId).limit(1),
-    'Failed to check member assignments.',
-  );
-  if (activeAssignments) {
-    throw new HttpError(409, 'Cannot delete a user who is assigned to nominations.');
-  }
-
-  const { error } = await admin.auth.admin.deleteUser(memberId);
-  if (error) {
-    throw new HttpError(500, 'Failed to delete member.');
-  }
+  await archiveMember(admin, currentUser, member);
 };
 
 const listAllowedAccess = async (admin, currentUser) => {
@@ -4093,12 +4365,14 @@ const createNomination = async (admin, currentUser, body) => {
   const matchTime = String(body.matchTime || '').trim();
   const venue = String(body.venue || '').trim();
   const refereeIds = ensureDistinctReferees(body.refereeIds || []);
+  const seasonId = normalizeSeasonId(body.seasonId) || inferSeasonIdFromDate(matchDate);
 
   if (!gameCode || !teams || !matchDate || !matchTime || !venue) {
     throw new HttpError(400, 'Fill in game number, teams, date, time and venue.');
   }
 
-  const assignableOfficials = await requireAssignableOfficials(admin, refereeIds, matchDate);
+  const assignableOfficials = await requireAssignableOfficials(admin, refereeIds);
+  await assertUsersAvailableOnMatchDate(admin, refereeIds, matchDate, 'officials');
   const officialMap = new Map(assignableOfficials.map((official) => [official.id, official]));
   const respondedAt = new Date().toISOString();
   const reportDeadlineAt = createDeadlineDate(matchDate, matchTime)?.toISOString() || null;
@@ -4108,6 +4382,7 @@ const createNomination = async (admin, currentUser, body) => {
     .from('nominations')
     .insert({
       created_by: currentUser.id,
+      season_id: seasonId,
       game_code: gameCode,
       teams,
       match_date: matchDate,
@@ -4198,20 +4473,17 @@ const createNomination = async (admin, currentUser, body) => {
 
 const replaceNominationReferee = async (admin, currentUser, nominationId, slotNumber, refereeId) => {
   await requireRole(admin, currentUser.id, 'Instructor');
-  await requireNominationOwner(admin, nominationId, currentUser.id);
+  const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
   await expirePendingAssignments(admin, [nominationId]);
+  const [assignedOfficial] = await requireAssignableOfficials(admin, [refereeId]);
+  await assertUsersAvailableOnMatchDate(admin, [refereeId], nomination.match_date, 'officials');
+  const isSelfAssignedInstructor = assignedOfficial.id === currentUser.id && assignedOfficial.role === 'Instructor';
+
   const slot = await requireSingle(
     admin.from('nomination_referees').select('*').eq('nomination_id', nominationId).eq('slot_number', slotNumber),
     'Nomination slot not found.',
     'Failed to load nomination slot.',
   );
-  const nominationSummary = await requireSingle(
-    admin.from('nominations').select('id, match_date').eq('id', nominationId),
-    'Nomination not found.',
-    'Failed to load nomination.',
-  );
-  const [assignedOfficial] = await requireAssignableOfficials(admin, [refereeId], nominationSummary.match_date);
-  const isSelfAssignedInstructor = assignedOfficial.id === currentUser.id && assignedOfficial.role === 'Instructor';
 
   if (slot.status === ASSIGNMENT_STATUS.ACCEPTED) {
     throw new HttpError(400, 'Accepted referee cannot be replaced from this screen.');
@@ -4232,7 +4504,6 @@ const replaceNominationReferee = async (admin, currentUser, nominationId, slotNu
     throw new HttpError(409, 'This referee is already assigned to the game.');
   }
 
-  const nomination = await requireNominationOwner(admin, nominationId, currentUser.id);
   const reportDeadlineAt = createDeadlineDate(nomination.match_date, nomination.match_time)?.toISOString() || null;
   const shouldAutoAcceptAssignment = hasMatchStarted(nomination.match_date, nomination.match_time);
   await removeReportsForRefereeChange(admin, nominationId, slot.referee_id, refereeId);
@@ -4266,7 +4537,9 @@ const editNominationOfficials = async (admin, currentUser, nominationId, body) =
   const nextMatchDate = String(body.matchDate || '').trim() || nomination.match_date;
   const nextMatchTime = String(body.matchTime || '').trim() || nomination.match_time;
   const nextVenue = String(body.venue || '').trim() || nomination.venue;
-  const assignableOfficials = await requireAssignableOfficials(admin, normalizedRefereeIds, nextMatchDate);
+  const nextSeasonId = normalizeSeasonId(body.seasonId) || nomination.season_id || inferSeasonIdFromDate(nextMatchDate);
+  const assignableOfficials = await requireAssignableOfficials(admin, normalizedRefereeIds);
+  await assertUsersAvailableOnMatchDate(admin, normalizedRefereeIds, nextMatchDate, 'officials');
   const officialMap = new Map(assignableOfficials.map((official) => [official.id, official]));
   const currentSlots = await listAssignmentsByNominationIds(admin, [nominationId]);
 
@@ -4282,6 +4555,21 @@ const editNominationOfficials = async (admin, currentUser, nominationId, body) =
   const reportDeadlineAt = createDeadlineDate(nextMatchDate, nextMatchTime)?.toISOString() || null;
   const respondedAt = new Date().toISOString();
   const shouldAutoAcceptAssignments = hasMatchStarted(nextMatchDate, nextMatchTime);
+
+  const nominationUpdateResponse = await admin
+    .from('nominations')
+    .update({
+      teams: nextTeams,
+      match_date: nextMatchDate,
+      match_time: nextMatchTime,
+      venue: nextVenue,
+      season_id: nextSeasonId,
+    })
+    .eq('id', nominationId);
+
+  if (nominationUpdateResponse.error) {
+    throw new HttpError(500, 'Failed to update game details.');
+  }
 
   for (const [index, refereeId] of normalizedRefereeIds.entries()) {
     const slotNumber = index + 1;
@@ -4372,7 +4660,12 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
     await requireTOUsers(
       admin,
       additions.map((item) => item.toId),
+    );
+    await assertUsersAvailableOnMatchDate(
+      admin,
+      additions.map((item) => item.toId),
       nomination.match_date,
+      'TO users',
     );
 
     const { error: insertError } = await admin.from('nomination_tos').insert(
@@ -4391,7 +4684,8 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
     }
   } else {
     const normalizedTOIds = ensureDistinctTOs(toIds, TO_CREW_SLOT_NUMBERS.length, 'TO users');
-    await requireTOUsers(admin, normalizedTOIds, nomination.match_date);
+    await requireTOUsers(admin, normalizedTOIds);
+    await assertUsersAvailableOnMatchDate(admin, normalizedTOIds, nomination.match_date, 'TO users');
 
     const { error: deleteError } = await admin
       .from('nomination_tos')
@@ -4447,7 +4741,7 @@ const assignNominationTOs = async (admin, currentUser, nominationId, toIds) => {
 const assignNominationStatistics = async (admin, currentUser, nominationId, statisticianIds) => {
   requireStatisticSupervisor(currentUser);
   const nomination = await requireSingle(
-    admin.from('nominations').select('id, teams, match_date, match_time').eq('id', nominationId),
+    admin.from('nominations').select('id, match_date, match_time').eq('id', nominationId),
     'Nomination not found.',
     'Failed to load nomination.',
   );
@@ -4457,7 +4751,6 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
     STATISTIC_CREW_SLOT_NUMBERS.includes(Number(assignment.slot_number)),
   );
   const existingAssignmentsBySlot = new Map(existingAssignments.map((assignment) => [Number(assignment.slot_number), assignment]));
-  let assignedStatisticianIds = [];
 
   if (isPastMatch) {
     const normalizedStatisticSelections = normalizeTOSlotSelections(
@@ -4480,9 +4773,13 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
     await requireTOUsers(
       admin,
       normalizedStatisticSelections.filter(Boolean),
-      nomination.match_date,
     );
-    assignedStatisticianIds = [...new Set(normalizedStatisticSelections.filter(Boolean))];
+    await assertUsersAvailableOnMatchDate(
+      admin,
+      normalizedStatisticSelections.filter(Boolean),
+      nomination.match_date,
+      'statisticians',
+    );
 
     const { error: insertError } = await admin.from('nomination_tos').insert(
       normalizedStatisticSelections
@@ -4514,8 +4811,13 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
       throw new HttpError(400, `Select exactly ${REQUIRED_STATISTIC_CREW_SLOT_NUMBERS.length} required statisticians.`);
     }
 
-    await requireTOUsers(admin, normalizedStatisticianIds.filter(Boolean), nomination.match_date);
-    assignedStatisticianIds = [...new Set(normalizedStatisticianIds.filter(Boolean))];
+    await requireTOUsers(admin, normalizedStatisticianIds.filter(Boolean));
+    await assertUsersAvailableOnMatchDate(
+      admin,
+      normalizedStatisticianIds.filter(Boolean),
+      nomination.match_date,
+      'statisticians',
+    );
 
     const { error: deleteError } = await admin
       .from('nomination_tos')
@@ -4542,21 +4844,6 @@ const assignNominationStatistics = async (admin, currentUser, nominationId, stat
     if (insertError) {
       throw new HttpError(500, 'Failed to assign statistic crew.');
     }
-  }
-
-  if (assignedStatisticianIds.length) {
-    void sendPushNotifications(admin, assignedStatisticianIds, {
-      kind: 'assignment',
-      title: '📊 Statistic crew assignment',
-      body: `You were assigned to the statistic crew for ${String(nomination.teams || 'this game').trim()}.`,
-      path: '/(tabs)/nominations',
-      data: {
-        nominationId,
-        assignmentGroup: 'Statistic',
-      },
-    }).catch((pushError) => {
-      console.error('[push] Failed to send statistic crew assignment notification.', pushError);
-    });
   }
 
   clearGameDataCaches();
@@ -4778,14 +5065,17 @@ const deleteNomination = async (admin, currentUser, nominationId) => {
   clearGameDataCaches();
 };
 
-const listTestReportTOItems = async (admin, currentUser) => {
+const listTestReportTOItems = async (admin, currentUser, seasonId = null) => {
   if (currentUser.role === 'Referee') {
-    const { data, error } = await admin
-      .from(TEST_REPORT_TO_TABLE)
-      .select('*')
-      .eq('referee_id', currentUser.id)
-      .eq('status', REPORT_STATUS.REVIEWED)
-      .order('updated_at', { ascending: false });
+    const { data, error } = await applySeasonFilter(
+      admin
+        .from(TEST_REPORT_TO_TABLE)
+        .select('*')
+        .eq('referee_id', currentUser.id)
+        .eq('status', REPORT_STATUS.REVIEWED)
+        .order('updated_at', { ascending: false }),
+      seasonId,
+    );
 
     const reports = ensureData(data || [], error, 'Failed to load reports.');
     return reports.map((report) =>
@@ -4797,11 +5087,14 @@ const listTestReportTOItems = async (admin, currentUser) => {
   }
 
   if (currentUser.role === 'Instructor') {
-    const { data, error } = await admin
-      .from(TEST_REPORT_TO_TABLE)
-      .select('*')
-      .eq('author_id', currentUser.id)
-      .order('updated_at', { ascending: false });
+    const { data, error } = await applySeasonFilter(
+      admin
+        .from(TEST_REPORT_TO_TABLE)
+        .select('*')
+        .eq('author_id', currentUser.id)
+        .order('updated_at', { ascending: false }),
+      seasonId,
+    );
 
     const reports = ensureData(data || [], error, 'Failed to load reports.');
     const referees = await listProfilesByIds(
@@ -4821,7 +5114,8 @@ const listTestReportTOItems = async (admin, currentUser) => {
   return [];
 };
 
-const listTOReportItems = async (admin, currentUser) => {
+const listTOReportItems = async (admin, currentUser, seasonId = null) => {
+  const normalizedSeasonId = normalizeSeasonId(seasonId);
   let assignmentsQuery = admin.from('nomination_tos').select('*').order('created_at', { ascending: false });
 
   if (currentUser.role === 'TO') {
@@ -4862,7 +5156,13 @@ const listTOReportItems = async (admin, currentUser) => {
       })),
     ),
   ]);
-  const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+  const filteredNominations = filterRowsBySeason(
+    nominations,
+    normalizedSeasonId,
+    (nomination) => nomination.season_id,
+    (nomination) => nomination.match_date,
+  );
+  const nominationMap = new Map(filteredNominations.map((nomination) => [nomination.id, nomination]));
   const toMap = new Map(toOfficials.map((official) => [official.id, official]));
   const reportsByPairKey = groupReportsByPairKey(reports);
 
@@ -4901,15 +5201,16 @@ const listTOReportItems = async (admin, currentUser) => {
     });
 };
 
-const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STANDARD) => {
+const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STANDARD, seasonId = null) => {
   const normalizedReportMode = normalizeReportMode(reportMode);
+  const normalizedSeasonId = normalizeSeasonId(seasonId);
 
   if (normalizedReportMode === REPORT_MODE.TEST_TO) {
-    return listTestReportTOItems(admin, currentUser);
+    return listTestReportTOItems(admin, currentUser, normalizedSeasonId);
   }
 
   if (normalizedReportMode === REPORT_MODE.TO) {
-    return listTOReportItems(admin, currentUser);
+    return listTOReportItems(admin, currentUser, normalizedSeasonId);
   }
 
   if (currentUser.role === 'Referee') {
@@ -4933,7 +5234,13 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
 
     const nominationIds = [...new Set(assignments.map((assignment) => assignment.nomination_id))];
     const nominations = await listNominationsByIds(admin, nominationIds);
-    const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+    const filteredNominations = filterRowsBySeason(
+      nominations,
+      normalizedSeasonId,
+      (nomination) => nomination.season_id,
+      (nomination) => nomination.match_date,
+    );
+    const nominationMap = new Map(filteredNominations.map((nomination) => [nomination.id, nomination]));
     const reports = await loadReportsForPairs(
       admin,
       assignments.map((assignment) => ({
@@ -4991,8 +5298,13 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
   }
 
   if (currentUser.role === 'Instructor') {
-    const { data, error } = await admin.from('nominations').select('*').eq('created_by', currentUser.id);
-    const nominations = ensureData(data || [], error, 'Failed to load reports.');
+    const { data, error } = await admin.from('nominations').select('*');
+    const nominations = filterRowsBySeason(
+      ensureData(data || [], error, 'Failed to load reports.'),
+      normalizedSeasonId,
+      (nomination) => nomination.season_id,
+      (nomination) => nomination.match_date,
+    );
 
     if (!nominations.length) {
       return [];
@@ -5039,14 +5351,21 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
           (report) =>
             report.author_id === currentUser.id,
         );
+        const visibleInstructorReport =
+          ownReport ||
+          pairReports.find(
+            (report) =>
+              report.author_role === 'Instructor' &&
+              report.status === REPORT_STATUS.REVIEWED,
+          );
 
         return buildReportListItem({
           nomination,
           assignment,
           refereeName: refereeMap.get(assignment.referee_id)?.full_name || 'Unknown referee',
           refereeReportStatus: refereeReport?.status || null,
-          instructorReportStatus: ownReport?.status || null,
-          reviewScore: ownReport?.score ?? null,
+          instructorReportStatus: visibleInstructorReport?.status || null,
+          reviewScore: visibleInstructorReport?.score ?? null,
           currentUserRole: currentUser.role,
         });
       })
@@ -5397,11 +5716,18 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId, repo
   }
 
   if (currentUser.role === 'Instructor') {
-    await requireNominationOwner(admin, nominationId, currentUser.id);
-    const [refereeReport, ownReport] = await Promise.all([
+    const nomination = await requireSingle(
+      admin.from('nominations').select('id, created_by').eq('id', nominationId),
+      'Nomination not found.',
+      'Failed to load nomination.',
+    );
+    const isNominationOwner = nomination.created_by === currentUser.id;
+    const [refereeReport, ownReport, visibleInstructorReport] = await Promise.all([
       loadSubmittedRefereeReport(admin, nominationId, refereeId),
-      loadReportByAuthor(admin, nominationId, refereeId, currentUser.id),
+      isNominationOwner ? loadReportByAuthor(admin, nominationId, refereeId, currentUser.id) : Promise.resolve(null),
+      loadVisibleInstructorReport(admin, nominationId, refereeId),
     ]);
+    const activeInstructorReport = isNominationOwner ? ownReport : visibleInstructorReport;
 
     return {
       item: {
@@ -5415,23 +5741,24 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId, repo
         refereeName: assignment.refereeName,
         slotNumber: assignment.slotNumber,
         refereeReportStatus: refereeReport?.status || null,
-        instructorReportStatus: ownReport?.status || null,
-        reviewScore: ownReport?.score ?? null,
+        instructorReportStatus: activeInstructorReport?.status || null,
+        reviewScore: activeInstructorReport?.score ?? null,
         deadlineExceeded,
         deadlineMessage,
         reportDeadlineAt,
-        canAddTime: deadlineExceeded,
+        canAddTime: isNominationOwner ? deadlineExceeded : false,
         reportMode: REPORT_MODE.STANDARD,
-        googleDriveUrl: ownReport?.google_drive_url || null,
+        googleDriveUrl: activeInstructorReport?.google_drive_url || null,
         visibleToRefereeIds: [],
       },
       refereeReport: mapReportEntry(refereeReport),
-      instructorReport: mapReportEntry(ownReport),
-      canEditCurrentUserReport: Boolean(refereeReport) && (!ownReport || ownReport.status === REPORT_STATUS.DRAFT),
+      instructorReport: mapReportEntry(activeInstructorReport),
+      canEditCurrentUserReport:
+        isNominationOwner && Boolean(refereeReport) && (!ownReport || ownReport.status === REPORT_STATUS.DRAFT),
       deadlineExceeded: false,
       deadlineMessage: null,
       reportDeadlineAt,
-      canAddTime: deadlineExceeded,
+      canAddTime: isNominationOwner ? deadlineExceeded : false,
       visibilityOptions: [],
     };
   }
@@ -5869,8 +6196,11 @@ const getRankingDashboardConfig = (role, subjectRole = null) => {
   };
 };
 
-const getRankingDashboard = async (admin, currentUser, subjectRole = null) => {
-  const rankingConfig = getRankingDashboardConfig(currentUser.role, subjectRole);
+const getRankingDashboard = async (admin, currentUser, subjectRole = null, seasonId = null) => {
+  const rankingConfig = {
+    ...getRankingDashboardConfig(currentUser.role, subjectRole),
+    seasonId: normalizeSeasonId(seasonId),
+  };
   const rankingState = await getCachedRankingState(admin, rankingConfig);
   const totalReferees = rankingState.leaderboard.length;
 
@@ -5918,8 +6248,11 @@ const getRankingDashboard = async (admin, currentUser, subjectRole = null) => {
   };
 };
 
-const getRankingAdminData = async (admin, currentUser, subjectRole = null) => {
-  const rankingConfig = getRankingDashboardConfig(currentUser.role, subjectRole);
+const getRankingAdminData = async (admin, currentUser, subjectRole = null, seasonId = null) => {
+  const rankingConfig = {
+    ...getRankingDashboardConfig(currentUser.role, subjectRole),
+    seasonId: normalizeSeasonId(seasonId),
+  };
   if (!rankingConfig.adminRoles.includes(currentUser.role)) {
     throw new HttpError(403, 'This role cannot manage ranking data.');
   }
@@ -5927,13 +6260,19 @@ const getRankingAdminData = async (admin, currentUser, subjectRole = null) => {
   const rankingState = await getCachedRankingState(admin, rankingConfig);
   const gamesResponse = await admin
     .from('nominations')
-    .select('id, game_code, match_date, teams')
+    .select('id, game_code, match_date, teams, season_id')
     .order('match_date', { ascending: false })
     .order('match_time', { ascending: false })
     .order('created_at', { ascending: false });
-  const games = ensureData(gamesResponse.data || [], gamesResponse.error, 'Failed to load ranking games.').map(
+  const games = filterRowsBySeason(
+    ensureData(gamesResponse.data || [], gamesResponse.error, 'Failed to load ranking games.'),
+    rankingConfig.seasonId,
+    (game) => game.season_id,
+    (game) => game.match_date,
+  ).map(
     (game) => ({
       id: game.id,
+      seasonId: game.season_id || inferSeasonIdFromDate(game.match_date) || rankingConfig.seasonId || null,
       gameCode: game.game_code || 'ABL-NEW',
       matchDate: game.match_date || '',
       teams: game.teams || '',
@@ -5964,6 +6303,7 @@ const createRankingEvaluation = async (admin, currentUser, body) => {
 
   const gameCode = String(body.gameCode || '').trim();
   const evaluationDate = String(body.evaluationDate || '').trim();
+  const seasonId = normalizeSeasonId(body.seasonId) || inferSeasonIdFromDate(evaluationDate);
 
   if (!gameCode || !evaluationDate) {
     throw new HttpError(400, 'Game number and evaluation date are required.');
@@ -5971,6 +6311,7 @@ const createRankingEvaluation = async (admin, currentUser, body) => {
 
   const { error } = await admin.from('ranking_evaluations').insert({
     referee_id: body.refereeId,
+    season_id: seasonId,
     game_code: gameCode,
     evaluation_date: evaluationDate,
     score: normalizedScore,
@@ -6000,6 +6341,7 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
 
   const gameCode = String(body.gameCode || '').trim();
   const evaluationDate = String(body.evaluationDate || '').trim();
+  const seasonId = normalizeSeasonId(body.seasonId) || inferSeasonIdFromDate(evaluationDate);
   const note = String(body.note || '').trim();
   const activeFieldMap = rankingConfig.performanceFieldMap || rankingRefereePerformanceFieldMap;
   const values = activeFieldMap.map(([clientKey]) => Number(body[clientKey]));
@@ -6022,6 +6364,7 @@ const saveRankingPerformance = async (admin, currentUser, body) => {
   const { error } = await admin.from(rankingConfig.performanceTable).upsert(
     {
       [subjectColumn]: body.refereeId,
+      season_id: seasonId,
       game_code: gameCode,
       evaluation_date: evaluationDate,
       note,
@@ -6070,9 +6413,6 @@ const registerUser = async (admin, body) => {
   }
 
   const existingProfile = await loadProfileByEmail(admin, email);
-  if (existingProfile) {
-    throw new HttpError(409, 'A user with this e-mail already exists.');
-  }
 
   const licenseNumber = String(allowedAccess.license_number || '').trim() || (await getNextLicenseNumber(admin, role));
   const storageRole = toStorageRole(role);
@@ -6091,28 +6431,40 @@ const registerUser = async (admin, body) => {
   }
 
   const authUser = authResult.data.user;
-  const insertProfile = await admin.from('profiles').insert({
-    id: authUser.id,
-    email,
-    full_name: fullName,
-    role: storageRole,
-    photo_url: DEFAULT_PHOTO_URL,
-    license_number: licenseNumber,
-    allowed_access_id: allowedAccess.id,
-  });
+  const profileMutation = existingProfile
+    ? await admin
+        .from('profiles')
+        .update({
+          email,
+          full_name: fullName,
+          role: storageRole,
+          photo_url: existingProfile.photoUrl || DEFAULT_PHOTO_URL,
+          license_number: existingProfile.licenseNumber || licenseNumber,
+          allowed_access_id: allowedAccess.id,
+        })
+        .eq('id', existingProfile.id)
+    : await admin.from('profiles').insert({
+        id: authUser.id,
+        email,
+        full_name: fullName,
+        role: storageRole,
+        photo_url: DEFAULT_PHOTO_URL,
+        license_number: licenseNumber,
+        allowed_access_id: allowedAccess.id,
+      });
 
-  if (insertProfile.error) {
+  if (profileMutation.error) {
     await admin.auth.admin.deleteUser(authUser.id);
     throw new HttpError(500, 'Failed to create user profile.');
   }
 
   return mapUser({
-    id: authUser.id,
+    id: existingProfile?.id || authUser.id,
     email,
     full_name: fullName,
     role,
-    photo_url: DEFAULT_PHOTO_URL,
-    license_number: licenseNumber,
+    photo_url: existingProfile?.photoUrl || DEFAULT_PHOTO_URL,
+    license_number: existingProfile?.licenseNumber || licenseNumber,
   });
 };
 
@@ -6174,6 +6526,7 @@ const routeRequest = async (event) => {
   const body = ['POST', 'PATCH', 'PUT'].includes(method) ? parseJsonBody(event) : {};
   const requestUrl = new URL(event.rawUrl || `https://local.refzone${event.path || '/'}`);
   const reportMode = normalizeReportMode(requestUrl.searchParams.get('mode') || body.mode);
+  const seasonId = normalizeSeasonId(requestUrl.searchParams.get('seasonId') || body.seasonId);
 
   if (method === 'GET' && path === '/health') {
     return json(200, { status: 'ok' });
@@ -6385,7 +6738,7 @@ const routeRequest = async (event) => {
     }
 
     if (method === 'GET' && path === `/dashboard/instructor/${currentUser.id}`) {
-      return json(200, await getInstructorDashboardData(admin, currentUser.id));
+      return json(200, await getInstructorDashboardData(admin, currentUser.id, false, seasonId));
     }
 
   if (method === 'GET' && path === '/members') {
@@ -6478,11 +6831,11 @@ const routeRequest = async (event) => {
   }
 
   if (method === 'GET' && path === `/nominations/instructor/${currentUser.id}`) {
-    return json(200, { nominations: await getInstructorNominationsData(admin, currentUser.id) });
+    return json(200, { nominations: await getInstructorNominationsData(admin, currentUser.id, false, seasonId) });
   }
 
   if (method === 'GET' && path === `/nominations/referee/${currentUser.id}`) {
-    return json(200, await getRefereeAssignmentsData(admin, currentUser.id));
+    return json(200, await getRefereeAssignmentsData(admin, currentUser.id, false, seasonId));
   }
 
   const replaceNominationMatch = path.match(/^\/nominations\/([^/]+)\/slots\/([^/]+)$/);
@@ -6531,7 +6884,7 @@ const routeRequest = async (event) => {
   }
 
   if (method === 'GET' && path === '/reports') {
-    return json(200, { reports: await listReportItems(admin, currentUser, reportMode) });
+    return json(200, { reports: await listReportItems(admin, currentUser, reportMode, seasonId) });
   }
 
   const reportMatch = path.match(/^\/reports\/([^/]+)\/([^/]+)$/);
@@ -6557,19 +6910,19 @@ const routeRequest = async (event) => {
   }
 
   if (method === 'GET' && path === '/rankings') {
-    return json(200, await getRankingDashboard(admin, currentUser));
+    return json(200, await getRankingDashboard(admin, currentUser, null, seasonId));
   }
 
   if (method === 'GET' && path === '/rankings/to') {
-    return json(200, await getRankingDashboard(admin, currentUser, 'TO'));
+    return json(200, await getRankingDashboard(admin, currentUser, 'TO', seasonId));
   }
 
   if (method === 'GET' && path === '/rankings/admin') {
-    return json(200, await getRankingAdminData(admin, currentUser));
+    return json(200, await getRankingAdminData(admin, currentUser, null, seasonId));
   }
 
   if (method === 'GET' && path === '/rankings/admin/to') {
-    return json(200, await getRankingAdminData(admin, currentUser, 'TO'));
+    return json(200, await getRankingAdminData(admin, currentUser, 'TO', seasonId));
   }
 
   if (method === 'POST' && path === '/teyinat/export') {

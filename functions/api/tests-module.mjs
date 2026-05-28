@@ -1,3 +1,5 @@
+let googleGenAiModulePromise = null;
+
 const TEST_QUESTION_BANK_SIZE = 50;
 const TEST_SESSION_QUESTION_COUNT = 25;
 const TEST_PASS_THRESHOLD = 20;
@@ -6,6 +8,13 @@ const TEST_LANGUAGES = ['en', 'az', 'ru'];
 const TEST_PUBLISH_STATUSES = ['Draft', 'Published'];
 const TEST_ASSIGNMENT_MODES = ['AllEligible', 'SelectedUsers'];
 const BINARY_OPTION_LABELS = {
+  en: ['Yes', 'No'],
+  az: ['Bəli', 'Xeyr'],
+  ru: ['Да', 'Нет'],
+};
+
+const TRANSLATION_BATCH_SIZE = 20;
+const LOCALIZED_BINARY_OPTION_LABELS = {
   en: ['Yes', 'No'],
   az: ['Bəli', 'Xeyr'],
   ru: ['Да', 'Нет'],
@@ -62,6 +71,17 @@ const listByIds = async (admin, table, ids, select, failureMessage) => {
 
   const { data, error } = await admin.from(table).select(select).in('id', ids);
   return ensureResponseData(data || [], error, failureMessage);
+};
+
+const getGeminiClient = async () => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new RouteError(500, 'GEMINI_API_KEY is missing.');
+  }
+
+  googleGenAiModulePromise ||= import('@google/genai');
+  const { GoogleGenAI } = await googleGenAiModulePromise;
+  return new GoogleGenAI({ apiKey });
 };
 
 const normalizeAudienceRole = (value) => {
@@ -155,10 +175,18 @@ const shuffleArray = (items) => {
   return copy;
 };
 
-const normalizeQuestionDraft = (question, index, status) => {
-  const promptEn = String(question?.promptEn ?? question?.prompt_en ?? question?.prompt ?? '').trim();
-  const promptAz = String(question?.promptAz ?? question?.prompt_az ?? '').trim();
-  const promptRu = String(question?.promptRu ?? question?.prompt_ru ?? '').trim();
+const chunkArray = (items, size) => {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+};
+
+const normalizeQuestionDraft = (question, index) => {
+  const promptEn = String(question?.promptEn || '').trim();
+  const promptAz = String(question?.promptAz || '').trim();
+  const promptRu = String(question?.promptRu || '').trim();
   const type = 'single';
   const rawCorrectAnswer = String(question?.correctAnswer || '').trim().toLowerCase();
   const normalizedCorrectAnswer =
@@ -166,30 +194,22 @@ const normalizeQuestionDraft = (question, index, status) => {
       ? 'Yes'
       : rawCorrectAnswer === 'no' || rawCorrectAnswer === 'false' || rawCorrectAnswer === '0'
         ? 'No'
-        : status === 'Draft'
-          ? 'Yes'
-          : null;
-  const isCompletelyEmpty = !promptEn && !promptAz && !promptRu && !rawCorrectAnswer;
-
-  if (status === 'Draft' && isCompletelyEmpty) {
-    return null;
-  }
-
+        : null;
   const options = [
     { label: 'Yes', isCorrect: normalizedCorrectAnswer === 'Yes' },
     { label: 'No', isCorrect: normalizedCorrectAnswer === 'No' },
   ];
 
-  if (status === 'Published' && !promptEn) {
-    throw new RouteError(400, `Question ${index + 1} is missing the English prompt.`);
+  if (!promptEn) {
+    throw new RouteError(400, `Question ${index + 1} is missing an English prompt.`);
   }
 
-  if (status === 'Published' && !promptAz) {
-    throw new RouteError(400, `Question ${index + 1} is missing the Azerbaijani prompt.`);
+  if (!promptAz) {
+    throw new RouteError(400, `Question ${index + 1} is missing an Azerbaijani prompt.`);
   }
 
-  if (status === 'Published' && !promptRu) {
-    throw new RouteError(400, `Question ${index + 1} is missing the Russian prompt.`);
+  if (!promptRu) {
+    throw new RouteError(400, `Question ${index + 1} is missing a Russian prompt.`);
   }
 
   if (!normalizedCorrectAnswer) {
@@ -256,9 +276,14 @@ const validateTestDraft = (body) => {
     throw new RouteError(400, 'Choose at least one assignee for selected-user exams.');
   }
 
-  const normalizedQuestions = questions
-    .map((question, index) => normalizeQuestionDraft(question, index, status))
-    .filter(Boolean);
+  const normalizedQuestions =
+    status === 'Draft'
+      ? questions
+          .filter((question) =>
+            [question?.promptEn, question?.promptAz, question?.promptRu].some((value) => String(value || '').trim()),
+          )
+          .map(normalizeQuestionDraft)
+      : questions.map(normalizeQuestionDraft);
 
   return {
     title,
@@ -310,165 +335,190 @@ const deleteQuestionsByTestId = async (admin, testId) => {
   }
 };
 
-const deleteQuestionOptionsByIds = async (admin, optionIds) => {
-  if (!optionIds.length) {
-    return;
-  }
-
-  const { error } = await admin.from('test_question_options').delete().in('id', optionIds);
-  if (error) {
-    throw new RouteError(500, 'Failed to clear existing exam options.');
-  }
-};
-
-const deleteQuestionsByIds = async (admin, questionIds) => {
-  if (!questionIds.length) {
-    return;
-  }
-
-  const { error } = await admin.from('test_questions').delete().in('id', questionIds);
-  if (error) {
-    throw new RouteError(500, 'Failed to clear removed exam questions.');
-  }
-};
-
 const saveQuestionsForTest = async (admin, testId, questions) => {
+  if (!questions.length) {
+    return;
+  }
+
+  const questionRows = questions.map((questionDraft, questionIndex) => ({
+    test_id: testId,
+    prompt_en: questionDraft.promptEn,
+    prompt_az: questionDraft.promptAz,
+    prompt_ru: questionDraft.promptRu,
+    question_type: questionDraft.type,
+    order_index: questionIndex + 1,
+  }));
+
+  const { data: insertedQuestions, error: questionError } = await admin
+    .from('test_questions')
+    .insert(questionRows)
+    .select('id, order_index');
+
+  const questionRecords = ensureResponseData(insertedQuestions || [], questionError, 'Failed to save test questions.');
+  if (questionRecords.length !== questions.length) {
+    throw new RouteError(500, 'Failed to save the full test question bank.');
+  }
+
+  const questionIdByOrderIndex = new Map(
+    questionRecords.map((question) => [Number(question.order_index), question.id]),
+  );
+
+  const optionRows = [];
   for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
     const questionDraft = questions[questionIndex];
-    const { data: insertedQuestion, error: questionError } = await admin
-      .from('test_questions')
-      .insert({
-        test_id: testId,
-        prompt_en: questionDraft.promptEn,
-        prompt_az: questionDraft.promptAz || null,
-        prompt_ru: questionDraft.promptRu || null,
-        question_type: questionDraft.type,
-        order_index: questionIndex + 1,
-      })
-      .select('*')
-      .single();
+    const questionId = questionIdByOrderIndex.get(questionIndex + 1);
 
-    const question = ensureSingle(
-      insertedQuestion,
-      questionError,
-      'Failed to save test question.',
-      'Failed to save test question.',
-    );
+    if (!questionId) {
+      throw new RouteError(500, 'Failed to match saved test questions.');
+    }
 
     for (let optionIndex = 0; optionIndex < questionDraft.options.length; optionIndex += 1) {
       const optionDraft = questionDraft.options[optionIndex];
-      const { error: optionError } = await admin.from('test_question_options').insert({
-        question_id: question.id,
+      optionRows.push({
+        question_id: questionId,
         label_en: optionDraft.label,
-        label_az: optionIndex === 0 ? 'Beli' : 'Xeyr',
-        label_ru: optionIndex === 0 ? 'Da' : 'Net',
+        label_az: LOCALIZED_BINARY_OPTION_LABELS.az[optionIndex] || optionDraft.label,
+        label_ru: LOCALIZED_BINARY_OPTION_LABELS.ru[optionIndex] || optionDraft.label,
         is_correct: optionDraft.isCorrect,
         option_order: optionIndex + 1,
       });
-
-      if (optionError) {
-        throw new RouteError(500, 'Failed to save test option.');
-      }
     }
+  }
+
+  if (!optionRows.length) {
+    return;
+  }
+
+  const { error: optionError } = await admin.from('test_question_options').insert(optionRows);
+  if (optionError) {
+    throw new RouteError(500, 'Failed to save test options.');
   }
 };
 
-const syncQuestionsForTest = async (admin, testId, questions) => {
-  const existingQuestions = await listQuestionsByTestId(admin, testId);
-  const existingOptions = await listQuestionOptions(admin, existingQuestions.map((question) => question.id));
-  const optionsByQuestionId = new Map();
-
-  existingOptions.forEach((option) => {
-    const bucket = optionsByQuestionId.get(option.question_id) || [];
-    bucket.push(option);
-    optionsByQuestionId.set(option.question_id, bucket);
-  });
-
-  for (let questionIndex = 0; questionIndex < questions.length; questionIndex += 1) {
-    const questionDraft = questions[questionIndex];
-    const existingQuestion = existingQuestions[questionIndex] || null;
-
-    let question = existingQuestion;
-    if (existingQuestion) {
-      const { data, error } = await admin
-        .from('test_questions')
-        .update({
-          prompt_en: questionDraft.promptEn,
-          prompt_az: questionDraft.promptAz || null,
-          prompt_ru: questionDraft.promptRu || null,
-          question_type: questionDraft.type,
-          order_index: questionIndex + 1,
-        })
-        .eq('id', existingQuestion.id)
-        .select('*')
-        .single();
-
-      question = ensureSingle(data, error, 'Question not found.', 'Failed to update test question.');
-    } else {
-      const { data, error } = await admin
-        .from('test_questions')
-        .insert({
-          test_id: testId,
-          prompt_en: questionDraft.promptEn,
-          prompt_az: questionDraft.promptAz || null,
-          prompt_ru: questionDraft.promptRu || null,
-          question_type: questionDraft.type,
-          order_index: questionIndex + 1,
-        })
-        .select('*')
-        .single();
-
-      question = ensureSingle(data, error, 'Failed to save test question.', 'Failed to save test question.');
-    }
-
-    const currentOptions = optionsByQuestionId.get(question.id) || [];
-    for (let optionIndex = 0; optionIndex < questionDraft.options.length; optionIndex += 1) {
-      const optionDraft = questionDraft.options[optionIndex];
-      const existingOption = currentOptions[optionIndex] || null;
-
-      if (existingOption) {
-        const { error } = await admin
-          .from('test_question_options')
-          .update({
-            label_en: optionDraft.label,
-            label_az: optionIndex === 0 ? 'Beli' : 'Xeyr',
-            label_ru: optionIndex === 0 ? 'Da' : 'Net',
-            is_correct: optionDraft.isCorrect,
-            option_order: optionIndex + 1,
-          })
-          .eq('id', existingOption.id);
-
-        if (error) {
-          throw new RouteError(500, 'Failed to update test option.');
-        }
-      } else {
-        const { error } = await admin.from('test_question_options').insert({
-          question_id: question.id,
-          label_en: optionDraft.label,
-          label_az: optionIndex === 0 ? 'Beli' : 'Xeyr',
-          label_ru: optionIndex === 0 ? 'Da' : 'Net',
-          is_correct: optionDraft.isCorrect,
-          option_order: optionIndex + 1,
-        });
-
-        if (error) {
-          throw new RouteError(500, 'Failed to save test option.');
-        }
-      }
-    }
-
-    const extraOptionIds = currentOptions
-      .slice(questionDraft.options.length)
-      .map((option) => option.id)
-      .filter(Boolean);
-    await deleteQuestionOptionsByIds(admin, extraOptionIds);
+const upsertQuestionTranslations = async (admin, rows) => {
+  if (!rows.length) {
+    return;
   }
 
-  const extraQuestionIds = existingQuestions
-    .slice(questions.length)
-    .map((question) => question.id)
+  const { error } = await admin.from('test_questions').upsert(rows, { onConflict: 'id' });
+  if (error) {
+    throw new RouteError(500, 'Failed to save question translations.');
+  }
+};
+
+const upsertOptionTranslations = async (admin, rows) => {
+  if (!rows.length) {
+    return;
+  }
+
+  const { error } = await admin.from('test_question_options').upsert(rows, { onConflict: 'id' });
+  if (error) {
+    throw new RouteError(500, 'Failed to save question option translations.');
+  }
+};
+
+const translatePromptBatch = async (ai, prompts, language) => {
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents:
+      `Translate the following basketball exam questions from English into ${language === 'az' ? 'Azerbaijani' : 'Russian'}. ` +
+      'Return only valid JSON as an array of translated strings in the exact same order. ' +
+      `Questions:\n${prompts.map((prompt, index) => `${index + 1}. ${prompt}`).join('\n')}`,
+    config: {
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  });
+
+  const source = String(response.text || '').trim();
+  const match = source.match(/\[[\s\S]*\]/);
+  const parsed = match ? JSON.parse(match[0]) : JSON.parse(source);
+  return Array.isArray(parsed) ? parsed.map((item) => String(item || '').trim()) : [];
+};
+
+const ensureStoredTranslationsForTest = async (admin, testId) => {
+  const questions = await listQuestionsByTestId(admin, testId);
+  if (!questions.length) {
+    return;
+  }
+
+  const options = await listQuestionOptions(admin, questions.map((question) => question.id));
+  const optionRows = options
+    .map((option) => {
+      const optionIndex = Math.max(0, Number(option.option_order || 1) - 1);
+      const nextEn = LOCALIZED_BINARY_OPTION_LABELS.en[optionIndex] || option.label_en;
+      const nextAz = LOCALIZED_BINARY_OPTION_LABELS.az[optionIndex] || option.label_az || option.label_en;
+      const nextRu = LOCALIZED_BINARY_OPTION_LABELS.ru[optionIndex] || option.label_ru || option.label_en;
+      const needsUpdate =
+        option.label_en !== nextEn ||
+        option.label_az !== nextAz ||
+        option.label_ru !== nextRu;
+
+      return needsUpdate
+        ? {
+            id: option.id,
+            label_en: nextEn,
+            label_az: nextAz,
+            label_ru: nextRu,
+          }
+        : null;
+    })
     .filter(Boolean);
-  await deleteQuestionsByIds(admin, extraQuestionIds);
+
+  await upsertOptionTranslations(admin, optionRows);
+
+  let ai = null;
+  try {
+    ai = await getGeminiClient();
+  } catch {
+    ai = null;
+  }
+
+  for (const language of ['az', 'ru']) {
+    const promptField = language === 'az' ? 'prompt_az' : 'prompt_ru';
+    const questionsNeedingTranslation = questions.filter((question) => {
+      const localizedPrompt = String(question[promptField] || '').trim();
+      const englishPrompt = String(question.prompt_en || '').trim();
+      return !localizedPrompt || localizedPrompt === englishPrompt;
+    });
+
+    if (!questionsNeedingTranslation.length) {
+      continue;
+    }
+
+    const translatedById = new Map();
+
+    if (ai) {
+      for (const batch of chunkArray(questionsNeedingTranslation, TRANSLATION_BATCH_SIZE)) {
+        try {
+          const translatedPrompts = await translatePromptBatch(
+            ai,
+            batch.map((question) => question.prompt_en),
+            language,
+          );
+
+          batch.forEach((question, index) => {
+            translatedById.set(question.id, String(translatedPrompts[index] || '').trim() || question.prompt_en);
+          });
+        } catch {
+          batch.forEach((question) => {
+            translatedById.set(question.id, question.prompt_en);
+          });
+        }
+      }
+    } else {
+      questionsNeedingTranslation.forEach((question) => {
+        translatedById.set(question.id, question.prompt_en);
+      });
+    }
+
+    await upsertQuestionTranslations(
+      admin,
+      questionsNeedingTranslation.map((question) => ({
+        id: question.id,
+        [promptField]: translatedById.get(question.id) || question.prompt_en,
+      })),
+    );
+  }
 };
 
 const getAudienceRoles = (audienceRole) => {
@@ -616,10 +666,10 @@ const toTranslatedQuestion = (question, options, language) => {
       id: option.id,
       label:
         language === 'az'
-          ? option.label_az || BINARY_OPTION_LABELS.az[index] || option.label_en
+          ? LOCALIZED_BINARY_OPTION_LABELS.az[index] || option.label_az || option.label_en
           : language === 'ru'
-            ? option.label_ru || BINARY_OPTION_LABELS.ru[index] || option.label_en
-            : BINARY_OPTION_LABELS.en[index] || option.label_en,
+            ? LOCALIZED_BINARY_OPTION_LABELS.ru[index] || option.label_ru || option.label_en
+            : LOCALIZED_BINARY_OPTION_LABELS.en[index] || option.label_en,
     })),
   };
 };
@@ -674,7 +724,7 @@ const finalizeAttemptIfNeeded = async (admin, attempt, nowIso) => {
     completed_at: completedAt,
     total_duration_seconds: totalDurationSeconds,
     result_status: resultStatus,
-    retake_allowed: resultStatus === 'FAILED',
+    retake_allowed: false,
   });
 };
 
@@ -729,36 +779,81 @@ const autoAdvanceExpiredQuestions = async (admin, attempt, test, nowIso) => {
   return currentAttempt;
 };
 
-const repairBrokenAttemptIfPossible = async (admin, attempt, test) => {
-  if (attempt.status !== 'InProgress') {
-    return attempt;
+const ensureQuestionTranslations = async (admin, question, options, language) => {
+  if (language === 'en') {
+    return { question, options };
   }
 
-  const currentIndex = Number(attempt.current_question_index || 0);
-  const totalQuestions = Number(attempt.total_questions || TEST_SESSION_QUESTION_COUNT);
-  const originalQuestionIds = Array.isArray(attempt.question_ids) ? attempt.question_ids : [];
+  const promptField = language === 'az' ? 'prompt_az' : 'prompt_ru';
+  const optionField = language === 'az' ? 'label_az' : 'label_ru';
+  const alreadyTranslated =
+    question[promptField] &&
+    options.every((option) => option[optionField]);
 
-  const questions = await listQuestionsByTestId(admin, test.id);
-  const validQuestionIds = shuffleArray(questions.map((question) => question.id));
-  const preservedQuestionIds = originalQuestionIds.slice(0, currentIndex);
-  const remainingQuestionIds = validQuestionIds
-    .filter((questionId) => !preservedQuestionIds.includes(questionId))
-    .slice(0, Math.max(0, totalQuestions - preservedQuestionIds.length));
-  const refreshedQuestionIds = [...preservedQuestionIds, ...remainingQuestionIds];
-
-  if (refreshedQuestionIds.length < totalQuestions) {
-    return attempt;
+  if (alreadyTranslated) {
+    return { question, options };
   }
 
-  const now = new Date();
-  return updateAttempt(admin, attempt.id, {
-    question_ids: refreshedQuestionIds,
-    current_question_index: currentIndex,
-    question_started_at: attempt.question_started_at || now.toISOString(),
-    question_deadline_at: new Date(
-      now.getTime() + Number(test.question_time_limit_seconds || TEST_QUESTION_TIME_LIMIT_SECONDS) * 1000,
-    ).toISOString(),
-  });
+  try {
+    const ai = await getGeminiClient();
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents:
+        `Translate the following basketball exam question from English into ${language === 'az' ? 'Azerbaijani' : 'Russian'}. ` +
+        `Return only valid JSON with keys prompt and options, where options is an array of translated answer strings in the same order. ` +
+        `Question: ${question.prompt_en}\nOptions:\n${options.map((option, index) => `${index + 1}. ${option.label_en}`).join('\n')}`,
+      config: {
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
+
+    const source = String(response.text || '').trim();
+    const match = source.match(/\{[\s\S]*\}/);
+    const parsed = match ? JSON.parse(match[0]) : JSON.parse(source);
+    const translatedPrompt = String(parsed?.prompt || '').trim();
+    const translatedOptions = Array.isArray(parsed?.options) ? parsed.options : [];
+
+    if (!translatedPrompt || translatedOptions.length !== options.length) {
+      return { question, options };
+    }
+
+    const updatedQuestion = await updateQuestionTranslation(admin, question.id, {
+      [promptField]: translatedPrompt,
+    });
+    const updatedOptions = await Promise.all(
+      options.map((option, index) =>
+        updateQuestionOptionTranslation(admin, option.id, {
+          [optionField]: String(translatedOptions[index] || option.label_en).trim() || option.label_en,
+        }),
+      ),
+    );
+
+    return { question: updatedQuestion, options: updatedOptions };
+  } catch {
+    return { question, options };
+  }
+};
+
+const updateQuestionTranslation = async (admin, questionId, patch) => {
+  const { data, error } = await admin
+    .from('test_questions')
+    .update(patch)
+    .eq('id', questionId)
+    .select('*')
+    .single();
+
+  return ensureSingle(data, error, 'Question not found.', 'Failed to save question translation.');
+};
+
+const updateQuestionOptionTranslation = async (admin, optionId, patch) => {
+  const { data, error } = await admin
+    .from('test_question_options')
+    .update(patch)
+    .eq('id', optionId)
+    .select('*')
+    .single();
+
+  return ensureSingle(data, error, 'Option not found.', 'Failed to save question option translation.');
 };
 
 const listTestsForAudience = async (admin, audienceRoles) => {
@@ -866,19 +961,19 @@ const loadQuestionDraftsByTestId = async (admin, testId) => {
   const options = await listQuestionOptions(admin, questions.map((question) => question.id));
 
   return questions.map((question) => ({
-    id: question.id,
-    promptEn: question.prompt_en || '',
-    promptAz: question.prompt_az || '',
-    promptRu: question.prompt_ru || '',
-    type: question.question_type,
-    correctAnswer: options
-      .filter((option) => option.question_id === question.id)
-      .find((option) => Boolean(option.is_correct))?.label_en === 'No'
-        ? 'No'
-        : 'Yes',
-    options: options
-      .filter((option) => option.question_id === question.id)
-      .map((option) => ({
+      id: question.id,
+      promptEn: question.prompt_en || '',
+      promptAz: question.prompt_az || '',
+      promptRu: question.prompt_ru || '',
+      type: question.question_type,
+      correctAnswer: options
+        .filter((option) => option.question_id === question.id)
+        .find((option) => Boolean(option.is_correct))?.label_en === 'No'
+          ? 'No'
+          : 'Yes',
+      options: options
+        .filter((option) => option.question_id === question.id)
+        .map((option) => ({
         id: option.id,
         label: option.label_en,
         isCorrect: Boolean(option.is_correct),
@@ -917,6 +1012,7 @@ export async function createTest(admin, currentUser, body) {
   const test = ensureSingle(insertedTest, testError, 'Failed to create test.', 'Failed to create test.');
 
   await saveQuestionsForTest(admin, test.id, draft.questions);
+  await ensureStoredTranslationsForTest(admin, test.id);
 
   if (draft.status === 'Published') {
     const assignees = await listAssignableProfiles(admin, draft, currentUser);
@@ -971,7 +1067,9 @@ export async function updateTest(admin, currentUser, testId, body) {
 
   const updatedTest = ensureSingle(updatedTestData, updateError, 'Test not found.', 'Failed to update test.');
 
-  await syncQuestionsForTest(admin, existingTest.id, draft.questions);
+  await deleteQuestionsByTestId(admin, existingTest.id);
+  await saveQuestionsForTest(admin, existingTest.id, draft.questions);
+  await ensureStoredTranslationsForTest(admin, existingTest.id);
 
   if (draft.status === 'Published') {
     const assignees = await listAssignableProfiles(admin, draft, currentUser);
@@ -1006,10 +1104,10 @@ export async function listTests(admin, currentUser) {
     const { data, error } = await admin
       .from('tests')
       .select('*')
-      .eq('created_by', currentUser.id)
       .eq('is_active', true)
       .order('created_at', { ascending: false });
     const tests = ensureResponseData(data || [], error, 'Failed to load tests.');
+    await Promise.all(tests.map((test) => ensureStoredTranslationsForTest(admin, test.id)));
     const attempts = await listAttemptsForTests(admin, tests.map((item) => item.id));
     const profiles = await listByIds(
       admin,
@@ -1018,11 +1116,19 @@ export async function listTests(admin, currentUser) {
       'id, full_name, role',
       'Failed to load test participant profiles.',
     );
+    const creators = await listByIds(
+      admin,
+      'profiles',
+      [...new Set(tests.map((item) => item.created_by))],
+      'id, full_name, role',
+      'Failed to load test creators.',
+    );
     const profileMap = new Map(profiles.map((profile) => [profile.id, profile]));
+    const creatorMap = new Map(creators.map((profile) => [profile.id, profile]));
 
     return {
       tests: tests.map((test) => ({
-        ...mapTestSummary(test, currentUser),
+        ...mapTestSummary(test, creatorMap.get(test.created_by) || null),
         attempts: attempts
           .filter((attempt) => attempt.test_id === test.id)
           .map((attempt) => mapAttemptSummary(attempt, profileMap.get(attempt.user_id) || null)),
@@ -1096,9 +1202,7 @@ export async function getTestDetail(admin, currentUser, testId) {
     'Failed to load test creator.',
   );
 
-  if (normalizeRole(currentUser.role) === 'Instructor' && test.created_by !== currentUser.id) {
-    throw new RouteError(403, 'This test belongs to another instructor.');
-  }
+  await ensureStoredTranslationsForTest(admin, test.id);
 
   const attempts = await listAttemptsForTests(admin, [test.id]);
   const filteredAttempts =
@@ -1119,10 +1223,10 @@ export async function getTestDetail(admin, currentUser, testId) {
     test: {
       ...mapTestSummary(test, creator),
       attempts: filteredAttempts.map((attempt) => mapAttemptSummary(attempt, profileMap.get(attempt.user_id) || null)),
-      questions: role === 'Instructor' && test.created_by === currentUser.id
+      questions: role === 'Instructor'
         ? await loadQuestionDraftsByTestId(admin, test.id)
         : undefined,
-      selectedUserIds: role === 'Instructor' && test.created_by === currentUser.id
+      selectedUserIds: role === 'Instructor'
         ? await loadSelectedUserIdsByTestId(admin, test.id)
         : undefined,
     },
@@ -1141,6 +1245,7 @@ export async function startTestAttempt(admin, currentUser, testId) {
     throw new RouteError(409, 'This exam is not published yet.');
   }
   ensureDeadlineIsOpen(test);
+  await ensureStoredTranslationsForTest(admin, test.id);
 
   const assigned = await hasActiveAssignment(admin, test.id, currentUser.id);
   if (!assigned) {
@@ -1239,7 +1344,7 @@ export async function getTestSession(admin, currentUser, testId, attemptId, lang
   );
 
   const nowIso = new Date().toISOString();
-  let currentAttempt = await autoAdvanceExpiredQuestions(admin, attempt, test, nowIso);
+  const currentAttempt = await autoAdvanceExpiredQuestions(admin, attempt, test, nowIso);
 
   if (currentAttempt.status === 'Completed') {
     return {
@@ -1260,22 +1365,11 @@ export async function getTestSession(admin, currentUser, testId, attemptId, lang
   }
 
   const questionIds = Array.isArray(currentAttempt.question_ids) ? currentAttempt.question_ids : [];
-  let currentQuestionId = questionIds[Number(currentAttempt.current_question_index || 0)];
+  const currentQuestionId = questionIds[Number(currentAttempt.current_question_index || 0)];
   let question = await maybeSingle(
     admin.from('test_questions').select('*').eq('id', currentQuestionId),
     'Failed to load current question.',
   );
-  if (!question) {
-    currentAttempt = await repairBrokenAttemptIfPossible(admin, currentAttempt, test);
-    const repairedQuestionIds = Array.isArray(currentAttempt.question_ids) ? currentAttempt.question_ids : [];
-    currentQuestionId = repairedQuestionIds[Number(currentAttempt.current_question_index || 0)];
-    question = currentQuestionId
-      ? await maybeSingle(
-          admin.from('test_questions').select('*').eq('id', currentQuestionId),
-          'Failed to load current question.',
-        )
-      : null;
-  }
   if (!question) {
     throw new RouteError(409, 'Current question could not be loaded.');
   }
@@ -1342,19 +1436,8 @@ export async function submitTestAnswer(admin, currentUser, testId, body) {
   }
 
   const currentIndex = Number(currentAttempt.current_question_index || 0);
-  let questionIds = Array.isArray(currentAttempt.question_ids) ? currentAttempt.question_ids : [];
-  let currentQuestionId = questionIds[currentIndex];
-  if (currentQuestionId) {
-    const currentQuestion = await maybeSingle(
-      admin.from('test_questions').select('id').eq('id', currentQuestionId),
-      'Failed to load current question.',
-    );
-    if (!currentQuestion) {
-      currentAttempt = await repairBrokenAttemptIfPossible(admin, currentAttempt, test);
-      questionIds = Array.isArray(currentAttempt.question_ids) ? currentAttempt.question_ids : [];
-      currentQuestionId = questionIds[Number(currentAttempt.current_question_index || 0)];
-    }
-  }
+  const questionIds = Array.isArray(currentAttempt.question_ids) ? currentAttempt.question_ids : [];
+  const currentQuestionId = questionIds[currentIndex];
   if (!currentQuestionId) {
     throw new RouteError(409, 'Current question is missing.');
   }

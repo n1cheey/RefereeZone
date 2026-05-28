@@ -5,7 +5,7 @@ import { formatAutoDeclineCountdown } from '../assignmentCountdown';
 import { getMatchTimestamp, isPastMatch } from '../matchTiming';
 import Layout from './Layout';
 import MatchTeamsHeader from './MatchTeamsHeader';
-import { formatMatchTeams, splitMatchTeams, TEAM_OPTIONS } from '../teamLogos';
+import { formatMatchTeams, getCanonicalVenueName, getDisplayGameCode, getDisplayMatchTeams, getDisplayPersonName, splitMatchTeams, TEAM_OPTIONS } from '../teamLogos';
 import {
   AlertTriangle,
   Award,
@@ -37,6 +37,7 @@ import {
   deleteNomination,
   editNominationOfficials,
   getInstructorDashboard,
+  getInstructorNominations,
   getRefereeNominations,
   replaceNominationReferee,
   respondToNomination,
@@ -44,40 +45,28 @@ import {
 } from '../services/nominationService';
 import { getAvailabilityOverview } from '../services/availabilityService';
 import { getChatBootstrap } from '../services/chatService';
+import { getOfficialUnavailabilityRange, isOfficialUnavailableOnMatchDate } from '../services/officialAvailability';
 import { setNavigationIntent } from '../services/navigationIntent';
 import { readViewCache, writeViewCache } from '../services/viewCache';
 import { getAssignmentStatusLabel, getRoleLabel, useI18n } from '../i18n';
 import { supabase } from '../services/supabaseClient';
+import { useSeason } from '../services/seasonContext';
+import { getUserPermissions } from '../services/accessControl';
+import { getAnnouncementMessage } from '../services/localizedText';
+import OperationsCommandCenter, { OperationsModuleCard } from './OperationsCommandCenter';
+import { AppView } from '../services/appViews';
 
 interface DashboardProps {
   user: User;
-  onNavigate: (
-    view:
-      | 'nominations'
-      | 'teyinat'
-      | 'ranking'
-      | 'toRanking'
-      | 'reports'
-      | 'toReports'
-      | 'news'
-      | 'announcement'
-      | 'chat'
-      | 'tests'
-      | 'calendar'
-      | 'calculation'
-      | 'availability'
-      | 'members'
-      | 'access'
-      | 'activity',
-  ) => void;
+  onNavigate: (view: AppView) => void;
   onLogout: () => void;
   onUpdateUser: (user: User) => void;
 }
 
 const POLL_INTERVAL_MS = 45000;
 const MONTHLY_EARNINGS_ANIMATION_MS = 1400;
-const getDashboardCacheKey = (userId: string, role: User['role']) => `dashboard:${userId}:${role}`;
-const getNominationsCacheKey = (userId: string, role: User['role']) => `nominations:${userId}:${role}`;
+const getDashboardCacheKey = (userId: string, role: User['role'], seasonId: string) => `dashboard:${userId}:${role}:${seasonId}`;
+const getNominationsCacheKey = (userId: string, role: User['role'], seasonId: string) => `nominations:${userId}:${role}:${seasonId}`;
 const getChatDashboardCacheKey = (userId: string) => `chat:bootstrap:${userId}`;
 const getAvailabilityCacheKey = (userId: string, role: User['role']) => `availability:${userId}:${role}`;
 const TO_CREW_SLOT_NUMBERS = [1, 2, 3, 4];
@@ -151,6 +140,7 @@ const getAssignmentStatusClasses = (status: string) => {
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpdateUser }) => {
   const { language, locale, t } = useI18n();
+  const { activeSeasonId, activeSeason, appStage } = useSeason();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [referees, setReferees] = useState<RefereeDirectoryItem[]>([]);
   const [toOfficials, setTOOfficials] = useState<RefereeDirectoryItem[]>([]);
@@ -202,17 +192,19 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     referee3: '',
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isInstructor = user.role === 'Instructor';
-  const isStaff = user.role === 'Staff';
-  const isFinancialist = user.role === 'Financialist';
-  const isTOSupervisor = user.role === 'TO Supervisor';
+  const permissions = getUserPermissions(user);
+  const isInstructor = permissions.isInstructor;
+  const isStaff = permissions.isStaff;
+  const isFinancialist = permissions.isFinancialist;
+  const isTOSupervisor = permissions.isTOSupervisor;
+  const canOpenMatchCenter = permissions.canOpenMatchCenter;
   const isStatisticSupervisor = isTOSupervisor && user.licenseNumber === STATISTIC_SUPERVISOR_LICENSE;
-  const isTO = user.role === 'TO';
-  const canUseEarningsCalculator = user.role === 'Referee' || user.role === 'TO';
-  const canOpenCalculation = canUseEarningsCalculator || isFinancialist;
-  const canUseAvailability = user.role !== 'Staff' && user.role !== 'Financialist';
-  const dashboardCacheKey = getDashboardCacheKey(user.id, user.role);
-  const nominationsCacheKey = getNominationsCacheKey(user.id, user.role);
+  const isTO = permissions.isTO;
+  const canUseEarningsCalculator = permissions.isReferee || permissions.isTO;
+  const canOpenCalculation = permissions.canOpenCalculation;
+  const canUseAvailability = permissions.canUseAvailability;
+  const dashboardCacheKey = getDashboardCacheKey(user.id, user.role, activeSeasonId);
+  const nominationsCacheKey = getNominationsCacheKey(user.id, user.role, activeSeasonId);
   const chatDashboardCacheKey = getChatDashboardCacheKey(user.id);
   const availabilityCacheKey = getAvailabilityCacheKey(user.id, user.role);
 
@@ -239,51 +231,94 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         activeAnnouncement: AnnouncementItem | null;
       }>(dashboardCacheKey);
 
-      if (!cached) {
+      if (cached) {
+        setReferees(cached.referees || []);
+        setTOOfficials(cached.toOfficials || []);
+        setInstructorNominations(cached.nominations || []);
+        setRefereeAssignments(cached.assignments || []);
+        setReplacementNotices(cached.replacementNotices || []);
+        setActiveAnnouncement(cached.activeAnnouncement || null);
+        setIsLoadingAssignments(false);
+        return true;
+      }
+
+      const cachedNominations = readViewCache<{
+        referees: RefereeDirectoryItem[];
+        toOfficials: RefereeDirectoryItem[];
+        nominations: InstructorNomination[];
+        assignments: RefereeNomination[];
+      }>(nominationsCacheKey);
+
+      if (!cachedNominations) {
         return false;
       }
 
-      setReferees(cached.referees || []);
-      setTOOfficials(cached.toOfficials || []);
-      setInstructorNominations(cached.nominations || []);
-      setRefereeAssignments(cached.assignments || []);
-      setReplacementNotices(cached.replacementNotices || []);
-      setActiveAnnouncement(cached.activeAnnouncement || null);
+      setReferees(cachedNominations.referees || []);
+      setTOOfficials(cachedNominations.toOfficials || []);
+      setInstructorNominations(cachedNominations.nominations || []);
+      setRefereeAssignments(cachedNominations.assignments || []);
       setIsLoadingAssignments(false);
       return true;
     };
 
     const loadInstructorData = async () => {
-      const response = await getInstructorDashboard(user.id);
+      const nominationsResponse = await getInstructorNominations(user.id, activeSeasonId);
 
       if (!isMounted) {
         return;
       }
 
-      setReferees(response.referees);
-      setTOOfficials(response.toOfficials);
-      setInstructorNominations(response.nominations);
-      setRefereeAssignments(response.assignments);
-      setReplacementNotices(response.replacementNotices);
-      setActiveAnnouncement(response.activeAnnouncement || null);
+      setInstructorNominations(nominationsResponse.nominations);
       writeViewCache(dashboardCacheKey, {
-        referees: response.referees,
-        toOfficials: response.toOfficials,
-        nominations: response.nominations,
-        assignments: response.assignments,
-        replacementNotices: response.replacementNotices,
-        activeAnnouncement: response.activeAnnouncement || null,
+        referees,
+        toOfficials,
+        nominations: nominationsResponse.nominations,
+        assignments: refereeAssignments,
+        replacementNotices,
+        activeAnnouncement,
       });
       writeViewCache(nominationsCacheKey, {
-        referees: response.referees,
-        toOfficials: response.toOfficials,
-        nominations: response.nominations,
-        assignments: response.assignments,
+        referees,
+        toOfficials,
+        nominations: nominationsResponse.nominations,
+        assignments: refereeAssignments,
       });
+
+      void (async () => {
+        try {
+          const response = await getInstructorDashboard(user.id, activeSeasonId);
+          if (!isMounted) {
+            return;
+          }
+
+          setReferees(response.referees);
+          setTOOfficials(response.toOfficials);
+          setInstructorNominations(response.nominations);
+          setRefereeAssignments(response.assignments);
+          setReplacementNotices(response.replacementNotices);
+          setActiveAnnouncement(response.activeAnnouncement || null);
+          writeViewCache(dashboardCacheKey, {
+            referees: response.referees,
+            toOfficials: response.toOfficials,
+            nominations: response.nominations,
+            assignments: response.assignments,
+            replacementNotices: response.replacementNotices,
+            activeAnnouncement: response.activeAnnouncement || null,
+          });
+          writeViewCache(nominationsCacheKey, {
+            referees: response.referees,
+            toOfficials: response.toOfficials,
+            nominations: response.nominations,
+            assignments: response.assignments,
+          });
+        } catch {
+          // Keep the fast dashboard state if the heavier hydration step fails.
+        }
+      })();
     };
 
     const loadRefereeData = async () => {
-      const response = await getRefereeNominations(user.id);
+      const response = await getRefereeNominations(user.id, activeSeasonId);
 
       if (!isMounted) {
         return;
@@ -574,7 +609,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   };
 
   const refreshInstructorData = async () => {
-    const response = await getInstructorDashboard(user.id);
+    const response = await getInstructorDashboard(user.id, activeSeasonId);
     setReferees(response.referees);
     setTOOfficials(response.toOfficials);
     setInstructorNominations(response.nominations);
@@ -598,7 +633,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   };
 
   const refreshRefereeData = async () => {
-    const response = await getRefereeNominations(user.id);
+    const response = await getRefereeNominations(user.id, activeSeasonId);
     setRefereeAssignments(response.nominations);
     setReplacementNotices(response.replacementNotices);
     setActiveAnnouncement(response.activeAnnouncement || null);
@@ -647,6 +682,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         matchTime: form.matchTime,
         venue: form.venue,
         refereeIds,
+        seasonId: activeSeasonId,
       });
 
       await refreshInstructorData();
@@ -787,6 +823,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         matchDate,
         matchTime,
         venue,
+        seasonId: activeSeasonId,
       });
 
       if (response.nomination) {
@@ -940,7 +977,24 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       nomination.referees.filter((item) => item.slotNumber !== slotNumber).map((item) => item.refereeId),
     );
 
-    return referees.filter((referee) => !occupied.has(referee.id));
+    return referees.filter(
+      (referee) =>
+        !occupied.has(referee.id) &&
+        !isOfficialUnavailableOnMatchDate(referee, nomination.matchDate),
+    );
+  };
+
+  const getOfficialOptionLabel = (official: RefereeDirectoryItem, matchDate: string, includeRole = false) => {
+    const availability = getOfficialUnavailabilityRange(official, matchDate);
+    const baseLabel = includeRole
+      ? `${official.fullName} (${getRoleLabel(official.role, language)})`
+      : official.fullName;
+
+    if (!availability) {
+      return baseLabel;
+    }
+
+    return `${baseLabel} - Leave ${availability.startDate} to ${availability.endDate}`;
   };
 
   const createdNominationSections = useMemo(
@@ -1124,6 +1178,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         : isStaff
           ? 0
           : pendingResponseCount + replacementNotices.length + pendingMyAvailabilityCount;
+  const notificationBadgeCount =
+    pendingActionCount +
+    upcomingApprovedAvailabilityCount +
+    (activeAnnouncement ? 1 : 0);
   const quickOverviewItems = [
     {
       id: 'unreadMessages',
@@ -1132,13 +1190,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       tone: 'border-cyan-100 bg-cyan-50 text-cyan-700',
       icon: MessageSquare,
     },
-    {
-      id: 'pendingActions',
-      label: t('dashboard.pendingActions'),
-      value: pendingActionCount,
-      tone: 'border-amber-100 bg-amber-50 text-amber-700',
-      icon: Bell,
-    },
+    ...(!isStaff
+      ? [
+          {
+            id: 'pendingActions',
+            label: t('dashboard.pendingActions'),
+            value: pendingActionCount,
+            tone: 'border-amber-100 bg-amber-50 text-amber-700',
+            icon: Bell,
+          },
+        ]
+      : []),
     {
       id: 'todayGames',
       label: t('dashboard.todayGames'),
@@ -1294,7 +1356,22 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     onNavigate(item.actionView);
   };
 
-  const navItems = isFinancialist
+  const openMatchCenter = (nominationId: string) => {
+    setNavigationIntent({
+      view: 'matchCenter',
+      targetId: nominationId,
+    });
+    onNavigate('matchCenter');
+  };
+
+  const navItems: Array<{
+    id: AppView;
+    label: string;
+    icon: typeof Calendar;
+    iconColor: string;
+    color: string;
+    badgeCount?: number;
+  }> = isFinancialist
     ? [
         {
           id: 'nominations' as const,
@@ -1319,6 +1396,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           badgeCount: totalUnreadChatCount,
         },
         {
+          id: 'notifications' as const,
+          label: t('notifications.title'),
+          icon: Bell,
+          iconColor: 'text-amber-600',
+          color: 'bg-amber-50',
+          badgeCount: notificationBadgeCount || undefined,
+        },
+        {
           id: 'news' as const,
           label: t('news.title'),
           icon: Newspaper,
@@ -1331,13 +1416,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         ...(canOpenCalculation
           ? [{ id: 'calculation' as const, label: t('dashboard.calculation'), icon: Calculator, iconColor: 'text-emerald-600', color: 'bg-emerald-50' }]
           : []),
-        ...(canUseAvailability
+        ...(canUseAvailability && !isInstructor
           ? [{ id: 'availability' as const, label: t('dashboard.navAvailability'), icon: CalendarDays, iconColor: 'text-violet-600', color: 'bg-violet-50' }]
           : []),
         ...(isInstructor
           ? [
               { id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' },
-              { id: 'teyinat' as const, label: t('teyinat.title'), icon: FileText, iconColor: 'text-[#581c1c]', color: 'bg-rose-50' },
               { id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
             ]
           : isTOSupervisor
@@ -1349,31 +1433,17 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           ? [
               {
                 id: 'ranking' as const,
-                label: t('ranking.refereeTitle'),
+                label: t('dashboard.navRanking'),
                 icon: TrendingUp,
                 iconColor: 'text-green-500',
                 color: 'bg-green-50',
               },
               {
                 id: 'reports' as const,
-                label: t('reports.refereeTitle'),
+                label: t('reports.title'),
                 icon: FileText,
                 iconColor: 'text-purple-500',
                 color: 'bg-purple-50',
-              },
-              {
-                id: 'toRanking' as const,
-                label: t('dashboard.navTORanking'),
-                icon: TrendingUp,
-                iconColor: 'text-teal-600',
-                color: 'bg-teal-50',
-              },
-              {
-                id: 'toReports' as const,
-                label: t('reports.toTitle'),
-                icon: FileText,
-                iconColor: 'text-fuchsia-600',
-                color: 'bg-fuchsia-50',
               },
             ]
           : isTO || isTOSupervisor
@@ -1386,8 +1456,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                 color: 'bg-teal-50',
               },
               {
-                id: 'toReports' as const,
-                label: isTO ? t('reports.myTitle') : t('reports.toTitle'),
+                id: 'reports' as const,
+                label: t('reports.title'),
                 icon: FileText,
                 iconColor: 'text-fuchsia-600',
                 color: 'bg-fuchsia-50',
@@ -1424,11 +1494,182 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           color: 'bg-cyan-50',
           badgeCount: totalUnreadChatCount,
         },
-        ...((user.role === 'Instructor' || user.role === 'TO Supervisor' || user.role === 'Referee' || user.role === 'TO')
-          ? [{ id: 'tests' as const, label: 'Tests', icon: Shield, iconColor: 'text-fuchsia-600', color: 'bg-fuchsia-50' }]
+        ...(permissions.canOpenNotifications && !isStaff
+          ? [
+              {
+                id: 'notifications' as const,
+                label: t('notifications.title'),
+                icon: Bell,
+                iconColor: 'text-amber-600',
+                color: 'bg-amber-50',
+                badgeCount: notificationBadgeCount || undefined,
+              },
+            ]
+          : []),
+        ...(permissions.canOpenTests
+          ? [{ id: 'tests' as const, label: t('tests.title'), icon: Shield, iconColor: 'text-fuchsia-600', color: 'bg-fuchsia-50' }]
           : []),
         { id: 'news' as const, label: t('news.title'), icon: Newspaper, iconColor: 'text-orange-500', color: 'bg-orange-50' },
       ];
+  const operationsModules: OperationsModuleCard[] = [
+    {
+      id: 'match-operations',
+      title: t('workspace.moduleMatchOperationsTitle'),
+      description: t('workspace.moduleMatchOperationsText'),
+      view: 'nominations',
+      icon: Calendar,
+      tone: 'border-blue-100 bg-blue-50 text-blue-700',
+      badgeLabel: pendingActionCount > 0 ? t('workspace.badgePending', { count: pendingActionCount }) : undefined,
+      statusLabel: t('workspace.statusLive'),
+    },
+    ...(navItems.some((item) => item.id === 'calendar')
+      ? [
+          {
+            id: 'season-calendar',
+            title: t('workspace.moduleSeasonCalendarTitle'),
+            description: t('workspace.moduleSeasonCalendarText'),
+            view: 'calendar' as const,
+            icon: CalendarDays,
+            tone: 'border-sky-100 bg-sky-50 text-sky-700',
+            badgeLabel: todayGamesCount > 0 ? t('workspace.badgeToday', { count: todayGamesCount }) : undefined,
+            statusLabel: t('workspace.statusLive'),
+          },
+        ]
+      : []),
+    ...(navItems.some((item) => item.id === 'ranking')
+      ? [
+          {
+            id: 'ranking',
+            title: t('workspace.moduleRankingTitle'),
+            description: t('workspace.moduleRankingText'),
+            view: 'ranking' as const,
+            icon: TrendingUp,
+            tone: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+            statusLabel: t('workspace.statusLive'),
+          },
+        ]
+      : []),
+    ...(navItems.some((item) => item.id === 'toRanking')
+      ? [
+          {
+            id: 'to-ranking',
+            title: t('workspace.moduleRankingTitle'),
+            description: t('workspace.moduleRankingText'),
+            view: 'toRanking' as const,
+            icon: TrendingUp,
+            tone: 'border-teal-100 bg-teal-50 text-teal-700',
+            statusLabel: t('workspace.statusLive'),
+          },
+        ]
+      : []),
+    ...(navItems.some((item) => item.id === 'reports')
+      ? [
+          {
+            id: 'reports',
+            title: t('workspace.moduleReportsTitle'),
+            description: t('workspace.moduleReportsText'),
+            view: 'reports' as const,
+            icon: FileText,
+            tone: 'border-purple-100 bg-purple-50 text-purple-700',
+            statusLabel: t('workspace.statusLive'),
+          },
+        ]
+      : []),
+    ...(navItems.some((item) => item.id === 'tests')
+      ? [
+          {
+            id: 'tests-certification',
+            title: t('workspace.moduleTestsTitle'),
+            description: t('workspace.moduleTestsText'),
+            view: 'tests' as const,
+            icon: Shield,
+            tone: 'border-indigo-100 bg-indigo-50 text-indigo-700',
+            statusLabel: t('workspace.statusExpansion'),
+          },
+        ]
+      : []),
+    ...(navItems.some((item) => item.id === 'availability')
+      ? [
+          {
+            id: 'availability-control',
+            title: t('workspace.moduleAvailabilityTitle'),
+            description: t('workspace.moduleAvailabilityText'),
+            view: 'availability' as const,
+            icon: CalendarDays,
+            tone: 'border-violet-100 bg-violet-50 text-violet-700',
+            statusLabel: t('workspace.statusLive'),
+          },
+        ]
+      : []),
+    ...(navItems.some((item) => item.id === 'calculation')
+      ? [
+          {
+            id: 'finance-ops',
+            title: t('workspace.moduleFinanceTitle'),
+            description: t('workspace.moduleFinanceText'),
+            view: 'financeCenter' as const,
+            icon: Calculator,
+            tone: 'border-amber-100 bg-amber-50 text-amber-700',
+            statusLabel: t('workspace.statusLive'),
+          },
+        ]
+      : []),
+    ...(navItems.some((item) => item.id === 'members')
+      ? [
+          {
+            id: 'member-governance',
+            title: t('workspace.moduleGovernanceTitle'),
+            description: t('workspace.moduleGovernanceText'),
+            view: 'governanceCenter' as const,
+            icon: Users,
+            tone: 'border-slate-200 bg-slate-50 text-slate-700',
+            statusLabel: t('workspace.statusLive'),
+          },
+        ]
+      : []),
+    ...(navItems.some((item) => item.id === 'chat')
+      ? [
+          {
+            id: 'communications',
+            title: t('workspace.moduleCommunicationsTitle'),
+            description: t('workspace.moduleCommunicationsText'),
+            view: 'chat' as const,
+            icon: MessageSquare,
+            tone: 'border-cyan-100 bg-cyan-50 text-cyan-700',
+            badgeLabel: totalUnreadChatCount > 0 ? t('workspace.badgeUnread', { count: totalUnreadChatCount }) : undefined,
+            statusLabel: t('workspace.statusLive'),
+          },
+        ]
+      : []),
+    ...(navItems.some((item) => item.id === 'notifications')
+      ? [
+          {
+            id: 'notifications-center',
+            title: t('workspace.moduleNotificationsTitle'),
+            description: t('workspace.moduleNotificationsText'),
+            view: 'notifications' as const,
+            icon: Bell,
+            tone: 'border-amber-100 bg-amber-50 text-amber-700',
+            badgeLabel: notificationBadgeCount > 0 ? t('workspace.badgePending', { count: notificationBadgeCount }) : undefined,
+            statusLabel: t('workspace.statusLive'),
+          },
+        ]
+      : []),
+    ...(navItems.some((item) => item.id === 'news')
+      ? [
+          {
+            id: 'news-desk',
+            title: t('workspace.moduleNewsTitle'),
+            description: t('workspace.moduleNewsText'),
+            view: 'news' as const,
+            icon: Newspaper,
+            tone: 'border-orange-100 bg-orange-50 text-orange-700',
+            statusLabel: t('workspace.statusLive'),
+          },
+        ]
+      : []),
+  ];
+  const nextGameLabel = firstTodayGame ? `${getDisplayGameCode(firstTodayGame.gameCode)} at ${firstTodayGame.matchTime}` : null;
 
   const handleSaveScore = async (nomination: InstructorNomination) => {
     const finalScore = (scoreInputs[nomination.id] ?? nomination.finalScore ?? '').trim();
@@ -1642,367 +1883,63 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   };
 
   const renderCreatedNominationCard = (nomination: InstructorNomination) => (
-    <div key={nomination.id} className="rounded-xl border border-slate-200 p-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="text-xs font-bold uppercase text-[#581c1c]">{nomination.gameCode}</div>
-          {editingNominationId === nomination.id ? (
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Team 1</label>
-                <select
-                  value={editSelections.team1 || ''}
-                  onChange={(e) => setEditSelections((prev) => ({ ...prev, team1: e.target.value }))}
-                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                >
-                  <option value="">Select team</option>
-                  {TEAM_OPTIONS.map((team) => (
-                    <option key={team} value={team}>
-                      {team}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Team 2</label>
-                <select
-                  value={editSelections.team2 || ''}
-                  onChange={(e) => setEditSelections((prev) => ({ ...prev, team2: e.target.value }))}
-                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                >
-                  <option value="">Select team</option>
-                  {TEAM_OPTIONS.map((team) => (
-                    <option key={team} value={team}>
-                      {team}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          ) : (
-            <MatchTeamsHeader teams={nomination.teams} className="mt-1" />
-          )}
-          <div className="mt-1 text-xs text-slate-500">{t('dashboard.createdByLabel', { name: nomination.createdByName })}</div>
-          {editingNominationId === nomination.id ? (
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Date</label>
-                <input
-                  type="date"
-                  value={editSelections.matchDate || ''}
-                  onChange={(e) => setEditSelections((prev) => ({ ...prev, matchDate: e.target.value }))}
-                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Time</label>
-                <input
-                  type="time"
-                  value={editSelections.matchTime || ''}
-                  onChange={(e) => setEditSelections((prev) => ({ ...prev, matchTime: e.target.value }))}
-                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-xs font-bold uppercase text-slate-500">Venue</label>
-                <input
-                  value={editSelections.venue || ''}
-                  onChange={(e) => setEditSelections((prev) => ({ ...prev, venue: e.target.value }))}
-                  className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                  placeholder="Sarhadchi Arena"
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="grid gap-2 mt-2 text-sm text-slate-600 md:grid-cols-2">
-              <div className="flex items-center gap-2">
-                <Calendar size={14} className="text-[#f97316]" />
-                {nomination.matchDate}
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock size={14} className="text-[#f97316]" />
-                {nomination.matchTime}
-              </div>
-              <div className="flex items-center gap-2 md:col-span-2">
-                <MapPin size={14} className="text-[#f97316]" />
-                {nomination.venue}
-              </div>
-            </div>
-          )}
+    <div key={nomination.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="rz-game-code text-xs uppercase text-[#581c1c]">{getDisplayGameCode(nomination.gameCode)}</div>
+          <MatchTeamsHeader
+            teams={nomination.teams}
+            className="mt-1 gap-2"
+            titleClassName="text-sm font-bold text-slate-950"
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
+            <span className="inline-flex items-center gap-1.5">
+              <Calendar size={14} className="text-[#f97316]" />
+              {nomination.matchDate}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <Clock size={14} className="text-[#f97316]" />
+              {nomination.matchTime}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <MapPin size={14} className="text-[#f97316]" />
+              {getCanonicalVenueName(nomination.venue)}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-wide">
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">{`${nomination.referees.length} referees`}</span>
+            <span className="rounded-full bg-sky-50 px-2.5 py-1 text-sky-700">{`${nomination.toCrew.length}/4 TO`}</span>
+            <span className="rounded-full bg-violet-50 px-2.5 py-1 text-violet-700">{`${nomination.statisticCrew.length}/3 stats`}</span>
+            {nomination.finalScore ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">{nomination.finalScore}</span> : null}
+          </div>
         </div>
-        {isInstructor && nomination.createdById === user.id ? (
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          {canOpenMatchCenter ? (
             <button
-              onClick={() =>
-                editingNominationId === nomination.id ? handleCancelEditNomination() : handleStartEditNomination(nomination)
-              }
-              className="inline-flex items-center gap-2 self-start rounded-xl bg-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
+              onClick={() => openMatchCenter(nomination.id)}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#57131b] px-3 py-2 text-sm font-bold text-white"
             >
-              <Pencil size={14} />
-              {editingNominationId === nomination.id ? t('dashboard.cancelEdit') : t('common.edit')}
+              Match Center
             </button>
-            <button
-              onClick={() => handleDeleteNomination(nomination.id)}
-              className="inline-flex items-center gap-2 self-start rounded-xl bg-red-600 px-3 py-2 text-sm font-bold text-white"
-            >
-              <Trash2 size={14} />
-              {t('dashboard.deleteGame')}
-            </button>
-          </div>
-        ) : null}
-      </div>
-      {renderFinalScore(nomination.finalScore)}
-      {renderMatchLinks(nomination.matchVideoUrl, nomination.matchProtocolUrl)}
-      {renderNominationFees(nomination.refereeFee, nomination.toFee)}
-      {renderInstructorScoreEditor(nomination)}
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        {nomination.referees.map((referee) => {
-          const replaceKey = `${nomination.id}-${referee.slotNumber}`;
-          const options = getReplacementOptions(nomination, referee.slotNumber);
-          const canReplaceSlot = nomination.createdById === user.id && referee.status !== 'Accepted';
-
-          return (
-            <div key={replaceKey} className="rounded-xl bg-slate-50 p-3">
-              <div className="text-xs font-bold uppercase text-slate-500">{getNominationSlotLabel(referee.slotNumber, language)}</div>
-              {editingNominationId === nomination.id ? (
-                <select
-                  value={editSelections[`referee${referee.slotNumber}`] || ''}
-                  onChange={(e) =>
-                    setEditSelections((prev) => ({ ...prev, [`referee${referee.slotNumber}`]: e.target.value }))
-                  }
-                  className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                >
-                  <option value="">{t('common.selectOfficial')}</option>
-                  {getReplacementOptions(nomination, referee.slotNumber)
-                    .concat(
-                      referees.filter((option) => option.id === referee.refereeId),
-                    )
-                    .filter((option, index, array) => array.findIndex((item) => item.id === option.id) === index)
-                    .map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {`${option.fullName} (${getRoleLabel(option.role, language)})`}
-                      </option>
-                    ))}
-                </select>
-              ) : (
-                <>
-                  <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
-                  <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                    referee.status === 'Accepted'
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : referee.status === 'Declined'
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-amber-100 text-amber-700'
-                  }`}>
-                    {getAssignmentStatusLabel(referee.status, language)}
-                  </div>
-                </>
-              )}
-              {editingNominationId !== nomination.id && canReplaceSlot ? (
-                <div className="mt-3 space-y-2">
-                  <select
-                    value={replaceSelections[replaceKey] || ''}
-                    onChange={(e) => setReplaceSelections((prev) => ({ ...prev, [replaceKey]: e.target.value }))}
-                    className="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                  >
-                    <option value="">{t('dashboard.selectReplacementOfficial')}</option>
-                    {options.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {`${option.fullName} (${option.role})`}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => handleReplaceReferee(nomination.id, referee.slotNumber)}
-                    disabled={replaceActionKey === replaceKey || options.length === 0}
-                    className="w-full rounded-xl bg-[#581c1c] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
-                  >
-                    {replaceActionKey === replaceKey ? t('dashboard.replacing') : t('dashboard.replaceSlot', { slot: getNominationSlotLabel(referee.slotNumber, language) })}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-4 rounded-xl bg-slate-50 p-3">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.toCrew')}</div>
-        <div className="mt-3 grid gap-3 md:grid-cols-4">
-          {TO_CREW_SLOT_NUMBERS.map((slotNumber) => {
-            const existingAssignment = nomination.toCrew.find((item) => item.slotNumber === slotNumber);
-            const currentSelection = getTONominationSelection(nomination)[slotNumber - 1] || '';
-            const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
-            const canAssignTOCrew = isTOSupervisor && (!isPastNomination || !existingAssignment);
-            return (
-              <div key={`${nomination.id}-to-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                <div className="text-xs font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber, language)}</div>
-                {canAssignTOCrew ? (
-                  <select
-                    value={currentSelection}
-                    onChange={(event) =>
-                      setTOSelections((prev) => {
-                        const next = [...getTONominationSelection(nomination)];
-                        next[slotNumber - 1] = event.target.value;
-                        return { ...prev, [nomination.id]: next };
-                      })
-                    }
-                    className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                  >
-                    <option value="">{t('dashboard.selectTO')}</option>
-                    {toOfficials.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.fullName}
-                      </option>
-                    ))}
-                    </select>
-                  ) : (
-                  <>
-                    <div className="mt-1 font-semibold text-slate-900">{existingAssignment?.toName || t('common.notAssigned')}</div>
-                    {existingAssignment ? (
-                      <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
-                        {existingAssignment.status}
-                      </div>
-                    ) : null}
-                  </>
-                )}
-                {canAssignTOCrew && existingAssignment ? (
-                  <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
-                    {existingAssignment.status}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-        {isTOSupervisor &&
-        isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
-        nomination.toCrew.length === 4 ? (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            {t('dashboard.toCrewLocked')}
-          </div>
-        ) : null}
-        {isTOSupervisor &&
-        isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
-        nomination.toCrew.length < 4 ? (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            {t('dashboard.toCrewPastFillOnly')}
-          </div>
-        ) : null}
-        {isTOSupervisor &&
-        (!isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) || nomination.toCrew.length < 4) && (
-          <div className="mt-4 flex justify-end">
-            <button
-              onClick={() => handleSaveTOCrew(nomination.id)}
-              disabled={toActionNominationId === nomination.id}
-              className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
-            >
-              {toActionNominationId === nomination.id ? t('dashboard.savingTOCrew') : t('dashboard.saveTOCrew')}
-            </button>
-          </div>
-        )}
-      </div>
-        <div className="mt-4 rounded-xl bg-slate-50 p-3">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.statisticCrew')}</div>
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            {STATISTIC_CREW_SLOT_NUMBERS.map((slotNumber) => {
-              const existingAssignment = nomination.statisticCrew.find((item) => item.slotNumber === slotNumber);
-              const currentSelection = getStatisticNominationSelection(nomination)[slotNumber - 1] || '';
-              const isPastNomination = isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow);
-              const canAssignStatisticCrew =
-                isStatisticSupervisor && (!isPastNomination || nomination.statisticCrew.length === 0);
-              return (
-                <div key={`${nomination.id}-stat-${slotNumber}`} className="rounded-xl border border-slate-200 bg-white p-3">
-                  <div className="text-xs font-bold uppercase text-slate-500">{getStatisticSlotLabel(slotNumber, language)}</div>
-                  {canAssignStatisticCrew ? (
-                    <select
-                    value={currentSelection}
-                    onChange={(event) =>
-                      setStatisticSelections((prev) => {
-                        const next = [...getStatisticNominationSelection(nomination)];
-                        next[slotNumber - 1] = event.target.value;
-                        return { ...prev, [nomination.id]: next };
-                      })
-                    }
-                    className="mt-3 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#581c1c]"
-                  >
-                    <option value="">{t('dashboard.selectStatistician')}</option>
-                    {toOfficials.map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.fullName}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <>
-                    <div className="mt-1 font-semibold text-slate-900">{existingAssignment?.toName || t('common.notAssigned')}</div>
-                    {existingAssignment ? (
-                      <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
-                        {getAssignmentStatusLabel(existingAssignment.status, language)}
-                      </div>
-                    ) : null}
-                  </>
-                )}
-                {canAssignStatisticCrew && existingAssignment ? (
-                  <div className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${getAssignmentStatusClasses(existingAssignment.status)}`}>
-                    {getAssignmentStatusLabel(existingAssignment.status, language)}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-        {isStatisticSupervisor &&
-        isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
-        nomination.statisticCrew.length > 0 ? (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            {t('dashboard.statisticCrewLocked')}
-          </div>
-        ) : null}
-        {isStatisticSupervisor &&
-        isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) &&
-        nomination.statisticCrew.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-            {t('dashboard.statisticCrewPastFillOnly')}
-          </div>
-        ) : null}
-        {isStatisticSupervisor &&
-        (!isPastMatch(nomination.matchDate, nomination.matchTime, countdownNow) ||
-          nomination.statisticCrew.length === 0) && (
-          <div className="mt-4 flex justify-end">
-            <button
-              onClick={() => handleSaveStatisticCrew(nomination.id)}
-              disabled={statisticActionNominationId === nomination.id}
-              className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
-            >
-              {statisticActionNominationId === nomination.id ? t('dashboard.savingStatisticCrew') : t('dashboard.saveStatisticCrew')}
-            </button>
-          </div>
-        )}
-      </div>
-      {editingNominationId === nomination.id && (
-        <div className="mt-4 flex flex-wrap justify-end gap-3">
+          ) : null}
           <button
-            onClick={handleCancelEditNomination}
-            className="rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-700"
+            onClick={() => {
+              setNavigationIntent({ view: 'nominations', targetId: nomination.id });
+              onNavigate('nominations');
+            }}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
           >
-            Cancel
-          </button>
-          <button
-            onClick={() => handleSaveEditedNomination(nomination.id)}
-            disabled={editActionNominationId === nomination.id}
-            className="rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white disabled:opacity-70"
-          >
-            {editActionNominationId === nomination.id ? 'Saving...' : 'Save Crew'}
+            Open Game
           </button>
         </div>
-      )}
+      </div>
     </div>
   );
 
   const renderAssignmentCard = (assignment: RefereeNomination) => (
-    <div key={assignment.id} className="rounded-xl border border-slate-200 p-4">
+    <div key={assignment.id} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
       {user.role === 'Referee' && assignment.assignmentGroup === 'Referee' && isUpcomingMatchDay(assignment.matchDate, assignment.matchTime, countdownNow) ? (
-        <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
+        <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           <div className="font-black uppercase tracking-[0.18em] text-emerald-700">{t('dashboard.gameDay')}</div>
           <div className="mt-1 font-medium">{t('dashboard.gameDayWish')}</div>
         </div>
@@ -2012,104 +1949,48 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           {formatAutoDeclineCountdown(assignment.autoDeclineAt, countdownNow, language) || t('dashboard.autoRejectUnavailable')}
         </div>
       ) : null}
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="text-xs font-bold uppercase text-[#581c1c]">{assignment.gameCode}</div>
-          <div className="text-xs font-bold uppercase text-[#581c1c]">{assignment.assignmentLabel}</div>
-          <MatchTeamsHeader teams={assignment.teams} className="mt-1" />
-          <div className="grid gap-2 mt-3 text-sm text-slate-600 md:grid-cols-2">
-            <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="rz-game-code text-xs uppercase text-[#581c1c]">{getDisplayGameCode(assignment.gameCode)}</div>
+          <div className="rz-ui-text text-xs font-bold uppercase text-[#581c1c]">{assignment.assignmentLabel}</div>
+          <MatchTeamsHeader
+            teams={assignment.teams}
+            className="mt-1 gap-2"
+            titleClassName="text-sm font-bold text-slate-950"
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
+            <span className="inline-flex items-center gap-1.5">
               <Calendar size={14} className="text-[#f97316]" />
               {assignment.matchDate}
-            </div>
-            <div className="flex items-center gap-2">
+            </span>
+            <span className="inline-flex items-center gap-1.5">
               <Clock size={14} className="text-[#f97316]" />
               {assignment.matchTime}
-            </div>
-            <div className="flex items-center gap-2 md:col-span-2">
+            </span>
+            <span className="inline-flex items-center gap-1.5">
               <MapPin size={14} className="text-[#f97316]" />
-              {assignment.venue}
-            </div>
-            <div className="md:col-span-2 text-xs uppercase font-semibold tracking-wide text-slate-500">
+              {getCanonicalVenueName(assignment.venue)}
+            </span>
+            <span className="text-xs uppercase font-semibold tracking-wide text-slate-500">
               Instructor: {assignment.instructorName}
-            </div>
+            </span>
+            {assignment.finalScore ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">{assignment.finalScore}</span> : null}
           </div>
         </div>
-      <div className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${
-          getAssignmentStatusClasses(assignment.status)
-        }`}>
-          {getAssignmentStatusLabel(assignment.status, language)}
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          <div className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${getAssignmentStatusClasses(assignment.status)}`}>
+            {getAssignmentStatusLabel(assignment.status, language)}
+          </div>
+          {canOpenMatchCenter ? (
+            <button
+              onClick={() => openMatchCenter(assignment.nominationId)}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#57131b] px-3 py-2 text-sm font-bold text-white"
+            >
+              Match Center
+            </button>
+          ) : null}
         </div>
       </div>
-      {renderFinalScore(assignment.finalScore)}
-      {renderMatchLinks(assignment.matchVideoUrl, assignment.matchProtocolUrl)}
-      <div className="mt-4 rounded-xl bg-slate-50 p-3">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-          {assignment.assignmentGroup === 'TO' ? 'Referee Crew' : t('common.crew')}
-        </div>
-        <div className="mt-3 grid gap-2 md:grid-cols-3">
-          {assignment.crew.map((official) => (
-            <div key={`${assignment.id}-${official.refereeId}-${official.slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-              <div className="text-[11px] font-bold uppercase text-slate-500">{getNominationSlotLabel(official.slotNumber, language)}</div>
-              <div className="mt-1 text-sm font-semibold text-slate-900">{official.refereeName}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-      {user.role === 'Referee' && assignment.toCrew.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-          {t('dashboard.toCrewWillAppear')}
-        </div>
-      ) : (
-        <div className="mt-4 rounded-xl bg-slate-50 p-3">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.toCrew')}</div>
-          <div className="mt-3 grid gap-2 md:grid-cols-4">
-            {[1, 2, 3, 4].map((slotNumber) => {
-              const toSlot = assignment.toCrew.find((item) => item.slotNumber === slotNumber);
-              return (
-                <div key={`${assignment.id}-to-${slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <div className="text-[11px] font-bold uppercase text-slate-500">{getTOSlotLabel(slotNumber, language)}</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">
-                    {toSlot?.toName || (user.role === 'Referee' ? t('common.awaitingConfirmation') : t('common.notAssigned'))}
-                  </div>
-                  {toSlot ? (
-                    <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(toSlot.status)}`}>
-                      {getAssignmentStatusLabel(toSlot.status, language)}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      {user.role === 'Referee' && assignment.statisticCrew.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
-          {t('dashboard.statisticCrewWillAppear')}
-        </div>
-      ) : (
-        <div className="mt-4 rounded-xl bg-slate-50 p-3">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{t('common.statisticCrew')}</div>
-          <div className="mt-3 grid gap-2 md:grid-cols-3">
-            {STATISTIC_CREW_SLOT_NUMBERS.map((slotNumber) => {
-              const statisticSlot = assignment.statisticCrew.find((item) => item.slotNumber === slotNumber);
-              return (
-                <div key={`${assignment.id}-stat-${slotNumber}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <div className="text-[11px] font-bold uppercase text-slate-500">{getStatisticSlotLabel(slotNumber, language)}</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">
-                    {statisticSlot?.toName || (user.role === 'Referee' ? t('common.awaitingConfirmation') : t('common.notAssigned'))}
-                  </div>
-                  {statisticSlot ? (
-                    <div className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${getAssignmentStatusClasses(statisticSlot.status)}`}>
-                      {getAssignmentStatusLabel(statisticSlot.status, language)}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
       {assignment.status === 'Pending' && (
         <div className="grid grid-cols-2 gap-3 mt-4">
           <button
@@ -2158,17 +2039,158 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       <div className="mb-4 rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,#fff8e7_0%,#fff2d8_55%,#fbe6bf_100%)] px-4 py-4">
         <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-700">{t('announcement.title')}</div>
         <div className="mt-2 whitespace-pre-wrap text-sm font-medium text-slate-800">
-          {language === 'az'
-            ? activeAnnouncement.messageAz || activeAnnouncement.message
-            : language === 'ru'
-              ? activeAnnouncement.messageRu || activeAnnouncement.message
-              : activeAnnouncement.messageEn || activeAnnouncement.message}
+          {getAnnouncementMessage(activeAnnouncement, language)}
         </div>
         <div className="mt-3 text-xs text-slate-600">
           {t('announcement.expiresAt', { date: formatAnnouncementDate(activeAnnouncement.expiresAt) })}
         </div>
       </div>
     ) : null;
+
+  const hasAttentionItems = declinedAssignments.length > 0 || Boolean(activeAnnouncement);
+  const instructorAttentionCount = declinedAssignments.length + (activeAnnouncement ? 1 : 0);
+  const instructorTopMatches = createdNominationSections.upcoming.slice(0, 4);
+  const instructorControlPanel = isInstructor ? (
+    <>
+      <button
+        type="button"
+        title={
+          declinedAssignments.length > 0
+            ? `${declinedAssignments.length} referee ${declinedAssignments.length === 1 ? 'declined' : 'declined'} assignment${declinedAssignments.length === 1 ? '' : 's'}`
+            : t('announcement.title')
+        }
+        aria-label={t('announcement.title')}
+        onClick={() => {
+          if (declinedAssignments.length > 0) {
+            onNavigate('nominations');
+            return;
+          }
+          onNavigate('announcement');
+        }}
+        className={`relative inline-flex h-11 w-11 items-center justify-center rounded-full border text-sm font-bold shadow-sm transition hover:-translate-y-0.5 ${
+          activeAnnouncement ? 'border-amber-300 bg-amber-100 text-amber-900' : 'border-slate-200 bg-white text-slate-700'
+        }`}
+      >
+        <Bell size={17} />
+        {instructorAttentionCount > 0 ? (
+          <span className="absolute -right-1 -top-1 inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-black leading-none text-white">
+            {instructorAttentionCount}
+          </span>
+        ) : null}
+      </button>
+      <button
+        type="button"
+        title={t('dashboard.allMembers')}
+        aria-label={t('dashboard.allMembers')}
+        onClick={() => onNavigate('members')}
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:-translate-y-0.5"
+      >
+        <Users size={17} />
+      </button>
+      <button
+        type="button"
+        title={t('dashboard.addAccess')}
+        aria-label={t('dashboard.addAccess')}
+        onClick={() => onNavigate('access')}
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#f39200]/20 bg-[#f39200] text-white shadow-sm transition hover:-translate-y-0.5"
+      >
+        <UserPlus size={17} />
+      </button>
+      <button
+        type="button"
+        title={t('dashboard.createNomination')}
+        aria-label={t('dashboard.createNomination')}
+        onClick={() => setShowCreateForm((prev) => !prev)}
+        className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#57131b]/20 shadow-sm transition hover:-translate-y-0.5 ${
+          showCreateForm ? 'bg-[#7b1f29] text-white' : 'bg-[#57131b] text-white'
+        }`}
+      >
+        <Plus size={18} />
+      </button>
+    </>
+  ) : null;
+
+  const instructorCompactMatchesPanel = isInstructor ? (
+    <div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#8e6570]">{t('workspace.upcomingGames')}</div>
+          <div className="mt-1 text-sm text-slate-500">{t('workspace.upcomingGamesText')}</div>
+        </div>
+      </div>
+      {declinedAssignments.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => onNavigate('nominations')}
+          className="mt-4 flex w-full items-center justify-between rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left transition hover:border-amber-300"
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <AlertTriangle size={18} className="shrink-0 text-amber-600" />
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-amber-900">Referee declined a game</div>
+              <div className="mt-0.5 text-xs text-amber-800">
+                {getDisplayPersonName(declinedAssignments[0].referee.refereeName)} | {getDisplayGameCode(declinedAssignments[0].nomination.gameCode)}
+              </div>
+            </div>
+          </div>
+          <span className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700">Open</span>
+        </button>
+      ) : null}
+      {instructorTopMatches.length === 0 ? (
+        <div className="mt-4 text-sm text-slate-500">{t('dashboard.noUpcomingNominations')}</div>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {instructorTopMatches.map((nomination) => (
+            <div key={nomination.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <div className="rz-game-code text-xs uppercase text-[#581c1c]">{getDisplayGameCode(nomination.gameCode)}</div>
+                  <MatchTeamsHeader
+                    teams={nomination.teams}
+                    className="mt-1 gap-2"
+                    titleClassName="text-sm font-bold text-slate-950"
+                  />
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Calendar size={14} className="text-[#f97316]" />
+                      {nomination.matchDate}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock size={14} className="text-[#f97316]" />
+                      {nomination.matchTime}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <MapPin size={14} className="text-[#f97316]" />
+                      {getCanonicalVenueName(nomination.venue)}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  {canOpenMatchCenter ? (
+                    <button
+                      onClick={() => openMatchCenter(nomination.id)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-[#57131b] px-3 py-2 text-sm font-bold text-white"
+                    >
+                      Match Center
+                    </button>
+                  ) : null}
+                  <button
+                    onClick={() => {
+                      setNavigationIntent({ view: 'nominations', targetId: nomination.id });
+                      onNavigate('nominations');
+                    }}
+                    className="inline-flex items-center gap-2 rounded-xl bg-slate-200 px-3 py-2 text-sm font-bold text-slate-800"
+                  >
+                    Open Game
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : null;
 
   return (
       <Layout title={dashboardTitle} showBack={false} onLogout={onLogout}>
@@ -2190,7 +2212,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
               <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-slate-800">{user.fullName}</h2>
+              <h2 className="rz-ui-text text-xl font-bold text-slate-800">{getDisplayPersonName(user.fullName)}</h2>
               <p className="text-sm text-slate-500 flex items-center gap-1">
                 <UserIcon size={14} /> {t('common.license')}: {user.licenseNumber}
               </p>
@@ -2242,97 +2264,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       )}
 
-      {!isFinancialist ? (
-        <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,1.25fr),minmax(0,1fr)]">
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <TrendingUp size={18} className="text-[#581c1c]" />
-            <h3 className="text-base font-bold text-slate-900">{t('dashboard.quickOverview')}</h3>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {quickOverviewItems.map((item) => (
-              <div key={item.id} className={`rounded-2xl border px-4 py-4 ${item.tone}`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs font-bold uppercase tracking-[0.18em] opacity-80">{item.label}</div>
-                  <item.icon size={18} />
-                </div>
-                <div className="mt-3 text-3xl font-black tracking-tight">{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center gap-2">
-            <Bell size={18} className="text-[#581c1c]" />
-            <h3 className="text-base font-bold text-slate-900">{t('dashboard.actionCenter')}</h3>
-          </div>
-          {actionCenterItems.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-500">
-              {t('dashboard.noNewNotifications')}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {actionCenterItems.map((item) => (
-                <div key={item.id} className={`rounded-2xl border px-4 py-4 ${item.tone}`}>
-                  <div className="text-sm font-bold">{item.title}</div>
-                  <div className="mt-1 text-sm opacity-90">{item.description}</div>
-                  <button
-                    onClick={() => handleActionCenterNavigation(item)}
-                    className="mt-3 inline-flex rounded-xl bg-white/80 px-3 py-2 text-xs font-bold text-slate-800 transition hover:bg-white"
-                  >
-                    {item.actionLabel}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        </div>
-      ) : null}
+      <OperationsCommandCenter
+        activeSeason={activeSeason}
+        userRole={user.role}
+        pendingActions={pendingActionCount}
+        unreadMessages={totalUnreadChatCount}
+        todayGames={todayGamesCount}
+        nextGameLabel={nextGameLabel}
+        modules={operationsModules}
+        onNavigate={onNavigate}
+        controlPanel={instructorControlPanel}
+        compactMatchesPanel={instructorCompactMatchesPanel}
+      />
 
       {isInstructor && (
         <div className="space-y-5 mb-8">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <Shield size={18} className="text-[#581c1c]" />
-                {t('dashboard.instructorControls')}
-              </h3>
-              <p className="text-sm text-slate-500">{t('dashboard.instructorControlsHelp')}</p>
-            </div>
-            <div className="flex flex-wrap justify-end gap-3">
-              <button
-                onClick={() => onNavigate('announcement')}
-                className="inline-flex items-center gap-2 rounded-xl bg-amber-100 px-4 py-3 text-sm font-bold text-amber-900"
-              >
-                <Bell size={16} />
-                {t('announcement.title')}
-              </button>
-              <button
-                onClick={() => onNavigate('members')}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-200 px-4 py-3 text-sm font-bold text-slate-800"
-              >
-                <Users size={16} />
-                {t('dashboard.allMembers')}
-              </button>
-              <button
-                onClick={() => onNavigate('access')}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#f39200] px-4 py-3 text-sm font-bold text-white"
-              >
-                <UserPlus size={16} />
-                {t('dashboard.addAccess')}
-              </button>
-              <button
-                onClick={() => setShowCreateForm((prev) => !prev)}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#581c1c] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-[#581c1c]/15"
-              >
-                <Plus size={16} />
-                {t('dashboard.createNomination')}
-              </button>
-            </div>
-          </div>
-
           {showCreateForm && (
             <form onSubmit={handleCreateNomination} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
@@ -2419,8 +2365,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                     >
                       <option value="">{t('common.selectOfficial')}</option>
                       {referees.map((referee) => (
-                        <option key={referee.id} value={referee.id}>
-                          {`${referee.fullName} (${getRoleLabel(referee.role, language)})`}
+                        <option
+                          key={referee.id}
+                          value={referee.id}
+                          disabled={isOfficialUnavailableOnMatchDate(referee, form.matchDate)}
+                        >
+                          {getOfficialOptionLabel(referee, form.matchDate, true)}
                         </option>
                       ))}
                     </select>
@@ -2439,81 +2389,66 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             </form>
           )}
 
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Bell size={18} className="text-[#581c1c]" />
-              <h3 className="text-base font-bold text-slate-900">{t('dashboard.instructorNotifications')}</h3>
-            </div>
-            {renderAnnouncementNotice()}
-            {declinedAssignments.length === 0 ? (
-              <p className="text-sm text-slate-500">{t('dashboard.noDeclinedYet')}</p>
-            ) : (
-              <div className="space-y-4">
-                {declinedAssignments.map(({ nomination, referee }) => {
-                  const replaceKey = `${nomination.id}-${referee.slotNumber}`;
-                  const options = getReplacementOptions(nomination, referee.slotNumber);
-                  return (
-                    <div key={replaceKey} className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle size={18} className="text-amber-600 mt-0.5" />
-                        <div className="flex-1 space-y-3">
-                          <p className="text-sm font-semibold text-amber-900">
-                            {t('dashboard.declinedGame', { name: referee.refereeName })}
-                          </p>
-                          <div className="grid gap-2 text-sm text-amber-900 md:grid-cols-2">
-                            <div>{nomination.gameCode}</div>
-                            <div>{nomination.teams}</div>
-                            <div>{nomination.matchDate} at {nomination.matchTime}</div>
-                            <div className="md:col-span-2">{nomination.venue}</div>
+          {(activeAnnouncement || declinedAssignments.length > 0) && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Bell size={18} className="text-[#581c1c]" />
+                <h3 className="text-base font-bold text-slate-900">Attention Needed</h3>
+              </div>
+              {renderAnnouncementNotice()}
+              {declinedAssignments.length > 0 ? (
+                <div className="space-y-4">
+                  {declinedAssignments.map(({ nomination, referee }) => {
+                    const replaceKey = `${nomination.id}-${referee.slotNumber}`;
+                    const options = getReplacementOptions(nomination, referee.slotNumber);
+                    return (
+                      <div key={replaceKey} className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                        <div className="flex items-start gap-3">
+                          <AlertTriangle size={18} className="text-amber-600 mt-0.5" />
+                          <div className="flex-1 space-y-3">
+                            <p className="text-sm font-semibold text-amber-900">
+                              {t('dashboard.declinedGame', { name: getDisplayPersonName(referee.refereeName) })}
+                            </p>
+                            <div className="grid gap-2 text-sm text-amber-900 md:grid-cols-2">
+                              <div>{getDisplayGameCode(nomination.gameCode)}</div>
+                              <div>{getDisplayMatchTeams(nomination.teams)}</div>
+                              <div>{nomination.matchDate} at {nomination.matchTime}</div>
+                              <div className="md:col-span-2">{getCanonicalVenueName(nomination.venue)}</div>
+                            </div>
+                            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                              <select
+                                value={replaceSelections[replaceKey] || ''}
+                                onChange={(e) => setReplaceSelections((prev) => ({ ...prev, [replaceKey]: e.target.value }))}
+                                className="min-w-64 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500"
+                              >
+                                <option value="">{t('dashboard.selectReplacementOfficial')}</option>
+                                {options.map((option) => (
+                                  <option key={option.id} value={option.id}>
+                                    {getOfficialOptionLabel(option, nomination.matchDate, true)}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => handleReplaceReferee(nomination.id, referee.slotNumber)}
+                                disabled={replaceActionKey === replaceKey || options.length === 0}
+                                className="rounded-xl bg-amber-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
+                              >
+                                {replaceActionKey === replaceKey ? t('dashboard.replacing') : t('dashboard.replaceSlot', { slot: getNominationSlotLabel(referee.slotNumber, language) })}
+                              </button>
+                            </div>
+                            {options.length === 0 && (
+                              <p className="text-xs text-amber-700">{t('dashboard.noFreeReferee')}</p>
+                            )}
                           </div>
-                          <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                            <select
-                              value={replaceSelections[replaceKey] || ''}
-                              onChange={(e) => setReplaceSelections((prev) => ({ ...prev, [replaceKey]: e.target.value }))}
-                              className="min-w-64 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500"
-                            >
-                              <option value="">{t('dashboard.selectReplacementOfficial')}</option>
-                              {options.map((option) => (
-                                <option key={option.id} value={option.id}>
-                                  {`${option.fullName} (${option.role})`}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              onClick={() => handleReplaceReferee(nomination.id, referee.slotNumber)}
-                              disabled={replaceActionKey === replaceKey || options.length === 0}
-                              className="rounded-xl bg-amber-600 px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
-                            >
-                              {replaceActionKey === replaceKey ? t('dashboard.replacing') : t('dashboard.replaceSlot', { slot: getNominationSlotLabel(referee.slotNumber, language) })}
-                            </button>
-                          </div>
-                          {options.length === 0 && (
-                            <p className="text-xs text-amber-700">{t('dashboard.noFreeReferee')}</p>
-                          )}
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          )}
 
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
-            <h3 className="text-base font-bold text-slate-900 mb-4">{t('dashboard.createdNominations')}</h3>
-            {isLoadingAssignments ? (
-              <p className="text-sm text-slate-500">Loading nominations...</p>
-            ) : (
-              <div className="space-y-4">
-                <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingGames')}</div>
-                {createdNominationSections.upcoming.length === 0 ? (
-                  <p className="text-sm text-slate-500">{t('dashboard.noUpcomingNominations')}</p>
-                ) : (
-                  createdNominationSections.upcoming.map(renderCreatedNominationCard)
-                )}
-              </div>
-            )}
-          </div>
         </div>
       )}
 
@@ -2524,9 +2459,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <Shield size={18} className="text-[#581c1c]" />
-                  <h3 className="text-base font-bold text-slate-900">TO Supervisor Controls</h3>
+                  <h3 className="text-base font-bold text-slate-900">TO Assignment Desk</h3>
                 </div>
-                <p className="text-sm text-slate-500">New games appear here automatically. Choose 4 TO officials for each match.</p>
+                <p className="text-sm text-slate-500">Fill TO crews, review season announcements, and keep table staffing complete.</p>
               </div>
               <div className="flex flex-wrap justify-end gap-3">
                 <button
@@ -2543,15 +2478,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
 
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <h3 className="text-base font-bold text-slate-900 mb-4">{t('dashboard.gamesAwaitingTOCrew')}</h3>
-            {isLoadingAssignments ? (
-              <p className="text-sm text-slate-500">Loading games...</p>
-            ) : (
+            {(
               <div className="space-y-4">
                 <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingGames')}</div>
                 {createdNominationSections.upcoming.length === 0 ? (
                   <p className="text-sm text-slate-500">{t('dashboard.noUpcomingGames')}</p>
                 ) : (
-                  createdNominationSections.upcoming.map(renderCreatedNominationCard)
+                  createdNominationSections.upcoming.slice(0, 8).map(renderCreatedNominationCard)
                 )}
               </div>
             )}
@@ -2559,7 +2492,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       )}
 
-      {(user.role === 'Referee' || isInstructor || isTO) && (
+      {(user.role === 'Referee' || isTO || (isInstructor && assignmentSections.upcoming.length > 0)) && (
         <div className="space-y-5 mb-8">
           {activeAnnouncement && (user.role === 'Referee' || isTO) ? renderAnnouncementNotice() : null}
           {replacementNotices.length > 0 && !isTO && (
@@ -2575,10 +2508,10 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
                       {t('dashboard.youWereReplaced', { gameCode: notice.gameCode, slot: getNominationSlotLabel(notice.slotNumber, language) })}
                     </div>
                     <div className="mt-1 text-sm text-red-700">
-                      {notice.teams} | {notice.matchDate} at {notice.matchTime}
+                      {getDisplayMatchTeams(notice.teams)} | {notice.matchDate} at {notice.matchTime}
                     </div>
                     <div className="mt-1 text-xs font-medium text-red-700">
-                      {t('dashboard.newOfficial', { name: notice.newRefereeName })}
+                      {t('dashboard.newOfficial', { name: getDisplayPersonName(notice.newRefereeName) })}
                     </div>
                   </div>
                 ))}
@@ -2589,18 +2522,16 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
             <div className="flex items-center gap-2 mb-4">
               <Bell size={18} className="text-[#581c1c]" />
               <h3 className="text-base font-bold text-slate-900">
-                {user.role === 'Instructor' ? t('dashboard.myGameAssignments') : t('dashboard.gameAssignments')}
+                {t('dashboard.gameAssignments')}
               </h3>
             </div>
-            {isLoadingAssignments ? (
-              <p className="text-sm text-slate-500">Loading assignments...</p>
-            ) : (
+            {(
               <div className="space-y-4">
                 <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('dashboard.upcomingAssignedGames')}</div>
                 {assignmentSections.upcoming.length === 0 ? (
                   <p className="text-sm text-slate-500">{t('dashboard.noUpcomingGamesYet')}</p>
                 ) : (
-                  assignmentSections.upcoming.map(renderAssignmentCard)
+                  assignmentSections.upcoming.slice(0, 8).map(renderAssignmentCard)
                 )}
               </div>
             )}
@@ -2608,25 +2539,6 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => onNavigate(item.id)}
-            className={`${item.color} relative rounded-2xl p-5 flex flex-col items-center justify-center gap-3 transition-transform active:scale-95 shadow-sm min-h-36`}
-          >
-            {item.badgeCount ? (
-              <div className="absolute right-3 top-3 inline-flex min-w-7 items-center justify-center rounded-full bg-[#57131b] px-2 py-1 text-[11px] font-black text-white shadow-sm">
-                {item.badgeCount}
-              </div>
-            ) : null}
-            <div className="p-3 bg-white rounded-xl shadow-sm">
-              <item.icon size={28} className={item.iconColor} />
-            </div>
-            <span className="text-sm font-bold text-slate-700">{item.label}</span>
-          </button>
-        ))}
-      </div>
     </Layout>
   );
 };
