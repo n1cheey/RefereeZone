@@ -66,7 +66,7 @@ const EarningsCalculation: React.FC<EarningsCalculationProps> = ({ user, onBack 
         }
 
         console.error('Failed to load calculation assignments', loadError);
-        setError('Request failed.');
+        setError(loadError instanceof Error ? loadError.message : 'Failed to load calculation assignments.');
       } finally {
         if (isMounted) {
           setIsLoading(false);

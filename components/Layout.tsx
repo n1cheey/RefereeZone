@@ -11,6 +11,8 @@ interface LayoutProps {
   showBack?: boolean;
 }
 
+const HOME_NAVIGATION_EVENT = 'abl:navigate-home';
+
 const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, showBack = true }) => {
   const { language, setLanguage, t } = useI18n();
   const { activeSeasonId, seasons, setActiveSeasonId } = useSeason();
@@ -30,11 +32,18 @@ const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, show
                   <ChevronLeft size={22} />
                 </button>
               ) : (
-                <img
-                  src="/img/Header.jpg"
-                  alt="ABL header logo"
-                  className="h-11 w-auto max-w-[170px] flex-none rounded-xl object-contain shadow-none"
-                />
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent(HOME_NAVIGATION_EVENT))}
+                  className="flex-none rounded-xl transition hover:opacity-90"
+                  aria-label="Go to home page"
+                >
+                  <img
+                    src="/img/Header.jpg"
+                    alt="ABL header logo"
+                    className="h-11 w-auto max-w-[170px] object-contain shadow-none"
+                  />
+                </button>
               )}
 
               <div className="min-w-0">

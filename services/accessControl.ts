@@ -35,7 +35,7 @@ const featureRoles: Record<AccessFeature, UserRole[]> = {
   announcement: ['Instructor'],
   chat: ALL_ROLES,
   tests: ['Instructor', 'TO Supervisor', 'Referee', 'TO'],
-  calendar: ['Instructor', 'TO Supervisor', 'Referee', 'TO', 'Staff'],
+  calendar: ['Instructor', 'TO Supervisor', 'Referee', 'TO', 'Staff', 'Financialist'],
   calculation: ['Financialist', 'Referee', 'TO'],
   availability: ['Instructor', 'TO Supervisor', 'Referee', 'TO'],
   members: ['Instructor', 'Staff'],

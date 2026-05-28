@@ -3,6 +3,7 @@ import { supabase } from './supabaseClient';
 const API_TIMEOUT_MS = 45000;
 const API_RETRY_DELAY_MS = 800;
 const GET_CACHE_TTL_MS = 20000;
+const GET_MAX_ATTEMPTS = 3;
 const AUTH_SESSION_WAIT_MS = 2500;
 const AUTH_SESSION_POLL_MS = 125;
 
@@ -66,10 +67,6 @@ export async function apiRequest<T>(url: string, options: RequestInit = {}, auth
       return cached.data as T;
     }
 
-    if (cached) {
-      responseCache.delete(cacheKey);
-    }
-
     const inflightRequest = inflightGetRequests.get(cacheKey);
     if (inflightRequest) {
       return inflightRequest as Promise<T>;
@@ -77,7 +74,10 @@ export async function apiRequest<T>(url: string, options: RequestInit = {}, auth
   }
 
   const requestPromise = (async () => {
-    for (let attempt = 0; attempt < (canRetry ? 2 : 1); attempt += 1) {
+    const staleCached = cacheKey ? responseCache.get(cacheKey) : null;
+    const maxAttempts = canRetry ? GET_MAX_ATTEMPTS : 1;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
@@ -115,11 +115,15 @@ export async function apiRequest<T>(url: string, options: RequestInit = {}, auth
         return data as T;
       } catch (error) {
         const isTimeout = error instanceof DOMException && error.name === 'AbortError';
-        const isLastAttempt = attempt === (canRetry ? 1 : 0);
+        const isLastAttempt = attempt === maxAttempts - 1;
 
         if (!isLastAttempt && (isTimeout || error instanceof TypeError)) {
           await new Promise((resolve) => window.setTimeout(resolve, API_RETRY_DELAY_MS));
           continue;
+        }
+
+        if (canRetry && staleCached?.data) {
+          return staleCached.data as T;
         }
 
         if (isTimeout) {

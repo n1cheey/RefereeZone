@@ -37,6 +37,7 @@ const AUTH_LOADING_TIMEOUT_MS = 4000;
 const SESSION_SYNC_COOLDOWN_MS = 60000;
 const STORAGE_KEY = 'abl-current-user-cache';
 const VIEW_STORAGE_KEY = 'abl-current-view';
+const HOME_NAVIGATION_EVENT = 'abl:navigate-home';
 
 const normalizeStoredUser = (value: unknown): User | null => {
   if (!value || typeof value !== 'object') {
@@ -400,6 +401,19 @@ const AppContent: React.FC = () => {
       });
     });
   };
+
+  useEffect(() => {
+    const handleHomeNavigation = () => {
+      viewHistoryRef.current = [];
+      navigateTo('dashboard', { replace: true });
+    };
+
+    window.addEventListener(HOME_NAVIGATION_EVENT, handleHomeNavigation);
+
+    return () => {
+      window.removeEventListener(HOME_NAVIGATION_EVENT, handleHomeNavigation);
+    };
+  }, []);
 
   const renderView = () => {
     if (isAuthLoading) {

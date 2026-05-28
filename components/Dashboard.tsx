@@ -1381,6 +1381,13 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           color: 'bg-blue-50',
         },
         {
+          id: 'calendar' as const,
+          label: t('dashboard.navCalendar'),
+          icon: Calendar,
+          iconColor: 'text-sky-600',
+          color: 'bg-sky-50',
+        },
+        {
           id: 'calculation' as const,
           label: t('dashboard.calculation'),
           icon: Calculator,
@@ -1416,18 +1423,14 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         ...(canOpenCalculation
           ? [{ id: 'calculation' as const, label: t('dashboard.calculation'), icon: Calculator, iconColor: 'text-emerald-600', color: 'bg-emerald-50' }]
           : []),
-        ...(canUseAvailability && !isInstructor
+        ...(canUseAvailability
           ? [{ id: 'availability' as const, label: t('dashboard.navAvailability'), icon: CalendarDays, iconColor: 'text-violet-600', color: 'bg-violet-50' }]
           : []),
+        ...(canOpenCalendar
+          ? [{ id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' }]
+          : []),
         ...(isInstructor
-          ? [
-              { id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' },
-              { id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' },
-            ]
-          : isTOSupervisor
-          ? [{ id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' }]
-          : isStaff
-          ? [{ id: 'calendar' as const, label: t('dashboard.navCalendar'), icon: Calendar, iconColor: 'text-sky-600', color: 'bg-sky-50' }]
+          ? [{ id: 'activity' as const, label: t('activity.title'), icon: History, iconColor: 'text-amber-600', color: 'bg-amber-50' }]
           : []),
         ...(isInstructor || isStaff
           ? [
