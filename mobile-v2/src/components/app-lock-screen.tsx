@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { PinPad } from '@/src/components/pin-pad';
 import { useAuth } from '@/src/providers/auth-provider';
 import { useLanguage } from '@/src/providers/language-provider';
 import { theme } from '@/src/theme/theme';
@@ -10,11 +11,27 @@ export function AppLockScreen() {
   const { unlockPreferences, unlockWithBiometric, unlockWithPin } = useAuth();
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
+  const [showPinPad, setShowPinPad] = useState(false);
+  const [biometricAttempted, setBiometricAttempted] = useState(false);
+
+  useEffect(() => {
+    if (!unlockPreferences.biometricEnabled || biometricAttempted) {
+      return;
+    }
+
+    setBiometricAttempted(true);
+    void unlockWithBiometric().then((success) => {
+      if (!success && unlockPreferences.pinEnabled) {
+        setShowPinPad(true);
+      }
+    });
+  }, [biometricAttempted, unlockPreferences.biometricEnabled, unlockPreferences.pinEnabled, unlockWithBiometric]);
 
   const handlePinUnlock = async () => {
     const success = await unlockWithPin(pin);
     if (!success) {
       setError('Invalid PIN.');
+      setPin('');
       return;
     }
 
@@ -29,27 +46,28 @@ export function AppLockScreen() {
         <Text style={styles.subtitle}>{t('auth.lockedText')}</Text>
 
         {unlockPreferences.biometricEnabled ? (
-          <Pressable style={styles.primaryButton} onPress={() => void unlockWithBiometric()}>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={() => void unlockWithBiometric().then((success) => !success && setShowPinPad(true))}
+          >
             <Text style={styles.primaryButtonText}>{t('auth.unlockBiometric')}</Text>
           </Pressable>
         ) : null}
 
-        {unlockPreferences.pinEnabled ? (
+        {unlockPreferences.pinEnabled && (!unlockPreferences.biometricEnabled || showPinPad) ? (
           <>
-            <TextInput
-              value={pin}
-              onChangeText={setPin}
-              placeholder={t('auth.pinPlaceholder')}
-              placeholderTextColor={theme.colors.muted}
-              secureTextEntry
-              keyboardType="number-pad"
-              style={styles.input}
-            />
+            <PinPad value={pin} onChange={setPin} onSubmit={() => void handlePinUnlock()} />
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
             <Pressable style={styles.secondaryButton} onPress={() => void handlePinUnlock()}>
               <Text style={styles.secondaryButtonText}>{t('auth.unlockPin')}</Text>
             </Pressable>
           </>
+        ) : null}
+
+        {unlockPreferences.pinEnabled && unlockPreferences.biometricEnabled && !showPinPad ? (
+          <Pressable style={styles.ghostButton} onPress={() => setShowPinPad(true)}>
+            <Text style={styles.ghostButtonText}>{t('auth.unlockPin')}</Text>
+          </Pressable>
         ) : null}
       </View>
     </View>
@@ -81,16 +99,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: theme.colors.muted,
   },
-  input: {
-    backgroundColor: theme.colors.canvasAlt,
-    borderColor: theme.colors.line,
-    borderWidth: 1,
-    borderRadius: theme.radius.sm,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: theme.colors.text,
-    fontSize: 16,
-  },
   primaryButton: {
     minHeight: 54,
     borderRadius: theme.radius.sm,
@@ -115,9 +123,23 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     fontSize: 15,
   },
+  ghostButton: {
+    minHeight: 48,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  ghostButtonText: {
+    color: theme.colors.text,
+    fontWeight: '800',
+    fontSize: 14,
+  },
   errorText: {
     color: theme.colors.danger,
     fontSize: 13,
     fontWeight: '700',
+    textAlign: 'center',
   },
 });

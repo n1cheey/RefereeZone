@@ -19,10 +19,13 @@ interface AuthContextValue {
   initializing: boolean;
   locked: boolean;
   unlockPreferences: UnlockPreferences;
+  requiresPinSetup: boolean;
+  requiresBiometricSetup: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  enableBiometricUnlock: () => Promise<void>;
+  enableBiometricUnlock: () => Promise<boolean>;
   savePin: (pin: string) => Promise<void>;
+  skipBiometricSetup: () => void;
   unlockWithBiometric: () => Promise<boolean>;
   unlockWithPin: (pin: string) => Promise<boolean>;
 }
@@ -41,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [initializing, setInitializing] = useState(true);
   const [locked, setLocked] = useState(false);
   const [unlockPreferences, setUnlockPreferences] = useState<UnlockPreferences>(defaultUnlockPreferences);
+  const [requiresBiometricSetup, setRequiresBiometricSetup] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -63,6 +67,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         setUser(restoredUser);
+
+        if (restoredUser && !parsedPrefs.pinEnabled) {
+          setRequiresBiometricSetup(false);
+        } else if (restoredUser && parsedPrefs.pinEnabled && !parsedPrefs.biometricEnabled) {
+          setRequiresBiometricSetup(false);
+        }
 
         if (
           restoredUser &&
@@ -93,6 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!session) {
         setUser(null);
         setLocked(false);
+        setRequiresBiometricSetup(false);
         return;
       }
 
@@ -137,20 +148,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       initializing,
       locked,
       unlockPreferences,
+      requiresPinSetup: Boolean(user && !unlockPreferences.pinEnabled),
+      requiresBiometricSetup,
       login: async (email, password) => {
         const response = await loginUser({ email, password });
         setUser(response.user);
         setLocked(false);
+        setRequiresBiometricSetup(false);
       },
       logout: async () => {
         await logoutUser();
+        await secureStore.remove(UNLOCK_PREFS_KEY);
         setUser(null);
         setLocked(false);
+        setUnlockPreferences(defaultUnlockPreferences);
+        setRequiresBiometricSetup(false);
       },
       enableBiometricUnlock: async () => {
         const supported = await canUseBiometrics();
         if (!supported) {
-          return;
+          return false;
+        }
+
+        const result = await requestBiometricUnlock();
+        if (!result.success) {
+          return false;
         }
 
         const nextValue = {
@@ -159,6 +181,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
         await secureStore.set(UNLOCK_PREFS_KEY, JSON.stringify(nextValue));
         setUnlockPreferences(nextValue);
+        setRequiresBiometricSetup(false);
+        return true;
       },
       savePin: async (pin: string) => {
         const nextValue = {
@@ -168,6 +192,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
         await secureStore.set(UNLOCK_PREFS_KEY, JSON.stringify(nextValue));
         setUnlockPreferences(nextValue);
+        setRequiresBiometricSetup(true);
+      },
+      skipBiometricSetup: () => {
+        setRequiresBiometricSetup(false);
       },
       unlockWithBiometric: async () => {
         const result = await requestBiometricUnlock();
@@ -187,7 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return true;
       },
     }),
-    [initializing, locked, unlockPreferences, user],
+    [initializing, locked, requiresBiometricSetup, unlockPreferences, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -24,14 +24,13 @@ import { AppLanguage, CountryCode, DisciplineCode } from '@/src/types/domain';
 export default function LoginScreen() {
   const router = useRouter();
   const { language, setLanguage, t } = useLanguage();
-  const { user, login, initializing, enableBiometricUnlock, savePin } = useAuth();
+  const { user, login, initializing, requiresPinSetup, requiresBiometricSetup } = useAuth();
   const [country, setCountry] = useState<CountryCode>('az');
   const [discipline, setDiscipline] = useState<DisciplineCode>('basketball');
   const [countryOpen, setCountryOpen] = useState(false);
   const [disciplineOpen, setDisciplineOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [pin, setPin] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [biometricSupported, setBiometricSupported] = useState<boolean | null>(null);
@@ -39,6 +38,14 @@ export default function LoginScreen() {
   useEffect(() => {
     void canUseBiometrics().then(setBiometricSupported).catch(() => setBiometricSupported(false));
   }, []);
+
+  if (user && requiresPinSetup) {
+    return <Redirect href="/pin-setup" />;
+  }
+
+  if (user && requiresBiometricSetup) {
+    return <Redirect href="/biometric-setup" />;
+  }
 
   if (user) {
     return <Redirect href="/home" />;
@@ -50,16 +57,7 @@ export default function LoginScreen() {
 
     try {
       await login(email, password);
-
-      if (pin.trim().length >= 4) {
-        await savePin(pin.trim());
-      }
-
-      if (biometricSupported) {
-        await enableBiometricUnlock();
-      }
-
-      router.replace('/home');
+      router.replace('/pin-setup');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Authentication failed.');
     } finally {
@@ -193,20 +191,6 @@ export default function LoginScreen() {
               />
             </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>{t('auth.pinTitle')}</Text>
-              <TextInput
-                value={pin}
-                onChangeText={setPin}
-                keyboardType="number-pad"
-                secureTextEntry
-                placeholder="1234"
-                placeholderTextColor={theme.colors.muted}
-                style={styles.input}
-              />
-              <Text style={styles.helperText}>{t('auth.pinText')}</Text>
-            </View>
-
             <View style={styles.infoBox}>
               <Text style={styles.infoTitle}>{t('auth.biometricTitle')}</Text>
               <Text style={styles.infoText}>
@@ -245,17 +229,9 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: theme.colors.canvas,
-  },
-  keyboardRoot: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    gap: 14,
-  },
+  safeArea: { flex: 1, backgroundColor: theme.colors.canvas },
+  keyboardRoot: { flex: 1 },
+  scrollContent: { padding: 20, gap: 14 },
   hero: {
     backgroundColor: theme.colors.primary,
     borderRadius: theme.radius.lg,
@@ -263,23 +239,9 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     gap: 8,
   },
-  heroEyebrow: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.4,
-  },
-  heroTitle: {
-    color: theme.colors.white,
-    fontSize: 26,
-    lineHeight: 30,
-    fontWeight: '900',
-  },
-  heroSubtitle: {
-    color: 'rgba(255,255,255,0.84)',
-    fontSize: 14,
-    lineHeight: 20,
-  },
+  heroEyebrow: { color: 'rgba(255,255,255,0.72)', fontSize: 10, fontWeight: '900', letterSpacing: 1.4 },
+  heroTitle: { color: theme.colors.white, fontSize: 26, lineHeight: 30, fontWeight: '900' },
+  heroSubtitle: { color: 'rgba(255,255,255,0.84)', fontSize: 14, lineHeight: 20 },
   card: {
     backgroundColor: theme.colors.card,
     borderWidth: 1,
@@ -288,42 +250,19 @@ const styles = StyleSheet.create({
     padding: 22,
     gap: 16,
   },
-  languageRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
+  languageRow: { flexDirection: 'row', gap: 8 },
   languagePill: {
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
     backgroundColor: theme.colors.canvasAlt,
   },
-  languagePillActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  languagePillText: {
-    color: theme.colors.text,
-    fontWeight: '900',
-    fontSize: 12,
-  },
-  languagePillTextActive: {
-    color: theme.colors.white,
-  },
-  field: {
-    gap: 8,
-  },
-  label: {
-    color: theme.colors.text,
-    fontSize: 12,
-    fontWeight: '900',
-    letterSpacing: 0.7,
-    textTransform: 'uppercase',
-  },
-  selectorRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: 12,
-  },
+  languagePillActive: { backgroundColor: theme.colors.primary },
+  languagePillText: { color: theme.colors.text, fontWeight: '900', fontSize: 12 },
+  languagePillTextActive: { color: theme.colors.white },
+  field: { gap: 8 },
+  label: { color: theme.colors.text, fontSize: 12, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+  selectorRow: { flexDirection: 'row', alignItems: 'stretch', gap: 12 },
   countrySelector: {
     width: 92,
     minHeight: 56,
@@ -348,23 +287,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     flexDirection: 'row',
   },
-  selectorActive: {
-    borderColor: theme.colors.primary,
-    backgroundColor: '#efe7de',
-  },
-  selectorFlag: {
-    fontSize: 26,
-  },
-  selectorChevron: {
-    color: theme.colors.primary,
-    fontSize: 12,
-    fontWeight: '900',
-  },
-  disciplineSelectorText: {
-    color: theme.colors.text,
-    fontSize: 15,
-    fontWeight: '800',
-  },
+  selectorActive: { borderColor: theme.colors.primary, backgroundColor: '#efe7de' },
+  selectorFlag: { fontSize: 26 },
+  selectorChevron: { color: theme.colors.primary, fontSize: 12, fontWeight: '900' },
+  disciplineSelectorText: { color: theme.colors.text, fontSize: 15, fontWeight: '800' },
   optionSheet: {
     borderRadius: theme.radius.sm,
     backgroundColor: theme.colors.canvasAlt,
@@ -373,13 +299,7 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
   },
-  optionSheetTitle: {
-    color: theme.colors.muted,
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
+  optionSheetTitle: { color: theme.colors.muted, fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 },
   optionRow: {
     minHeight: 52,
     borderRadius: theme.radius.sm,
@@ -391,21 +311,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  optionRowActive: {
-    borderColor: theme.colors.primary,
-    backgroundColor: theme.colors.primary,
-  },
-  optionFlag: {
-    fontSize: 22,
-  },
-  optionText: {
-    color: theme.colors.text,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  optionTextActive: {
-    color: theme.colors.white,
-  },
+  optionRowActive: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary },
+  optionFlag: { fontSize: 22 },
+  optionText: { color: theme.colors.text, fontSize: 15, fontWeight: '800' },
+  optionTextActive: { color: theme.colors.white },
   input: {
     minHeight: 56,
     borderRadius: theme.radius.sm,
@@ -417,49 +326,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  helperText: {
-    color: theme.colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-  },
   infoBox: {
     borderRadius: theme.radius.sm,
     backgroundColor: '#f7efe6',
     padding: 16,
     gap: 6,
   },
-  infoTitle: {
-    color: theme.colors.primary,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  infoText: {
-    color: theme.colors.muted,
-    fontSize: 13,
-    lineHeight: 19,
-  },
+  infoTitle: { color: theme.colors.primary, fontSize: 14, fontWeight: '900' },
+  infoText: { color: theme.colors.muted, fontSize: 13, lineHeight: 19 },
   warningBox: {
     borderRadius: theme.radius.sm,
     backgroundColor: theme.colors.warningSoft,
     padding: 14,
     gap: 4,
   },
-  warningText: {
-    color: theme.colors.warning,
-    fontSize: 13,
-    lineHeight: 18,
-  },
+  warningText: { color: theme.colors.warning, fontSize: 13, lineHeight: 18 },
   errorBox: {
     borderRadius: theme.radius.sm,
     backgroundColor: theme.colors.dangerSoft,
     padding: 14,
   },
-  errorText: {
-    color: theme.colors.danger,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '700',
-  },
+  errorText: { color: theme.colors.danger, fontSize: 13, lineHeight: 18, fontWeight: '700' },
   primaryButton: {
     minHeight: 58,
     borderRadius: theme.radius.sm,
@@ -467,10 +354,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryButtonText: {
-    color: theme.colors.white,
-    fontSize: 15,
-    fontWeight: '900',
-    letterSpacing: 0.4,
-  },
+  primaryButtonText: { color: theme.colors.white, fontSize: 15, fontWeight: '900', letterSpacing: 0.4 },
 });

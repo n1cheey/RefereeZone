@@ -28,6 +28,8 @@ function RootNavigator() {
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="login" />
+      <Stack.Screen name="pin-setup" />
+      <Stack.Screen name="biometric-setup" />
       <Stack.Screen name="home" />
     </Stack>
   );

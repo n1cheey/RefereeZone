@@ -1,3 +1,4 @@
+import { Redirect, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -5,74 +6,77 @@ import { useAuth } from '@/src/providers/auth-provider';
 import { useLanguage } from '@/src/providers/language-provider';
 import { theme } from '@/src/theme/theme';
 
+const MODULES = [
+  { route: '/my-games', key: 'home.myGames' },
+  { route: '/calendar', key: 'home.calendar' },
+  { route: '/chat', key: 'home.chat' },
+  { route: '/notifications', key: 'home.notifications' },
+  { route: '/reports', key: 'home.reports' },
+  { route: '/tests', key: 'home.tests' },
+  { route: '/availability', key: 'home.availability' },
+];
+
 export default function HomeScreen() {
+  const router = useRouter();
   const { t } = useLanguage();
-  const { user, logout, enableBiometricUnlock, savePin } = useAuth();
+  const { user, logout, requiresPinSetup, requiresBiometricSetup } = useAuth();
+
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
+
+  if (requiresPinSetup) {
+    return <Redirect href="/pin-setup" />;
+  }
+
+  if (requiresBiometricSetup) {
+    return <Redirect href="/biometric-setup" />;
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.root}>
         <View style={styles.hero}>
-          <Text style={styles.eyebrow}>REFZONE MOBILE V2</Text>
-          <Text style={styles.title}>{t('home.title')}</Text>
-          <Text style={styles.subtitle}>{t('home.subtitle')}</Text>
+          <Text style={styles.eyebrow}>iRefZone</Text>
+          <Text style={styles.title}>{user.fullName}</Text>
+          <Text style={styles.subtitle}>{user.role}</Text>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>{user?.fullName || 'User'}</Text>
-          <Text style={styles.sectionText}>{user?.role || 'Role'}</Text>
+        <View style={styles.profileCard}>
+          <Text style={styles.profileTitle}>{user.email}</Text>
+          <Text style={styles.profileSubtitle}>{user.licenseNumber || user.category}</Text>
         </View>
 
-        <View style={styles.actions}>
-          <Pressable style={styles.primaryButton} onPress={() => void enableBiometricUnlock()}>
-            <Text style={styles.primaryButtonText}>{t('auth.biometricTitle')}</Text>
-          </Pressable>
-          <Pressable style={styles.secondaryButton} onPress={() => void savePin('1234')}>
-            <Text style={styles.secondaryButtonText}>{t('auth.pinTitle')}</Text>
-          </Pressable>
-          <Pressable style={styles.logoutButton} onPress={() => void logout()}>
-            <Text style={styles.logoutButtonText}>{t('common.logout')}</Text>
-          </Pressable>
+        <View style={styles.grid}>
+          {MODULES.map((module) => (
+            <Pressable key={module.route} style={styles.moduleCard} onPress={() => router.push(module.route as never)}>
+              <Text style={styles.moduleTitle}>{t(module.key)}</Text>
+            </Pressable>
+          ))}
         </View>
+
+        <Pressable style={styles.logoutButton} onPress={() => void logout()}>
+          <Text style={styles.logoutButtonText}>{t('common.logout')}</Text>
+        </Pressable>
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: theme.colors.canvas,
-  },
-  root: {
-    flex: 1,
-    padding: 20,
-    gap: 18,
-  },
+  safeArea: { flex: 1, backgroundColor: theme.colors.canvas },
+  root: { flex: 1, padding: 20, gap: 16 },
   hero: {
     backgroundColor: theme.colors.primary,
     borderRadius: theme.radius.lg,
-    padding: 24,
-    gap: 10,
+    paddingHorizontal: 22,
+    paddingVertical: 18,
+    gap: 8,
   },
-  eyebrow: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1.8,
-  },
-  title: {
-    color: theme.colors.white,
-    fontSize: 30,
-    lineHeight: 34,
-    fontWeight: '900',
-  },
-  subtitle: {
-    color: 'rgba(255,255,255,0.84)',
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  card: {
+  eyebrow: { color: 'rgba(255,255,255,0.72)', fontSize: 10, fontWeight: '900', letterSpacing: 1.4 },
+  title: { color: theme.colors.white, fontSize: 30, lineHeight: 34, fontWeight: '900' },
+  subtitle: { color: 'rgba(255,255,255,0.84)', fontSize: 15, lineHeight: 22 },
+  profileCard: {
     backgroundColor: theme.colors.card,
     borderWidth: 1,
     borderColor: theme.colors.line,
@@ -80,42 +84,24 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 8,
   },
-  sectionTitle: {
-    color: theme.colors.text,
-    fontSize: 20,
-    fontWeight: '900',
-  },
-  sectionText: {
-    color: theme.colors.muted,
-    fontSize: 15,
-  },
-  actions: {
+  profileTitle: { color: theme.colors.text, fontSize: 20, fontWeight: '900' },
+  profileSubtitle: { color: theme.colors.muted, fontSize: 15 },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
   },
-  primaryButton: {
-    minHeight: 54,
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.colors.primary,
+  moduleCard: {
+    width: '47%',
+    minHeight: 92,
+    backgroundColor: theme.colors.card,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    borderRadius: theme.radius.md,
+    padding: 16,
     justifyContent: 'center',
-    alignItems: 'center',
   },
-  primaryButtonText: {
-    color: theme.colors.white,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  secondaryButton: {
-    minHeight: 54,
-    borderRadius: theme.radius.sm,
-    backgroundColor: '#ece5de',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  secondaryButtonText: {
-    color: theme.colors.primary,
-    fontSize: 15,
-    fontWeight: '900',
-  },
+  moduleTitle: { color: theme.colors.text, fontSize: 16, fontWeight: '900' },
   logoutButton: {
     minHeight: 54,
     borderRadius: theme.radius.sm,
@@ -125,9 +111,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: theme.colors.card,
   },
-  logoutButtonText: {
-    color: theme.colors.text,
-    fontSize: 15,
-    fontWeight: '900',
-  },
+  logoutButtonText: { color: theme.colors.text, fontSize: 15, fontWeight: '900' },
 });
