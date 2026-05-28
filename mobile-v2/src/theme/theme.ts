@@ -1,0 +1,25 @@
+export const theme = {
+  colors: {
+    canvas: '#f6f3ee',
+    canvasAlt: '#fffaf4',
+    card: '#ffffff',
+    line: '#ecd9c6',
+    text: '#1e1b18',
+    muted: '#6f6257',
+    primary: '#5b1723',
+    primaryAccent: '#8a3a1d',
+    white: '#ffffff',
+    success: '#117b4d',
+    successSoft: '#e3f7ec',
+    danger: '#ae2f2f',
+    dangerSoft: '#fdeaea',
+    warning: '#9f5e0d',
+    warningSoft: '#fff1db',
+  },
+  radius: {
+    xs: 12,
+    sm: 18,
+    md: 24,
+    lg: 32,
+  },
+};
