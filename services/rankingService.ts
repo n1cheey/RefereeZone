@@ -5,21 +5,25 @@ import {
   RankingGameOption,
   RankingLeaderboardItem,
   RankingPerformanceProfile,
+  LeagueSeasonId,
 } from '../types';
 import { apiRequest } from './apiClient';
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
 };
 
-export function getRankingDashboard(userId: string) {
-  return apiRequest<RankingDashboardData>(`/api/rankings?userId=${encodeURIComponent(userId)}`);
+const getSeasonQuery = (seasonId?: LeagueSeasonId | null) =>
+  seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : '';
+
+export function getRankingDashboard(userId: string, seasonId?: LeagueSeasonId | null) {
+  return apiRequest<RankingDashboardData>(`/api/rankings?userId=${encodeURIComponent(userId)}${getSeasonQuery(seasonId)}`);
 }
 
-export function getTORankingDashboard(userId: string) {
-  return apiRequest<RankingDashboardData>(`/api/rankings/to?userId=${encodeURIComponent(userId)}`);
+export function getTORankingDashboard(userId: string, seasonId?: LeagueSeasonId | null) {
+  return apiRequest<RankingDashboardData>(`/api/rankings/to?userId=${encodeURIComponent(userId)}${getSeasonQuery(seasonId)}`);
 }
 
-export function getRankingAdminData(instructorId: string) {
+export function getRankingAdminData(instructorId: string, seasonId?: LeagueSeasonId | null) {
   return apiRequest<{
     leaderboard: RankingLeaderboardItem[];
     evaluations: RankingEvaluation[];
@@ -27,10 +31,10 @@ export function getRankingAdminData(instructorId: string) {
     performanceProfiles: RankingPerformanceProfile[];
     games: RankingGameOption[];
     referees: Array<{ id: string; fullName: string }>;
-  }>(`/api/rankings/admin?instructorId=${encodeURIComponent(instructorId)}`);
+  }>(`/api/rankings/admin?instructorId=${encodeURIComponent(instructorId)}${getSeasonQuery(seasonId)}`);
 }
 
-export function getTORankingAdminData(userId: string) {
+export function getTORankingAdminData(userId: string, seasonId?: LeagueSeasonId | null) {
   return apiRequest<{
     leaderboard: RankingLeaderboardItem[];
     evaluations: RankingEvaluation[];
@@ -38,7 +42,7 @@ export function getTORankingAdminData(userId: string) {
     performanceProfiles: RankingPerformanceProfile[];
     games: RankingGameOption[];
     referees: Array<{ id: string; fullName: string }>;
-  }>(`/api/rankings/admin/to?userId=${encodeURIComponent(userId)}`);
+  }>(`/api/rankings/admin/to?userId=${encodeURIComponent(userId)}${getSeasonQuery(seasonId)}`);
 }
 
 export function createRankingEvaluation(payload: {
@@ -48,6 +52,7 @@ export function createRankingEvaluation(payload: {
   evaluationDate: string;
   score: number;
   note: string;
+  seasonId?: LeagueSeasonId | null;
 }) {
   return apiRequest<{ message: string }>('/api/rankings/evaluations', {
     method: 'POST',
@@ -71,6 +76,7 @@ export function saveRankingPerformance(payload: {
   newPhilosophy: number;
   communication: number;
   externalEvaluation: number;
+  seasonId?: LeagueSeasonId | null;
 }) {
   return apiRequest<{ message: string }>('/api/rankings/performance', {
     method: 'POST',

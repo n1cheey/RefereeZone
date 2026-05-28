@@ -1,4 +1,4 @@
-import { ReportDetail, ReportListItem, ReportMode, ReportStatus } from '../types';
+import { LeagueSeasonId, ReportDetail, ReportListItem, ReportMode, ReportStatus } from '../types';
 import { apiRequest } from './apiClient';
 
 const JSON_HEADERS = {
@@ -6,10 +6,12 @@ const JSON_HEADERS = {
 };
 
 const getReportModeQuery = (mode: ReportMode) => `mode=${encodeURIComponent(mode)}`;
+const getSeasonQuery = (seasonId?: LeagueSeasonId | null) =>
+  seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : '';
 
-export function getReports(userId: string, mode: ReportMode = 'standard') {
+export function getReports(userId: string, mode: ReportMode = 'standard', seasonId?: LeagueSeasonId | null) {
   return apiRequest<{ reports: ReportListItem[] }>(
-    `/api/reports?userId=${encodeURIComponent(userId)}&${getReportModeQuery(mode)}`,
+    `/api/reports?userId=${encodeURIComponent(userId)}&${getReportModeQuery(mode)}${getSeasonQuery(seasonId)}`,
   );
 }
 
@@ -18,9 +20,10 @@ export function getReportDetail(
   nominationId: string,
   refereeId: string,
   mode: ReportMode = 'standard',
+  seasonId?: LeagueSeasonId | null,
 ) {
   return apiRequest<{ report: ReportDetail }>(
-    `/api/reports/${encodeURIComponent(nominationId)}/${encodeURIComponent(refereeId)}?userId=${encodeURIComponent(userId)}&${getReportModeQuery(mode)}`,
+    `/api/reports/${encodeURIComponent(nominationId)}/${encodeURIComponent(refereeId)}?userId=${encodeURIComponent(userId)}&${getReportModeQuery(mode)}${getSeasonQuery(seasonId)}`,
   );
 }
 
@@ -42,6 +45,7 @@ export function saveReport(payload: {
   generally: string;
   googleDriveUrl?: string;
   visibleToRefereeIds?: string[];
+  seasonId?: LeagueSeasonId | null;
 }) {
   return apiRequest<{ message: string; report: ReportDetail }>(
     `/api/reports/${encodeURIComponent(payload.nominationId)}/${encodeURIComponent(payload.refereeId)}`,
@@ -58,9 +62,10 @@ export function deleteReport(payload: {
   nominationId: string;
   refereeId: string;
   mode?: ReportMode;
+  seasonId?: LeagueSeasonId | null;
 }) {
   return apiRequest<{ message: string }>(
-    `/api/reports/${encodeURIComponent(payload.nominationId)}/${encodeURIComponent(payload.refereeId)}?userId=${encodeURIComponent(payload.userId)}&${getReportModeQuery(payload.mode || 'standard')}`,
+    `/api/reports/${encodeURIComponent(payload.nominationId)}/${encodeURIComponent(payload.refereeId)}?userId=${encodeURIComponent(payload.userId)}&${getReportModeQuery(payload.mode || 'standard')}${getSeasonQuery(payload.seasonId)}`,
     {
       method: 'DELETE',
     },

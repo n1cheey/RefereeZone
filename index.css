@@ -1,3 +1,14 @@
+ :root {
+  color-scheme: light;
+  --rz-bg: #f3efe8;
+  --rz-surface: #ffffff;
+  --rz-ink: #201417;
+  --rz-muted: #6b5b60;
+  --rz-accent: #57131b;
+  --rz-accent-strong: #7a2418;
+  --rz-gold: #f39200;
+}
+
 @font-face {
   font-family: 'ABF Bevellier';
   src: url('./ABF fonts/Bevellier-Regular.otf') format('opentype');
@@ -41,9 +52,14 @@ body,
 
 body {
   margin: 0;
-  font-family: 'Inter', sans-serif;
-  background: #edf2f7;
-  color: #0f172a;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(243, 146, 0, 0.16), transparent 28%),
+    linear-gradient(180deg, #f6efe4 0%, #eef2f7 54%, #e7edf5 100%);
+  color: var(--rz-ink);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
@@ -63,10 +79,21 @@ img {
 }
 
 .font-abf {
-  font-family: 'ABF Bevellier', 'Inter', sans-serif;
+  font-family: 'ABF Bevellier', 'Segoe UI', sans-serif;
 }
 
 .font-abf-display {
-  font-family: 'ABF Bevellier', 'Inter', sans-serif;
+  font-family: 'ABF Bevellier', 'Segoe UI', sans-serif;
   font-weight: 900;
+}
+
+.rz-ui-text {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+}
+
+.rz-game-code {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-variant-ligatures: none;
 }

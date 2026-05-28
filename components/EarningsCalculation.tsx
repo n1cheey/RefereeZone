@@ -5,6 +5,7 @@ import Layout from './Layout';
 import { getRoleLabel, useI18n } from '../i18n';
 import { getRefereeNominations } from '../services/nominationService';
 import { isPastMatch } from '../matchTiming';
+import { useSeason } from '../services/seasonContext';
 
 interface EarningsCalculationProps {
   user: User;
@@ -25,6 +26,7 @@ const formatFee = (value: number | null | undefined) => `AZN ${Math.round(value 
 
 const EarningsCalculation: React.FC<EarningsCalculationProps> = ({ user, onBack }) => {
   const { language, t } = useI18n();
+  const { activeSeasonId } = useSeason();
   const [assignments, setAssignments] = useState<RefereeNomination[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -52,7 +54,7 @@ const EarningsCalculation: React.FC<EarningsCalculationProps> = ({ user, onBack 
       try {
         setIsLoading(true);
         setError('');
-        const response = await getRefereeNominations(user.id);
+        const response = await getRefereeNominations(user.id, activeSeasonId);
         if (!isMounted) {
           return;
         }
@@ -77,7 +79,7 @@ const EarningsCalculation: React.FC<EarningsCalculationProps> = ({ user, onBack 
     return () => {
       isMounted = false;
     };
-  }, [user.id]);
+  }, [activeSeasonId, user.id]);
 
   useEffect(() => {
     if (animationFrameRef.current !== null) {

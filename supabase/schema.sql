@@ -20,6 +20,9 @@ create table if not exists public.profiles (
   photo_url text not null default 'https://picsum.photos/seed/referee/300/300',
   license_number text not null,
   allowed_access_id uuid references public.allowed_access(id),
+  archived_at timestamptz,
+  archived_by uuid references public.profiles(id),
+  archived_original_email text,
   created_at timestamptz not null default now()
 );
 
@@ -296,6 +299,10 @@ create table if not exists public.availability_requests (
 
 create index if not exists profiles_role_full_name_idx
   on public.profiles (role, full_name);
+
+create index if not exists profiles_active_role_full_name_idx
+  on public.profiles (role, full_name)
+  where archived_at is null;
 
 create index if not exists nominations_created_by_match_idx
   on public.nominations (created_by, match_date, match_time);

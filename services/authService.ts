@@ -124,15 +124,26 @@ export async function loginUser(payload: LoginPayload): Promise<AuthResponse> {
 }
 
 export async function registerUser(payload: RegisterPayload): Promise<AuthResponse> {
-  await apiRequest<AuthResponse>(
-    '/api/auth/register',
-    {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify(payload),
-    },
-    false,
-  );
+  try {
+    await apiRequest<AuthResponse>(
+      '/api/auth/register',
+      {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify(payload),
+      },
+      false,
+    );
+  } catch (error) {
+    const message =
+      error instanceof ApiRequestError || error instanceof Error ? String(error.message || '') : '';
+    const isExistingAccountError =
+      /already exists|already registered|user already registered|already been registered/i.test(message);
+
+    if (!isExistingAccountError) {
+      throw error;
+    }
+  }
 
   return loginUser({
     email: payload.email,

@@ -5,6 +5,7 @@ import { User, InstructorNomination } from '../types';
 import { getInstructorNominations } from '../services/nominationService';
 import { getRoleLabel, useI18n } from '../i18n';
 import { isPastMatch } from '../matchTiming';
+import { useSeason } from '../services/seasonContext';
 
 interface FinancialCalculationsProps {
   user: User;
@@ -84,6 +85,7 @@ const buildExcelDocument = (rows: CalculationRow[], t: (key: string) => string, 
 
 const FinancialCalculations: React.FC<FinancialCalculationsProps> = ({ user, onBack }) => {
   const { language, t } = useI18n();
+  const { activeSeasonId } = useSeason();
   const [nominations, setNominations] = useState<InstructorNomination[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -182,7 +184,7 @@ const FinancialCalculations: React.FC<FinancialCalculationsProps> = ({ user, onB
       setIsLoading(true);
       setError('');
 
-      const nominationsResponse = nominations.length ? { nominations } : await getInstructorNominations(user.id);
+      const nominationsResponse = await getInstructorNominations(user.id, activeSeasonId);
       const source = nominationsResponse.nominations || [];
       setNominations(source);
       setRows(calculateRows(source, range.startDate, range.endDate));

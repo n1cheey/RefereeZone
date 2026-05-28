@@ -1,5 +1,6 @@
 import { AnnouncementItem, InstructorNomination, RefereeDirectoryItem, RefereeNomination, ReplacementNotice } from '../types';
 import { apiRequest } from './apiClient';
+import { LeagueSeasonId } from '../types';
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
@@ -14,21 +15,24 @@ export interface InstructorDashboardResponse {
   activeAnnouncement?: AnnouncementItem | null;
 }
 
+const getSeasonQuery = (seasonId?: LeagueSeasonId | null) =>
+  seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : '';
+
 export function getReferees(instructorId: string) {
   return apiRequest<{ referees: RefereeDirectoryItem[] }>(`/api/referees?instructorId=${encodeURIComponent(instructorId)}`);
 }
 
-export function getInstructorDashboard(instructorId: string) {
-  return apiRequest<InstructorDashboardResponse>(`/api/dashboard/instructor/${encodeURIComponent(instructorId)}`);
+export function getInstructorDashboard(instructorId: string, seasonId?: LeagueSeasonId | null) {
+  return apiRequest<InstructorDashboardResponse>(`/api/dashboard/instructor/${encodeURIComponent(instructorId)}?instructorId=${encodeURIComponent(instructorId)}${getSeasonQuery(seasonId)}`);
 }
 
-export function getInstructorNominations(instructorId: string) {
-  return apiRequest<{ nominations: InstructorNomination[] }>(`/api/nominations/instructor/${encodeURIComponent(instructorId)}`);
+export function getInstructorNominations(instructorId: string, seasonId?: LeagueSeasonId | null) {
+  return apiRequest<{ nominations: InstructorNomination[] }>(`/api/nominations/instructor/${encodeURIComponent(instructorId)}?instructorId=${encodeURIComponent(instructorId)}${getSeasonQuery(seasonId)}`);
 }
 
-export function getRefereeNominations(refereeId: string) {
+export function getRefereeNominations(refereeId: string, seasonId?: LeagueSeasonId | null) {
   return apiRequest<{ nominations: RefereeNomination[]; replacementNotices: ReplacementNotice[]; activeAnnouncement?: AnnouncementItem | null }>(
-    `/api/nominations/referee/${encodeURIComponent(refereeId)}`,
+    `/api/nominations/referee/${encodeURIComponent(refereeId)}?refereeId=${encodeURIComponent(refereeId)}${getSeasonQuery(seasonId)}`,
   );
 }
 
@@ -40,6 +44,7 @@ export function createNomination(payload: {
   matchTime: string;
   venue: string;
   refereeIds: string[];
+  seasonId?: LeagueSeasonId | null;
 }) {
   return apiRequest<{ message: string; nomination: InstructorNomination }>('/api/nominations', {
     method: 'POST',
@@ -75,6 +80,7 @@ export function editNominationOfficials(payload: {
   matchDate?: string;
   matchTime?: string;
   venue?: string;
+  seasonId?: LeagueSeasonId | null;
 }) {
   return apiRequest<{ message: string; nomination: InstructorNomination }>(
     `/api/nominations/${encodeURIComponent(payload.nominationId)}`,
@@ -88,6 +94,7 @@ export function editNominationOfficials(payload: {
         matchDate: payload.matchDate,
         matchTime: payload.matchTime,
         venue: payload.venue,
+        seasonId: payload.seasonId,
       }),
     },
   );

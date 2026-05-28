@@ -4,6 +4,7 @@ import Layout from './Layout';
 import { AnnouncementItem, User } from '../types';
 import { getCurrentAnnouncement, saveAnnouncement } from '../services/announcementService';
 import { useI18n } from '../i18n';
+import { getAnnouncementMessage } from '../services/localizedText';
 
 interface AnnouncementManagerProps {
   user: User;
@@ -23,21 +24,7 @@ const AnnouncementManager: React.FC<AnnouncementManagerProps> = ({ user, onBack 
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  const getAnnouncementText = (item: AnnouncementItem | null) => {
-    if (!item) {
-      return '';
-    }
-
-    if (language === 'az') {
-      return item.messageAz || item.message;
-    }
-
-    if (language === 'ru') {
-      return item.messageRu || item.message;
-    }
-
-    return item.messageEn || item.message;
-  };
+  const getAnnouncementText = (item: AnnouncementItem | null) => getAnnouncementMessage(item, language);
 
   useEffect(() => {
     let isMounted = true;

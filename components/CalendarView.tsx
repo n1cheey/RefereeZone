@@ -1,17 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin, Shield } from 'lucide-react';
-import { InstructorNomination, RefereeNomination, User } from '../types';
+import { UnifiedMatchRecord, User } from '../types';
 import Layout from './Layout';
 import MatchTeamsHeader from './MatchTeamsHeader';
+import { getCanonicalVenueName, getDisplayGameCode } from '../teamLogos';
 import { useI18n } from '../i18n';
-import {
-  getInstructorDashboard,
-  getInstructorNominations,
-  getRefereeNominations,
-} from '../services/nominationService';
 import { consumeNavigationIntent } from '../services/navigationIntent';
 import { getMatchTimestamp, isPastMatch } from '../matchTiming';
 import { isViewCacheFresh, readViewCache, writeViewCache } from '../services/viewCache';
+import { useSeason } from '../services/seasonContext';
+import { loadCalendarMatchesForUser } from '../services/matchData';
 
 interface CalendarViewProps {
   user: User;
@@ -29,7 +27,7 @@ interface CalendarMatchItem {
 }
 
 const CALENDAR_CACHE_MAX_AGE_MS = 20000;
-const getCalendarCacheKey = (userId: string) => `calendar:view:${userId}`;
+const getCalendarCacheKey = (userId: string, role: User['role'], seasonId: string) => `calendar:view:${userId}:${role}:${seasonId}`;
 
 const padNumber = (value: number) => String(value).padStart(2, '0');
 
@@ -46,29 +44,20 @@ const sortMatchesAsc = <T extends { matchDate: string; matchTime: string }>(item
     return leftTime - rightTime;
   });
 
-const mapInstructorNomination = (nomination: InstructorNomination): CalendarMatchItem => ({
-  id: nomination.id,
-  gameCode: nomination.gameCode,
-  teams: nomination.teams,
-  matchDate: nomination.matchDate,
-  matchTime: nomination.matchTime,
-  venue: nomination.venue,
-  assignmentLabel: null,
-});
-
-const mapAssignmentNomination = (nomination: RefereeNomination): CalendarMatchItem => ({
-  id: nomination.nominationId,
-  gameCode: nomination.gameCode,
-  teams: nomination.teams,
-  matchDate: nomination.matchDate,
-  matchTime: nomination.matchTime,
-  venue: nomination.venue,
-  assignmentLabel: nomination.assignmentLabel,
+const mapUnifiedMatchToCalendarItem = (match: UnifiedMatchRecord): CalendarMatchItem => ({
+  id: match.nominationId,
+  gameCode: match.gameCode,
+  teams: match.teams,
+  matchDate: match.matchDate,
+  matchTime: match.matchTime,
+  venue: match.venue,
+  assignmentLabel: match.assignmentLabel || null,
 });
 
 const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
   const { locale, t } = useI18n();
-  const cacheKey = getCalendarCacheKey(user.id);
+  const { activeSeasonId } = useSeason();
+  const cacheKey = getCalendarCacheKey(user.id, user.role, activeSeasonId);
   const [matches, setMatches] = useState<CalendarMatchItem[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -94,18 +83,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
       }
 
       try {
-        let nextMatches: CalendarMatchItem[] = [];
-
-        if (user.role === 'Instructor' || user.role === 'TO Supervisor') {
-          const response = await getInstructorDashboard(user.id);
-          nextMatches = response.nominations.map(mapInstructorNomination);
-        } else if (user.role === 'Staff') {
-          const response = await getInstructorNominations(user.id);
-          nextMatches = response.nominations.map(mapInstructorNomination);
-        } else {
-          const response = await getRefereeNominations(user.id);
-          nextMatches = response.nominations.map(mapAssignmentNomination);
-        }
+        const nextMatches = (await loadCalendarMatchesForUser(user, activeSeasonId))
+          .map(mapUnifiedMatchToCalendarItem);
 
         if (!isMounted) {
           return;
@@ -135,7 +114,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
     return () => {
       isMounted = false;
     };
-  }, [cacheKey, user.id, user.role]);
+  }, [activeSeasonId, cacheKey, user.id, user.role]);
 
   useEffect(() => {
     const intent = consumeNavigationIntent('calendar');
@@ -372,8 +351,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
-                          {match.gameCode}
+                        <div className="rz-game-code text-xs uppercase tracking-[0.2em] text-slate-400">
+                          {getDisplayGameCode(match.gameCode)}
                         </div>
                         <MatchTeamsHeader teams={match.teams} className="mt-1" titleClassName="text-base font-bold text-slate-900" />
                       </div>
@@ -393,7 +372,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
                       </div>
                       <div className="flex items-center gap-2">
                         <MapPin size={15} className="text-rose-500" />
-                        <span className="min-w-0 break-words">{match.venue}</span>
+                        <span className="min-w-0 break-words">{getCanonicalVenueName(match.venue)}</span>
                       </div>
                       {match.assignmentLabel ? (
                         <div className="flex items-center gap-2">

@@ -5,7 +5,9 @@ import { Award, Save, Shield, TrendingUp } from 'lucide-react';
 import { RankingDashboardData, RankingGameOption, RankingPerformanceEntry, RankingPerformanceProfile, User } from '../types';
 import { getRankingAdminData, getRankingDashboard, getTORankingAdminData, getTORankingDashboard, saveRankingPerformance } from '../services/rankingService';
 import { getRoleLabel, useI18n } from '../i18n';
+import { getDisplayGameCode, getDisplayMatchTeams, getDisplayPersonName } from '../teamLogos';
 import { readViewCache, writeViewCache } from '../services/viewCache';
+import { useSeason } from '../services/seasonContext';
 
 const scoreOptions = [-1, 0, 1];
 const CORRECTION_GAME_ID = '__correction__';
@@ -126,7 +128,7 @@ const truncateChartTeams = (value: string, maxLength = 20) => {
     return '';
   }
 
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 3)}...` : normalized;
 };
 
 const RankingChartTick = ({
@@ -172,7 +174,7 @@ interface RankingViewState {
   adminData: RankingAdminState | null;
 }
 
-const getRankingCacheKey = (userId: string, rankingMode: string) => `ranking:${rankingMode}:${userId}`;
+const getRankingCacheKey = (userId: string, rankingMode: string, seasonId: string) => `ranking:${rankingMode}:${userId}:${seasonId}`;
 
 const buildDashboardFromAdminData = (adminResponse: {
   leaderboard: RankingDashboardData['leaderboard'];
@@ -192,21 +194,20 @@ const buildDashboardFromAdminData = (adminResponse: {
 
 const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee' }) => {
   const { language, t } = useI18n();
+  const { activeSeasonId } = useSeason();
   const isInstructor = user.role === 'Instructor';
   const isStaff = user.role === 'Staff';
   const isTOSupervisor = user.role === 'TO Supervisor';
   const isTO = user.role === 'TO';
-  const isTOFlow = rankingMode === 'to';
-  const canManageSubject = (rankingMode === 'referee' && isInstructor) || (rankingMode === 'to' && isTOSupervisor);
+  const canViewRefereeRanking = isInstructor || isStaff || user.role === 'Referee';
+  const canViewTORanking = isInstructor || isStaff || isTOSupervisor || isTO;
+  const initialRankingMode = rankingMode === 'to' && canViewTORanking ? 'to' : canViewRefereeRanking ? 'referee' : 'to';
+  const [currentRankingMode, setCurrentRankingMode] = useState<'referee' | 'to'>(initialRankingMode);
+  const isTOFlow = currentRankingMode === 'to';
+  const canManageSubject = (currentRankingMode === 'referee' && isInstructor) || (currentRankingMode === 'to' && isTOSupervisor);
   const entityLabel = isTOFlow ? getRoleLabel('TO', language) : getRoleLabel('Referee', language);
   const correctionGameCode = t('ranking.correction');
-  const rankingTitle = isTOFlow
-    ? isInstructor || isStaff || isTOSupervisor
-      ? t('dashboard.navTORanking')
-      : t('ranking.myTORankingTitle')
-    : isInstructor || isStaff || isTOSupervisor
-      ? t('dashboard.navRanking')
-      : t('dashboard.navMyRanking');
+  const rankingTitle = t('dashboard.navRanking');
   const performanceFields = isTOFlow ? toPerformanceFields : refereePerformanceFields;
 
   const [dashboard, setDashboard] = useState<RankingDashboardData | null>(null);
@@ -220,7 +221,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
   const [isSavingMatchPerformance, setIsSavingMatchPerformance] = useState(false);
 
   const loadData = async () => {
-    const cacheKey = getRankingCacheKey(user.id, rankingMode);
+    const cacheKey = getRankingCacheKey(user.id, currentRankingMode, activeSeasonId);
     const cachedState = readViewCache<RankingViewState>(cacheKey);
 
     if (cachedState) {
@@ -233,15 +234,15 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
 
     try {
       const adminResponse = canManageSubject
-        ? rankingMode === 'to'
-          ? await getTORankingAdminData(user.id)
-          : await getRankingAdminData(user.id)
+        ? currentRankingMode === 'to'
+          ? await getTORankingAdminData(user.id, activeSeasonId)
+          : await getRankingAdminData(user.id, activeSeasonId)
         : null;
       const dashboardResponse = adminResponse
         ? buildDashboardFromAdminData(adminResponse)
-        : rankingMode === 'to'
-          ? await getTORankingDashboard(user.id)
-          : await getRankingDashboard(user.id);
+        : currentRankingMode === 'to'
+          ? await getTORankingDashboard(user.id, activeSeasonId)
+          : await getRankingDashboard(user.id, activeSeasonId);
       const nextAdminData = adminResponse
         ? {
             performanceEntries: adminResponse.performanceEntries,
@@ -277,8 +278,19 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
   };
 
   useEffect(() => {
+    if (currentRankingMode === 'referee' && !canViewRefereeRanking && canViewTORanking) {
+      setCurrentRankingMode('to');
+      return;
+    }
+
+    if (currentRankingMode === 'to' && !canViewTORanking && canViewRefereeRanking) {
+      setCurrentRankingMode('referee');
+    }
+  }, [canViewRefereeRanking, canViewTORanking, currentRankingMode]);
+
+  useEffect(() => {
     void loadData();
-  }, [user.id, user.role, rankingMode]);
+  }, [activeSeasonId, user.id, user.role, currentRankingMode]);
 
   const canViewFullLeaderboard = dashboard?.canViewFullLeaderboard || false;
   const rankingItems = dashboard?.leaderboard || [];
@@ -360,6 +372,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
         newPhilosophy: matchPerformanceForm.newPhilosophy,
         communication: matchPerformanceForm.communication,
         externalEvaluation: matchPerformanceForm.externalEvaluation,
+        seasonId: activeSeasonId,
       });
       await loadData();
       setMatchPerformanceForm(emptyMatchPerformanceForm);
@@ -389,6 +402,29 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
       {successMessage && (
         <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           {successMessage}
+        </div>
+      )}
+
+      {canViewRefereeRanking && canViewTORanking && (
+        <div className="mb-6 inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setCurrentRankingMode('referee')}
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+              currentRankingMode === 'referee' ? 'bg-[#57131b] text-white' : 'text-slate-700'
+            }`}
+          >
+            Referee
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentRankingMode('to')}
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+              currentRankingMode === 'to' ? 'bg-[#57131b] text-white' : 'text-slate-700'
+            }`}
+          >
+            TO
+          </button>
         </div>
       )}
 
@@ -438,7 +474,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                   <option value="">{t('ranking.selectEntity', { entity: entityLabel })}</option>
                   {adminData.referees.map((referee) => (
                     <option key={referee.id} value={referee.id}>
-                      {referee.fullName}
+                      {getDisplayPersonName(referee.fullName)}
                     </option>
                   ))}
                 </select>
@@ -474,7 +510,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                     <option value={CORRECTION_GAME_ID}>{correctionGameCode}</option>
                     {rankingGames.map((game) => (
                       <option key={game.id} value={game.id}>
-                        {`${game.gameCode} • ${game.teams} • ${game.matchDate}`}
+                        {`${getDisplayGameCode(game.gameCode)} | ${getDisplayMatchTeams(game.teams)} | ${game.matchDate}`}
                       </option>
                     ))}
                   </select>
@@ -497,7 +533,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
               </div>
               {selectedMatchPerformanceGame && (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  {selectedMatchPerformanceGame.teams}
+                  {getDisplayMatchTeams(selectedMatchPerformanceGame.teams)}
                 </div>
               )}
               <div>
@@ -565,7 +601,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                   <option value="">{t('ranking.selectEntity', { entity: entityLabel })}</option>
                   {adminData.referees.map((referee) => (
                     <option key={referee.id} value={referee.id}>
-                      {referee.fullName}
+                      {getDisplayPersonName(referee.fullName)}
                     </option>
                   ))}
                 </select>
@@ -624,7 +660,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                     labelFormatter={(label: string, payload) => {
                       const point = payload?.[0]?.payload as { date?: string; gameCode?: string; teams?: string } | undefined;
                       return point
-                        ? `${point.gameCode || label}${point.teams ? ` • ${point.teams}` : ''} • ${point.date || ''}`
+                        ? `${getDisplayGameCode(point.gameCode || label)}${point.teams ? ` | ${getDisplayMatchTeams(point.teams)}` : ''} | ${point.date || ''}`
                         : label;
                     }}
                   />
@@ -685,11 +721,11 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                     <div className="flex min-w-0 items-center gap-3">
                       <img
                         src={item.photoUrl}
-                        alt={item.refereeName}
+                        alt={getDisplayPersonName(item.refereeName)}
                         className="h-12 w-12 rounded-full object-cover border border-slate-200 bg-white"
                       />
                       <div className="min-w-0">
-                        <div className="truncate font-semibold text-slate-900">{`#${item.rank} ${item.refereeName}`}</div>
+                        <div className="truncate font-semibold text-slate-900">{`#${item.rank} ${getDisplayPersonName(item.refereeName)}`}</div>
                         <div className="text-sm text-slate-500">{t('ranking.avgShort', { value: formatAverage(item.performanceAverage) })}</div>
                       </div>
                     </div>
@@ -705,7 +741,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
               <div className="flex justify-between items-start gap-4 mb-6">
                 <div>
                   <p className="text-sm text-slate-500">{t('ranking.selectedMatchAvgTrend', { entity: entityLabel })}</p>
-                  <h3 className="text-3xl font-black text-[#581c1c]">{selectedLeaderboardItem.refereeName}</h3>
+                  <h3 className="text-3xl font-black text-[#581c1c]">{getDisplayPersonName(selectedLeaderboardItem.refereeName)}</h3>
                   <p className="text-sm text-slate-500 mt-2">{t('ranking.currentRank', { rank: selectedLeaderboardItem.rank })}</p>
                   <p className="text-sm text-slate-500 mt-1">{t('ranking.avgPerformance', { value: formatAverage(selectedLeaderboardItem.performanceAverage) })}</p>
                 </div>
@@ -727,7 +763,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
                       labelFormatter={(label: string, payload) => {
                         const point = payload?.[0]?.payload as { date?: string; gameCode?: string; teams?: string } | undefined;
                         return point
-                          ? `${point.gameCode || label}${point.teams ? ` • ${point.teams}` : ''} • ${point.date || ''}`
+                          ? `${getDisplayGameCode(point.gameCode || label)}${point.teams ? ` | ${getDisplayMatchTeams(point.teams)}` : ''} | ${point.date || ''}`
                           : label;
                       }}
                     />
@@ -757,7 +793,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
               <div key={entry.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                   <div>
-                    <div className="font-semibold text-slate-900">{entry.gameCode}</div>
+                    <div className="font-semibold text-slate-900">{getDisplayGameCode(entry.gameCode)}</div>
                     <div className="text-sm text-slate-500">{entry.evaluationDate}</div>
                   </div>
                   <div className="inline-flex rounded-full bg-[#f39200]/10 px-3 py-1 text-sm font-bold text-[#f39200]">

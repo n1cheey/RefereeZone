@@ -8,20 +8,46 @@ React/Vite frontend with Cloudflare Pages Functions and Supabase for:
 - rankings
 - instructor admin tools
 
+Product roadmap:
+
+- [docs/refzone-3-roadmap.md](/D:/RefZone%202.0/RefereeZone/docs/refzone-3-roadmap.md)
+
 ## Supabase setup
 
 1. Open Supabase SQL Editor.
 2. Run [supabase/schema.sql](/C:/Users/nikol/Documents/GitHub/RefereeZone/supabase/schema.sql).
 3. In `Authentication -> Users`, there is nothing else to create manually.
 
+## Local Supabase first
+
+This project should now be developed database-first on local Supabase, not directly on the hosted project.
+
+1. Install Docker Desktop.
+2. Install the Supabase CLI.
+3. In the project root run `npm run db:start`.
+4. Run `npm run db:status` and copy the local `API URL`, `anon key`, and `service_role key`.
+5. Paste those values into `.env.local`.
+6. Apply your schema and SQL changes locally first.
+
+Recommended workflow for every DB change:
+
+1. Create a new SQL file in `supabase/` or a real CLI migration in `supabase/migrations/`.
+2. Apply and test it on the local Supabase stack.
+3. Only after local verification, use the same SQL on hosted Supabase later.
+
 ## Environment variables
 
 Create `.env.local` for local build-time work:
 
 ```env
-VITE_SUPABASE_URL=https://your-project-ref.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+VITE_SUPABASE_URL=http://127.0.0.1:54321
+VITE_SUPABASE_PUBLISHABLE_KEY=your-local-anon-key-from-supabase-status
+VITE_APP_URL=http://localhost:3000
 VITE_TEYINAT_API_URL=https://your-teyinat-service.example.com
+VITE_DEFAULT_SEASON=2026-2027
+VITE_APP_STAGE=local
+SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_SERVICE_ROLE_KEY=your-local-service-role-key-from-supabase-status
 ```
 
 For Cloudflare Pages add these project variables:
@@ -38,9 +64,17 @@ GEMINI_API_KEY=your-gemini-api-key
 Important:
 
 - `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` are browser-safe build variables.
+- `VITE_DEFAULT_SEASON` selects the season workspace shown by default in the new shell.
+- `VITE_APP_STAGE` labels the environment as `local`, `preview`, or `production`.
 - `VITE_TEYINAT_API_URL` points the frontend to the separate Word-to-PDF export service.
 - `SUPABASE_SERVICE_ROLE_KEY` must be stored as a server secret.
 - `SUPABASE_URL` is used by Pages Functions at runtime.
+
+## Season architecture
+
+- The frontend shell now has a season workspace switch for `2025-2026` and `2026-2027`.
+- Database preparation for hard season separation is provided in [supabase/add_league_seasons.sql](/D:/RefZone%202.0/RefereeZone/supabase/add_league_seasons.sql).
+- The next backend step is to thread `season_id` through API reads and writes so nominations, reports, rankings, news, and availability can be filtered per season end-to-end.
 
 ## Local run
 
@@ -50,6 +84,17 @@ Frontend only:
 npm install
 npm run dev
 ```
+
+Useful local database commands:
+
+```powershell
+npm run db:start
+npm run db:status
+npm run db:reset
+npm run db:stop
+```
+
+For a full local stack, first start local Supabase, then run the frontend and any local API/service you need.
 
 Cloudflare Pages preview after build:
 

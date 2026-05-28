@@ -1,11 +1,16 @@
+import { ReportMode } from '../types';
+
 const NAVIGATION_INTENT_STORAGE_KEY = 'abl-navigation-intent';
 
-export type NavigationIntentView = 'chat' | 'nominations' | 'availability' | 'calendar';
+export type NavigationIntentView = 'chat' | 'nominations' | 'availability' | 'calendar' | 'matchCenter' | 'reports';
 
 export interface NavigationIntent {
   view: NavigationIntentView;
   targetId?: string;
+  targetRefereeId?: string;
   targetDate?: string;
+  reportMode?: ReportMode;
+  targetAction?: 'edit';
   createdAt: number;
 }
 

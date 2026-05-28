@@ -8,6 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "preview:cloudflare": "npx wrangler pages dev dist",
+    "db:start": "npx supabase start",
+    "db:stop": "npx supabase stop",
+    "db:status": "npx supabase status",
+    "db:reset": "npx supabase db reset",
+    "db:new-migration": "npx supabase migration new",
     "server:teyinat": "node server/teyinat-service.js",
     "lint": "tsc --noEmit"
   },

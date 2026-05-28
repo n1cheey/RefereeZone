@@ -15,7 +15,7 @@ const MatchTeamsHeader: React.FC<MatchTeamsHeaderProps> = ({
   const teamItems = splitMatchTeams(teams);
 
   return (
-    <div className={`flex flex-wrap items-center gap-3 ${className}`.trim()}>
+    <div className={`rz-ui-text flex flex-wrap items-center gap-3 ${className}`.trim()}>
       {teamItems.map((teamName, index) => {
         const displayTeamName = getCanonicalTeamName(teamName);
         const teamLogoUrl = getTeamLogoUrl(displayTeamName);
@@ -26,7 +26,7 @@ const MatchTeamsHeader: React.FC<MatchTeamsHeaderProps> = ({
                 {teamLogoUrl ? (
                   <img src={teamLogoUrl} alt={displayTeamName} className="h-full w-full object-contain" loading="lazy" />
                 ) : (
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                  <span className="rz-ui-text text-[10px] font-bold uppercase tracking-wide text-slate-400">
                     {displayTeamName
                       .split(' ')
                       .filter(Boolean)
@@ -36,10 +36,10 @@ const MatchTeamsHeader: React.FC<MatchTeamsHeaderProps> = ({
                   </span>
                 )}
               </div>
-              <h4 className={`${titleClassName} min-w-0`.trim()}>{displayTeamName}</h4>
+              <h4 className={`rz-ui-text ${titleClassName} min-w-0`.trim()}>{displayTeamName}</h4>
             </div>
             {index < teamItems.length - 1 ? (
-              <span className="text-xs font-bold uppercase tracking-[0.28em] text-slate-400">vs</span>
+              <span className="rz-ui-text text-xs font-bold uppercase tracking-[0.28em] text-slate-400">vs</span>
             ) : null}
           </React.Fragment>
         );

@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { AlarmClockPlus, ArrowRight, CheckCircle, Clock, ExternalLink, FileWarning, Pencil, Plus, Trash2, X } from 'lucide-react';
 import Layout from './Layout';
+import { getCanonicalVenueName, getDisplayGameCode, getDisplayMatchTeams, getDisplayPersonName } from '../teamLogos';
 import { ReportDetail, ReportListItem, ReportMode, ReportStatus, User } from '../types';
 import { getNominationSlotLabel, getTOSlotLabel } from '../slotLabels';
 import { deleteReport, extendReportDeadline, getReportDetail, getReports, saveReport } from '../services/reportsService';
 import { getReferees } from '../services/nominationService';
 import { isViewCacheFresh, readViewCache, writeViewCache } from '../services/viewCache';
 import { getReportStatusLabel, useI18n } from '../i18n';
+import { useSeason } from '../services/seasonContext';
+import { consumeNavigationIntent } from '../services/navigationIntent';
 
 interface ReportsProps {
   user: User;
@@ -16,9 +19,9 @@ interface ReportsProps {
 
 const FRESH_REPORTS_CACHE_WINDOW_MS = 20000;
 
-const getReportsCacheKey = (userId: string, reportMode: ReportMode) => `reports:${userId}:${reportMode}`;
-const getReportDetailCacheKey = (userId: string, reportMode: ReportMode, nominationId: string, refereeId: string) =>
-  `report-detail:${userId}:${reportMode}:${nominationId}:${refereeId}`;
+const getReportsCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) => `reports:${userId}:${reportMode}:${seasonId}`;
+const getReportDetailCacheKey = (userId: string, reportMode: ReportMode, nominationId: string, refereeId: string, seasonId: string) =>
+  `report-detail:${userId}:${reportMode}:${nominationId}:${refereeId}:${seasonId}`;
 
 const getDisplayStatus = (item: ReportListItem, role: User['role']) => {
   if (item.reportMode === 'test_to') {
@@ -72,6 +75,9 @@ const getStatusIcon = (statusLabel: string) => {
   return <FileWarning size={24} />;
 };
 
+const canShowAddTime = (item: ReportListItem | null | undefined, canAddTime: boolean) =>
+  Boolean(item?.deadlineExceeded && canAddTime && !item?.refereeReportStatus);
+
 const getEditorReport = (detail: ReportDetail, role: User['role']) => {
   if (detail.item.reportMode === 'test_to') {
     return role === 'Instructor' ? detail.instructorReport : null;
@@ -121,6 +127,8 @@ const buildFormDataFromDetail = (detail: ReportDetail, role: User['role']) => {
 
 const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard' as ReportMode }) => {
   const { language, t } = useI18n();
+  const { activeSeasonId } = useSeason();
+  const navigationIntentRef = React.useRef(typeof window === 'undefined' ? null : consumeNavigationIntent('reports'));
   const [reports, setReports] = useState<ReportListItem[]>([]);
   const [selectedDetail, setSelectedDetail] = useState<ReportDetail | null>(null);
   const [isChoosingNew, setIsChoosingNew] = useState(false);
@@ -149,18 +157,28 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
   const isTO = user.role === 'TO';
   const isTOSupervisor = user.role === 'TO Supervisor';
   const isStaff = user.role === 'Staff';
-  const isTestReportPage = reportMode === 'test_to';
-  const isTOReportPage = reportMode === 'to';
+  const canViewRefereeReports = isInstructor || isStaff || isReferee;
+  const canViewTOReports = isInstructor || isStaff || isTO || isTOSupervisor;
+  const requestedReportMode = navigationIntentRef.current?.reportMode || reportMode;
+  const initialReportMode: ReportMode =
+    requestedReportMode === 'to' && canViewTOReports ? 'to' : canViewRefereeReports ? 'standard' : 'to';
+  const [currentReportMode, setCurrentReportMode] = useState<ReportMode>(initialReportMode);
+  const [pendingIntentTarget, setPendingIntentTarget] = useState(() => {
+    const intent = navigationIntentRef.current;
+    if (!intent?.targetId || !intent.targetRefereeId) {
+      return null;
+    }
+
+    return {
+      nominationId: intent.targetId,
+      refereeId: intent.targetRefereeId,
+      reportMode: intent.reportMode || initialReportMode,
+    };
+  });
+  const isTestReportPage = currentReportMode === 'test_to';
+  const isTOReportPage = currentReportMode === 'to';
   const canWriteReportsOnPage = isTestReportPage ? isInstructor : isTOReportPage ? isTO || isTOSupervisor : isInstructor || isReferee;
-  const pageTitle = isTestReportPage
-    ? 'Report Test TO'
-    : isTOReportPage
-      ? isTO
-        ? t('reports.myTitle')
-        : t('reports.toTitle')
-      : isStaff
-        ? t('reports.title')
-        : t('reports.myTitle');
+  const pageTitle = t('reports.title');
 
   const buildNewTestReportDetail = async (): Promise<ReportDetail> => {
     const response = await getReferees(user.id);
@@ -168,6 +186,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       item: {
         nominationId: 'new',
         refereeId: '',
+        seasonId: activeSeasonId,
         gameCode: '',
         teams: '',
         matchDate: '',
@@ -202,14 +221,14 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
   };
 
   const loadReports = async () => {
-    const response = await getReports(user.id, reportMode);
+    const response = await getReports(user.id, currentReportMode, activeSeasonId);
     setReports(response.reports);
-    writeViewCache(getReportsCacheKey(user.id, reportMode), response.reports);
+    writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), response.reports);
   };
 
   useEffect(() => {
     let isMounted = true;
-    const cacheKey = getReportsCacheKey(user.id, reportMode);
+    const cacheKey = getReportsCacheKey(user.id, currentReportMode, activeSeasonId);
 
     const cachedReports = readViewCache<ReportListItem[]>(cacheKey);
     if (cachedReports) {
@@ -222,7 +241,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         setIsLoading(true);
       }
       try {
-        const response = await getReports(user.id, reportMode);
+        const response = await getReports(user.id, currentReportMode, activeSeasonId);
         if (isMounted) {
           setReports(response.reports);
           setErrorMessage('');
@@ -246,13 +265,24 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
     return () => {
       isMounted = false;
     };
-  }, [reportMode, user.id]);
+  }, [activeSeasonId, currentReportMode, user.id]);
+
+  useEffect(() => {
+    if (currentReportMode === 'standard' && !canViewRefereeReports && canViewTOReports) {
+      setCurrentReportMode('to');
+      return;
+    }
+
+    if (currentReportMode === 'to' && !canViewTOReports && canViewRefereeReports) {
+      setCurrentReportMode('standard');
+    }
+  }, [canViewRefereeReports, canViewTOReports, currentReportMode]);
 
   const openReportDetail = async (item: ReportListItem) => {
     setErrorMessage('');
     setSuccessMessage('');
 
-    const detailCacheKey = getReportDetailCacheKey(user.id, item.reportMode, item.nominationId, item.refereeId);
+    const detailCacheKey = getReportDetailCacheKey(user.id, item.reportMode, item.nominationId, item.refereeId, activeSeasonId);
     const cachedDetail = readViewCache<ReportDetail>(detailCacheKey);
     if (cachedDetail) {
       setSelectedDetail(cachedDetail);
@@ -262,7 +292,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
     }
 
     try {
-      const response = await getReportDetail(user.id, item.nominationId, item.refereeId, item.reportMode);
+      const response = await getReportDetail(user.id, item.nominationId, item.refereeId, item.reportMode, activeSeasonId);
       setSelectedDetail(response.report);
       setFormData(buildFormDataFromDetail(response.report, user.role));
       writeViewCache(detailCacheKey, response.report);
@@ -272,6 +302,27 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       setErrorMessage(error instanceof Error ? error.message : 'Failed to load report detail.');
     }
   };
+
+  useEffect(() => {
+    if (!pendingIntentTarget || pendingIntentTarget.reportMode !== currentReportMode || reports.length === 0) {
+      return;
+    }
+
+    const targetReport =
+      reports.find(
+        (item) =>
+          item.reportMode === pendingIntentTarget.reportMode &&
+          item.nominationId === pendingIntentTarget.nominationId &&
+          item.refereeId === pendingIntentTarget.refereeId,
+      ) || null;
+
+    if (!targetReport) {
+      return;
+    }
+
+    setPendingIntentTarget(null);
+    void openReportDetail(targetReport);
+  }, [currentReportMode, pendingIntentTarget, reports]);
 
   const handleSaveReport = async (action: ReportStatus) => {
     if (!selectedDetail) {
@@ -309,12 +360,13 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         generally: formData.generally,
         googleDriveUrl: formData.googleDriveUrl,
         visibleToRefereeIds: formData.visibleToRefereeId ? [formData.visibleToRefereeId] : [],
+        seasonId: activeSeasonId,
       });
 
       setSelectedDetail(response.report);
       setFormData(buildFormDataFromDetail(response.report, user.role));
       writeViewCache(
-        getReportDetailCacheKey(user.id, response.report.item.reportMode, response.report.item.nominationId, response.report.item.refereeId),
+        getReportDetailCacheKey(user.id, response.report.item.reportMode, response.report.item.nominationId, response.report.item.refereeId, activeSeasonId),
         response.report,
       );
       setIsEditingCurrentReport(false);
@@ -323,7 +375,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         action === 'Draft'
           ? 'Report saved as draft.'
           : selectedDetail.item.reportMode === 'test_to'
-            ? 'Report Test TO sent to referee.'
+            ? 'Practice report sent.'
             : selectedDetail.item.reportMode === 'to' && isTOSupervisor
               ? 'TO Supervisor response submitted.'
             : 'Report submitted.',
@@ -350,10 +402,11 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         nominationId: selectedDetail.item.nominationId,
         refereeId: selectedDetail.item.refereeId,
         mode: selectedDetail.item.reportMode,
+        seasonId: activeSeasonId,
       });
       await loadReports();
       window.sessionStorage.removeItem(
-        getReportDetailCacheKey(user.id, selectedDetail.item.reportMode, selectedDetail.item.nominationId, selectedDetail.item.refereeId),
+        getReportDetailCacheKey(user.id, selectedDetail.item.reportMode, selectedDetail.item.nominationId, selectedDetail.item.refereeId, activeSeasonId),
       );
       setSelectedDetail(null);
       setIsEditingCurrentReport(false);
@@ -461,7 +514,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       setIsChoosingNew(false);
       setIsEditingCurrentReport(false);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to open Report Test TO form.');
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to open practice report form.');
     }
   };
 
@@ -479,16 +532,16 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       selectedDetail.visibilityOptions.find((option) => option.id === (currentReport?.visibleToRefereeIds?.[0] || ''))?.fullName || '';
     const draftRecipientName =
       selectedDetail.visibilityOptions.find((option) => option.id === formData.visibleToRefereeId)?.fullName || '';
-    const displayGameCode = isTestReport && canEditForm ? formData.gameCode || 'NEW' : item.gameCode;
-    const displayTeams = isTestReport && canEditForm ? formData.teams || 'Manual Report Test TO' : item.teams;
+    const displayGameCode = isTestReport && canEditForm ? formData.gameCode || 'NEW' : getDisplayGameCode(item.gameCode);
+    const displayTeams = isTestReport && canEditForm ? formData.teams || 'Practice Report' : getDisplayMatchTeams(item.teams);
     const displayDateLine =
       isTestReport && canEditForm
-        ? [formData.matchDate, formData.matchTime, formData.venue].filter(Boolean).join(' | ')
-        : `${item.matchDate} at ${item.matchTime} | ${item.venue}`;
+        ? [formData.matchDate, formData.matchTime, getCanonicalVenueName(formData.venue)].filter(Boolean).join(' | ')
+        : `${item.matchDate} at ${item.matchTime} | ${getCanonicalVenueName(item.venue)}`;
     const slotLabel = isTOReport ? getTOSlotLabel(item.slotNumber, language) : getNominationSlotLabel(item.slotNumber, language);
-    const detailTitle = isTestReport ? 'Report Test TO' : isTOReport ? t('reports.toReport') : 'Report';
+    const detailTitle = isTestReport ? 'TO Practice Report' : isTOReport ? t('reports.toReport') : 'Report';
     const writeSectionTitle = isTestReport
-      ? 'Report Test TO'
+      ? 'TO Practice Report'
       : isTOReport
         ? isTOSupervisor
           ? t('reports.toSupervisorResponse')
@@ -511,22 +564,22 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         )}
 
         <div className="mb-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="text-xs font-bold uppercase text-[#581c1c]">{displayGameCode}</div>
+          <div className="rz-game-code text-xs uppercase text-[#581c1c]">{displayGameCode}</div>
           <h3 className="mt-1 text-xl font-bold text-slate-900">{displayTeams}</h3>
           <p className="mt-2 text-sm text-slate-500">{displayDateLine || 'Fill the game details below.'}</p>
           {isTestReport ? (
             <p className="mt-1 text-sm text-slate-500">
-              {`Send To: ${canEditForm ? draftRecipientName || 'Select referee below' : selectedRecipientName || item.refereeName || 'No referee selected'}`}
+              {`Send To: ${canEditForm ? getDisplayPersonName(draftRecipientName) || 'Select referee below' : getDisplayPersonName(selectedRecipientName || item.refereeName) || 'No referee selected'}`}
             </p>
           ) : (
-            <p className="mt-1 text-sm text-slate-500">{`${slotLabel}: ${item.refereeName}`}</p>
+            <p className="mt-1 text-sm text-slate-500">{`${slotLabel}: ${getDisplayPersonName(item.refereeName)}`}</p>
           )}
         </div>
 
         {!isTestReport && item.deadlineExceeded && item.deadlineMessage && (
           <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             <div>{item.deadlineMessage}</div>
-            {item.reportMode === 'standard' && isInstructor && selectedDetail.canAddTime && (
+            {item.reportMode === 'standard' && isInstructor && canShowAddTime(item, selectedDetail.canAddTime) && (
               <button
                 onClick={() => handleAddTime(item.nominationId, item.refereeId)}
                 disabled={isSaving}
@@ -602,7 +655,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
         {isTestReport && !isInstructor && (
           <div className="mb-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-            <h3 className="mb-3 text-base font-bold text-slate-900">Report Test TO</h3>
+            <h3 className="mb-3 text-base font-bold text-slate-900">TO Practice Report</h3>
             {!selectedDetail.instructorReport ? (
               <p className="text-sm text-slate-500">This report is not available yet.</p>
             ) : (
@@ -708,7 +761,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                       <div className="text-xs font-bold uppercase text-slate-500">Game Code</div>
-                      <div className="mt-1 text-sm font-semibold text-slate-900">{item.gameCode}</div>
+                      <div className="rz-game-code mt-1 text-sm text-slate-900">{getDisplayGameCode(item.gameCode)}</div>
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                       <div className="text-xs font-bold uppercase text-slate-500">Date</div>
@@ -716,7 +769,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 md:col-span-2">
                       <div className="text-xs font-bold uppercase text-slate-500">Game</div>
-                      <div className="mt-1 text-sm font-semibold text-slate-900">{item.teams}</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{getDisplayMatchTeams(item.teams)}</div>
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                       <div className="text-xs font-bold uppercase text-slate-500">Time</div>
@@ -724,7 +777,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                       <div className="text-xs font-bold uppercase text-slate-500">Venue</div>
-                      <div className="mt-1 text-sm font-semibold text-slate-900">{item.venue}</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{getCanonicalVenueName(item.venue)}</div>
                     </div>
                   </div>
                 )}
@@ -856,6 +909,29 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
   return (
     <Layout title={pageTitle} onBack={onBack}>
+      {canViewRefereeReports && canViewTOReports && (
+        <div className="mb-6 inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setCurrentReportMode('standard')}
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+              currentReportMode === 'standard' ? 'bg-[#57131b] text-white' : 'text-slate-700'
+            }`}
+          >
+            Referee
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentReportMode('to')}
+            className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+              currentReportMode === 'to' ? 'bg-[#57131b] text-white' : 'text-slate-700'
+            }`}
+          >
+            TO
+          </button>
+        </div>
+      )}
+
       {errorMessage && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {errorMessage}
@@ -882,7 +958,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
             className="flex items-center gap-1 rounded-full bg-[#581c1c]/5 px-3 py-1.5 text-xs font-bold text-[#581c1c]"
           >
             {isChoosingNew ? <X size={14} /> : <Plus size={14} />}
-            {isTestReportPage ? 'New Report Test TO' : t('reports.newReport')}
+            {isTestReportPage ? 'New Practice Report' : t('reports.newReport')}
           </button>
         </div>
       )}
@@ -900,10 +976,10 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                   onClick={() => openReportDetail(item)}
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left"
                 >
-                  <div className="text-xs font-bold uppercase text-[#581c1c]">{item.gameCode}</div>
-                  <div className="mt-1 font-semibold text-slate-900">{item.teams}</div>
+                  <div className="rz-game-code text-xs uppercase text-[#581c1c]">{getDisplayGameCode(item.gameCode)}</div>
+                  <div className="mt-1 font-semibold text-slate-900">{getDisplayMatchTeams(item.teams)}</div>
                   <div className="mt-1 text-sm text-slate-500">{`${item.matchDate} at ${item.matchTime}`}</div>
-                  <div className="text-sm text-slate-500">{item.refereeName}</div>
+                  <div className="rz-ui-text text-sm text-slate-500">{getDisplayPersonName(item.refereeName)}</div>
                 </button>
               ))}
             </div>
@@ -915,7 +991,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         <p className="text-sm text-slate-500">{t('reports.loading')}</p>
       ) : reports.length === 0 ? (
         <div className="rounded-xl border border-slate-100 bg-white p-4 text-sm text-slate-500">
-          {isTestReportPage ? 'No Report Test TO found.' : isTOReportPage ? t('reports.toNone') : t('reports.none')}
+          {isTestReportPage ? 'No practice reports found.' : isTOReportPage ? t('reports.toNone') : t('reports.none')}
         </div>
       ) : (
         <div className="space-y-4">
@@ -930,12 +1006,12 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                 <div className="flex items-center gap-4">
                   <div className={`rounded-xl p-3 ${getStatusClasses(statusLabel)}`}>{getStatusIcon(statusLabel)}</div>
                   <div>
-                    <div className="font-bold text-slate-800">{`${report.gameCode} | ${report.teams}`}</div>
+                    <div className="font-bold text-slate-800">{`${getDisplayGameCode(report.gameCode)} | ${getDisplayMatchTeams(report.teams)}`}</div>
                     <div className="text-xs text-slate-500">
-                      {`${report.matchDate} | ${report.refereeName} | ${report.reportMode === 'to' ? getTOSlotLabel(report.slotNumber, language) : getNominationSlotLabel(report.slotNumber, language)} | ${getReportStatusLabel(statusLabel, language)}`}
+                      {`${report.matchDate} | ${getDisplayPersonName(report.refereeName)} | ${report.reportMode === 'to' ? getTOSlotLabel(report.slotNumber, language) : getNominationSlotLabel(report.slotNumber, language)} | ${getReportStatusLabel(statusLabel, language)}`}
                     </div>
                     {report.reportMode === 'test_to' && (
-                      <div className="mt-1 text-[11px] text-slate-400">Type: Report Test TO</div>
+                      <div className="mt-1 text-[11px] text-slate-400">Type: Practice report</div>
                     )}
                     {report.reportMode === 'to' && (
                       <div className="mt-1 text-[11px] text-slate-400">
@@ -947,13 +1023,13 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                         {`Referee report: ${report.refereeReportStatus ? getReportStatusLabel(report.refereeReportStatus, language) : t('reports.notSubmitted')} | Instructor report: ${report.instructorReportStatus ? getReportStatusLabel(report.instructorReportStatus, language) : t('reports.notStarted')}`}
                       </div>
                     )}
-                    {report.reportMode === 'standard' && isInstructor && report.deadlineExceeded && report.deadlineMessage && (
+                    {report.reportMode === 'standard' && isInstructor && report.deadlineExceeded && !report.refereeReportStatus && report.deadlineMessage && (
                       <div className="mt-2 text-[11px] font-semibold text-red-600">{report.deadlineMessage}</div>
                     )}
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
-                  {report.reportMode === 'standard' && isInstructor && report.canAddTime && (
+                  {report.reportMode === 'standard' && isInstructor && canShowAddTime(report, report.canAddTime) && (
                     <button
                       type="button"
                       onClick={(event) => {

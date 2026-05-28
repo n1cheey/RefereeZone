@@ -2,11 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Calendar, Clock, Download, MapPin } from 'lucide-react';
 import Layout from './Layout';
 import MatchTeamsHeader from './MatchTeamsHeader';
+import { getCanonicalVenueName, getDisplayGameCode, getDisplayPersonName } from '../teamLogos';
 import { getNominationSlotLabel } from '../slotLabels';
 import { exportTeyinatPdf, TeyinatGroup } from '../services/teyinatPdf';
 import { getInstructorNominations } from '../services/nominationService';
 import { InstructorNomination, User } from '../types';
 import { useI18n } from '../i18n';
+import { useSeason } from '../services/seasonContext';
 
 interface TeyinatProps {
   user: User;
@@ -18,6 +20,7 @@ const MAX_GROUP_GAMES = 3;
 
 const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
   const { language, t } = useI18n();
+  const { activeSeasonId } = useSeason();
   const [nominations, setNominations] = useState<InstructorNomination[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [groupSelections, setGroupSelections] = useState<Record<string, TeyinatGroup>>({});
@@ -32,7 +35,7 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
     const load = async () => {
       setIsLoading(true);
       try {
-        const response = await getInstructorNominations(user.id);
+        const response = await getInstructorNominations(user.id, activeSeasonId);
         if (!isMounted) {
           return;
         }
@@ -70,7 +73,7 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
     return () => {
       isMounted = false;
     };
-  }, [user.id, user.role]);
+  }, [activeSeasonId, user.id, user.role]);
 
   const selectedNominations = useMemo(
     () =>
@@ -208,7 +211,7 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
                       className="mt-1 h-4 w-4 rounded border-slate-300 text-[#581c1c] focus:ring-[#581c1c]"
                     />
                     <div>
-                      <div className="text-xs font-bold uppercase tracking-wide text-[#581c1c]">{nomination.gameCode}</div>
+                      <div className="rz-game-code text-xs uppercase tracking-wide text-[#581c1c]">{getDisplayGameCode(nomination.gameCode)}</div>
                       <MatchTeamsHeader teams={nomination.teams} className="mt-1" titleClassName="text-lg font-bold text-slate-900" />
                       <div className="mt-3 grid gap-2 text-sm text-slate-600 md:grid-cols-3">
                         <div className="flex items-center gap-2">
@@ -221,7 +224,7 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
                         </div>
                         <div className="flex items-center gap-2 md:col-span-3 lg:col-span-1">
                           <MapPin size={14} className="text-[#f97316]" />
-                          {nomination.venue}
+                          {getCanonicalVenueName(nomination.venue)}
                         </div>
                       </div>
                       <div className="mt-4 flex items-center gap-3">
@@ -253,7 +256,7 @@ const Teyinat: React.FC<TeyinatProps> = ({ user, onBack }) => {
                           <div className="text-xs font-bold uppercase text-slate-500">
                             {getNominationSlotLabel(referee.slotNumber, language)}
                           </div>
-                          <div className="mt-1 font-semibold text-slate-900">{referee.refereeName}</div>
+                          <div className="rz-ui-text mt-1 font-semibold text-slate-900">{getDisplayPersonName(referee.refereeName)}</div>
                         </div>
                       ))}
                   </div>
