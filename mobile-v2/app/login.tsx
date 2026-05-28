@@ -27,6 +27,8 @@ export default function LoginScreen() {
   const { user, login, initializing, enableBiometricUnlock, savePin } = useAuth();
   const [country, setCountry] = useState<CountryCode>('az');
   const [discipline, setDiscipline] = useState<DisciplineCode>('basketball');
+  const [countryOpen, setCountryOpen] = useState(false);
+  const [disciplineOpen, setDisciplineOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
@@ -56,6 +58,7 @@ export default function LoginScreen() {
       if (biometricSupported) {
         await enableBiometricUnlock();
       }
+
       router.replace('/home');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Authentication failed.');
@@ -97,47 +100,71 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.field}>
-              <Text style={styles.label}>{t('auth.countryLabel')}</Text>
-              <View style={styles.selectionRow}>
-                {COUNTRY_OPTIONS.map((item) => (
-                  <Pressable
-                    key={item.code}
-                    onPress={() => setCountry(item.code)}
-                    style={[styles.selectionCard, country === item.code && styles.selectionCardActive]}
-                  >
-                    <Text style={styles.flag}>{item.flag}</Text>
-                    <Text style={[styles.selectionText, country === item.code && styles.selectionTextActive]}>
-                      {item.name[language]}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
+              <Text style={styles.label}>{t('auth.accessLabel')}</Text>
+              <View style={styles.selectorRow}>
+                <Pressable
+                  onPress={() => {
+                    setCountryOpen((value) => !value);
+                    setDisciplineOpen(false);
+                  }}
+                  style={[styles.countrySelector, countryOpen && styles.selectorActive]}
+                >
+                  <Text style={styles.selectorFlag}>{currentCountry.flag}</Text>
+                  <Text style={styles.selectorChevron}>{countryOpen ? '▲' : '▼'}</Text>
+                </Pressable>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>{t('auth.disciplineLabel')}</Text>
-              <View style={styles.selectionRow}>
-                {DISCIPLINE_OPTIONS.map((item) => (
-                  <Pressable
-                    key={item.code}
-                    onPress={() => setDiscipline(item.code)}
-                    style={[styles.selectionCard, discipline === item.code && styles.selectionCardActive]}
-                  >
-                    <Text style={[styles.selectionText, discipline === item.code && styles.selectionTextActive]}>
-                      {item.label[language]}
-                    </Text>
-                  </Pressable>
-                ))}
+                <Pressable
+                  onPress={() => {
+                    setDisciplineOpen((value) => !value);
+                    setCountryOpen(false);
+                  }}
+                  style={[styles.disciplineSelector, disciplineOpen && styles.selectorActive]}
+                >
+                  <Text style={styles.disciplineSelectorText}>{currentDiscipline.label[language]}</Text>
+                  <Text style={styles.selectorChevron}>{disciplineOpen ? '▲' : '▼'}</Text>
+                </Pressable>
               </View>
-            </View>
 
-            <View style={styles.inlineSummary}>
-              <View style={styles.summaryPill}>
-                <Text style={styles.summaryPillText}>{currentCountry.flag} {currentCountry.name[language]}</Text>
-              </View>
-              <View style={styles.summaryPill}>
-                <Text style={styles.summaryPillText}>{currentDiscipline.label[language]}</Text>
-              </View>
+              {countryOpen ? (
+                <View style={styles.optionSheet}>
+                  <Text style={styles.optionSheetTitle}>{t('auth.selectCountry')}</Text>
+                  {COUNTRY_OPTIONS.map((item) => (
+                    <Pressable
+                      key={item.code}
+                      onPress={() => {
+                        setCountry(item.code);
+                        setCountryOpen(false);
+                      }}
+                      style={[styles.optionRow, country === item.code && styles.optionRowActive]}
+                    >
+                      <Text style={styles.optionFlag}>{item.flag}</Text>
+                      <Text style={[styles.optionText, country === item.code && styles.optionTextActive]}>
+                        {item.name[language]}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+
+              {disciplineOpen ? (
+                <View style={styles.optionSheet}>
+                  <Text style={styles.optionSheetTitle}>{t('auth.selectDiscipline')}</Text>
+                  {DISCIPLINE_OPTIONS.map((item) => (
+                    <Pressable
+                      key={item.code}
+                      onPress={() => {
+                        setDiscipline(item.code);
+                        setDisciplineOpen(false);
+                      }}
+                      style={[styles.optionRow, discipline === item.code && styles.optionRowActive]}
+                    >
+                      <Text style={[styles.optionText, discipline === item.code && styles.optionTextActive]}>
+                        {item.label[language]}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.field}>
@@ -160,7 +187,7 @@ export default function LoginScreen() {
                 onChangeText={setPassword}
                 autoCapitalize="none"
                 secureTextEntry
-                placeholder="••••••••"
+                placeholder="********"
                 placeholderTextColor={theme.colors.muted}
                 style={styles.input}
               />
@@ -227,30 +254,31 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    gap: 18,
+    gap: 14,
   },
   hero: {
     backgroundColor: theme.colors.primary,
     borderRadius: theme.radius.lg,
-    padding: 24,
-    gap: 10,
+    paddingHorizontal: 22,
+    paddingVertical: 18,
+    gap: 8,
   },
   heroEyebrow: {
     color: 'rgba(255,255,255,0.72)',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
-    letterSpacing: 1.8,
+    letterSpacing: 1.4,
   },
   heroTitle: {
     color: theme.colors.white,
-    fontSize: 32,
-    lineHeight: 36,
+    fontSize: 26,
+    lineHeight: 30,
     fontWeight: '900',
   },
   heroSubtitle: {
     color: 'rgba(255,255,255,0.84)',
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
   },
   card: {
     backgroundColor: theme.colors.card,
@@ -291,50 +319,92 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
     textTransform: 'uppercase',
   },
-  selectionRow: {
-    gap: 10,
-  },
-  selectionCard: {
+  selectorRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    alignItems: 'stretch',
+    gap: 12,
+  },
+  countrySelector: {
+    width: 92,
     minHeight: 56,
     borderRadius: theme.radius.sm,
-    backgroundColor: theme.colors.canvasAlt,
     borderWidth: 1,
     borderColor: theme.colors.line,
+    backgroundColor: theme.colors.canvasAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  disciplineSelector: {
+    flex: 1,
+    minHeight: 56,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.canvasAlt,
     paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexDirection: 'row',
   },
-  selectionCardActive: {
-    backgroundColor: theme.colors.primary,
+  selectorActive: {
     borderColor: theme.colors.primary,
+    backgroundColor: '#efe7de',
   },
-  flag: {
-    fontSize: 22,
+  selectorFlag: {
+    fontSize: 26,
   },
-  selectionText: {
+  selectorChevron: {
+    color: theme.colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  disciplineSelectorText: {
     color: theme.colors.text,
     fontSize: 15,
     fontWeight: '800',
   },
-  selectionTextActive: {
-    color: theme.colors.white,
-  },
-  inlineSummary: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  optionSheet: {
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.canvasAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    padding: 12,
     gap: 8,
   },
-  summaryPill: {
-    borderRadius: 999,
-    backgroundColor: '#efe7de',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  summaryPillText: {
-    color: theme.colors.primary,
+  optionSheetTitle: {
+    color: theme.colors.muted,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  optionRow: {
+    minHeight: 52,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.card,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  optionRowActive: {
+    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.primary,
+  },
+  optionFlag: {
+    fontSize: 22,
+  },
+  optionText: {
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  optionTextActive: {
+    color: theme.colors.white,
   },
   input: {
     minHeight: 56,

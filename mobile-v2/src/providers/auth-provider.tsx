@@ -1,14 +1,18 @@
 import { ReactNode, createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { AppState } from 'react-native';
 
-import { loginUser } from '@/src/services/auth-service';
+import {
+  getCurrentUserProfile,
+  loginUser,
+  logoutUser,
+  subscribeToAuthChanges,
+} from '@/src/services/auth-service';
 import { canUseBiometrics, requestBiometricUnlock } from '@/src/services/biometric-service';
 import { secureStore } from '@/src/services/secure-store';
 import { User, UnlockPreferences } from '@/src/types/domain';
 import { hashPin } from '@/src/utils/hash';
 
-const AUTH_USER_KEY = 'refzone-mobile-v2:user';
-const UNLOCK_PREFS_KEY = 'refzone-mobile-v2:unlock-prefs';
+const UNLOCK_PREFS_KEY = 'refzone_mobile_v2_unlock_prefs';
 
 interface AuthContextValue {
   user: User | null;
@@ -42,35 +46,76 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let isMounted = true;
 
     const bootstrap = async () => {
-      const [storedUser, storedPrefs] = await Promise.all([
-        secureStore.get(AUTH_USER_KEY),
-        secureStore.get(UNLOCK_PREFS_KEY),
-      ]);
+      const storedPrefs = await secureStore.get(UNLOCK_PREFS_KEY);
+      const parsedPrefs = storedPrefs ? (JSON.parse(storedPrefs) as UnlockPreferences) : defaultUnlockPreferences;
 
       if (!isMounted) {
         return;
       }
 
-      if (storedUser) {
-        setUser(JSON.parse(storedUser) as User);
-      }
+      setUnlockPreferences(parsedPrefs);
 
-      if (storedPrefs) {
-        setUnlockPreferences(JSON.parse(storedPrefs) as UnlockPreferences);
-      }
+      try {
+        const restoredUser = await getCurrentUserProfile();
 
-      if (storedUser && storedPrefs) {
-        const parsedPrefs = JSON.parse(storedPrefs) as UnlockPreferences;
-        if ((parsedPrefs.biometricEnabled || parsedPrefs.pinEnabled) && parsedPrefs.lockOnLaunch) {
+        if (!isMounted) {
+          return;
+        }
+
+        setUser(restoredUser);
+
+        if (
+          restoredUser &&
+          (parsedPrefs.biometricEnabled || parsedPrefs.pinEnabled) &&
+          parsedPrefs.lockOnLaunch
+        ) {
           setLocked(true);
         }
+      } catch {
+        if (isMounted) {
+          setUser(null);
+          setLocked(false);
+        }
+      } finally {
+        if (isMounted) {
+          setInitializing(false);
+        }
       }
-
-      setInitializing(false);
     };
 
     void bootstrap();
 
+    const authSubscription = subscribeToAuthChanges((_event, session) => {
+      if (!isMounted) {
+        return;
+      }
+
+      if (!session) {
+        setUser(null);
+        setLocked(false);
+        return;
+      }
+
+      void getCurrentUserProfile()
+        .then((nextUser) => {
+          if (isMounted) {
+            setUser(nextUser);
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setUser(null);
+          }
+        });
+    });
+
+    return () => {
+      isMounted = false;
+      authSubscription.data.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
         return;
@@ -82,7 +127,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => {
-      isMounted = false;
       subscription.remove();
     };
   }, [unlockPreferences, user]);
@@ -95,12 +139,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       unlockPreferences,
       login: async (email, password) => {
         const response = await loginUser({ email, password });
-        await secureStore.set(AUTH_USER_KEY, JSON.stringify(response.user));
         setUser(response.user);
         setLocked(false);
       },
       logout: async () => {
-        await secureStore.remove(AUTH_USER_KEY);
+        await logoutUser();
         setUser(null);
         setLocked(false);
       },

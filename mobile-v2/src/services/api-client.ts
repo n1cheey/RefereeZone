@@ -1,4 +1,5 @@
 import { env } from '@/src/config/env';
+import { supabase } from '@/src/services/supabase-client';
 
 const API_TIMEOUT_MS = 20000;
 const API_RETRY_DELAY_MS = 350;
@@ -18,6 +19,12 @@ const delay = (timeoutMs: number) =>
     setTimeout(resolve, timeoutMs);
   });
 
+const isAbortError = (error: unknown) =>
+  typeof error === 'object' &&
+  error !== null &&
+  'name' in error &&
+  (error as { name?: string }).name === 'AbortError';
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = String(options.method || 'GET').toUpperCase();
   const canRetry = method === 'GET' || method === 'HEAD';
@@ -27,25 +34,33 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
     try {
+      const { data } = await supabase.auth.getSession();
+      const headers = new Headers(options.headers || {});
+
+      if (data.session?.access_token && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${data.session.access_token}`);
+      }
+
       const response = await fetch(`${env.apiBaseUrl}${path}`, {
         ...options,
+        headers,
         signal: controller.signal,
       });
 
       const text = await response.text();
-      const data = text ? JSON.parse(text) : null;
+      const responseData = text ? JSON.parse(text) : null;
 
       if (!response.ok) {
         throw new ApiRequestError(
-          typeof data?.message === 'string' ? data.message : 'Request failed.',
+          typeof responseData?.message === 'string' ? responseData.message : 'Request failed.',
           response.status,
         );
       }
 
-      return data as T;
+      return responseData as T;
     } catch (error) {
       const isLastAttempt = attempt === (canRetry ? 2 : 0);
-      const isAbort = error instanceof DOMException && error.name === 'AbortError';
+      const isAbort = isAbortError(error);
       const isNetwork = error instanceof TypeError;
 
       if (!isLastAttempt && (isAbort || isNetwork)) {
