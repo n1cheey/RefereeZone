@@ -192,6 +192,8 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     referee3: '',
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const createNominationFormRef = useRef<HTMLFormElement>(null);
+  const createNominationCodeInputRef = useRef<HTMLInputElement>(null);
   const permissions = getUserPermissions(user);
   const isInstructor = permissions.isInstructor;
   const isStaff = permissions.isStaff;
@@ -201,6 +203,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
   const isStatisticSupervisor = isTOSupervisor && user.licenseNumber === STATISTIC_SUPERVISOR_LICENSE;
   const isTO = permissions.isTO;
   const canUseEarningsCalculator = permissions.isReferee || permissions.isTO;
+  const canOpenCalendar = permissions.canOpenCalendar;
   const canOpenCalculation = permissions.canOpenCalculation;
   const canUseAvailability = permissions.canUseAvailability;
   const dashboardCacheKey = getDashboardCacheKey(user.id, user.role, activeSeasonId);
@@ -694,6 +697,21 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
     } finally {
       setIsSubmittingCreate(false);
     }
+  };
+
+  const handleOpenCreateNomination = () => {
+    setShowCreateForm((previous) => {
+      const nextValue = !previous;
+
+      if (!previous) {
+        window.setTimeout(() => {
+          createNominationFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          createNominationCodeInputRef.current?.focus();
+        }, 0);
+      }
+
+      return nextValue;
+    });
   };
 
   const handleNominationResponse = async (nominationId: string, response: 'Accepted' | 'Declined', assignmentId: string) => {
@@ -2103,7 +2121,7 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
         type="button"
         title={t('dashboard.createNomination')}
         aria-label={t('dashboard.createNomination')}
-        onClick={() => setShowCreateForm((prev) => !prev)}
+        onClick={handleOpenCreateNomination}
         className={`inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#57131b]/20 shadow-sm transition hover:-translate-y-0.5 ${
           showCreateForm ? 'bg-[#7b1f29] text-white' : 'bg-[#57131b] text-white'
         }`}
@@ -2283,11 +2301,12 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
       {isInstructor && (
         <div className="space-y-5 mb-8">
           {showCreateForm && (
-            <form onSubmit={handleCreateNomination} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
+            <form ref={createNominationFormRef} onSubmit={handleCreateNomination} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="md:col-span-2">
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Game Number</label>
                   <input
+                    ref={createNominationCodeInputRef}
                     required
                     value={form.gameCode}
                     onChange={(e) => updateFormField('gameCode', e.target.value)}
