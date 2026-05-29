@@ -36,6 +36,7 @@ export interface RefereeDirectoryItem {
   fullName: string;
   email: string;
   licenseNumber: string;
+  photoUrl?: string;
   role: UserRole;
   unavailableRanges?: AvailabilityDateRange[];
 }

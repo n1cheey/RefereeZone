@@ -3852,6 +3852,7 @@ const listReferees = async (admin, currentUser) => {
     fullName: row.full_name,
     email: row.email,
     licenseNumber: row.license_number || 'Pending',
+    photoUrl: row.photo_url || DEFAULT_PHOTO_URL,
     role: row.role,
   }));
 
