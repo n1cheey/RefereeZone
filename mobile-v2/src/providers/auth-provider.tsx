@@ -9,6 +9,7 @@ import {
 } from '@/src/services/auth-service';
 import { canUseBiometrics, requestBiometricUnlock } from '@/src/services/biometric-service';
 import { registerDevicePushToken, unregisterDevicePushToken } from '@/src/services/push-service';
+import { queryClient } from '@/src/services/query-client';
 import { secureStore } from '@/src/services/secure-store';
 import { User, UnlockPreferences } from '@/src/types/domain';
 import { hashPin } from '@/src/utils/hash';
@@ -113,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (!session) {
+        void queryClient.clear();
         setUser(null);
         setLocked(false);
         setRequiresBiometricSetup(false);
@@ -180,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       requiresPinSetup: Boolean(user && !unlockPreferences.pinEnabled),
       requiresBiometricSetup,
       login: async (email, password) => {
+        await queryClient.clear();
         const response = await loginUser({ email, password });
         setUser(response.user);
         void registerDevicePushToken(response.user.id).catch(() => undefined);
@@ -191,6 +194,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await logoutUser();
         await secureStore.remove(UNLOCK_PREFS_KEY);
         await secureStore.remove(LAST_INACTIVE_AT_KEY);
+        await queryClient.clear();
         setUser(null);
         setLocked(false);
         setUnlockPreferences(defaultUnlockPreferences);

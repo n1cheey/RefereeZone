@@ -43,18 +43,24 @@ export default function HomeScreen() {
     queryKey: ['mobile-home-games', user?.id],
     queryFn: () => getMyGames(user!, '2026-2027'),
     enabled: Boolean(user),
+    staleTime: 30_000,
+    retry: 2,
   });
 
   const chatQuery = useQuery({
-    queryKey: ['mobile-home-chat'],
+    queryKey: ['mobile-home-chat', user?.id],
     queryFn: getMobileChatBootstrap,
     enabled: Boolean(user),
+    staleTime: 30_000,
+    retry: 2,
   });
 
   const newsQuery = useQuery({
-    queryKey: ['mobile-home-news'],
+    queryKey: ['mobile-home-news', user?.id],
     queryFn: getMobileNews,
     enabled: Boolean(user),
+    staleTime: 60_000,
+    retry: 2,
   });
 
   const announcementQuery = useQuery({

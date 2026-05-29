@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useMemo, useState } from 'react';
 
+import { Avatar } from '@/src/components/avatar';
 import { ScreenShell, sharedStyles } from '@/src/components/screen-shell';
 import { useAuth } from '@/src/providers/auth-provider';
 import { useLanguage } from '@/src/providers/language-provider';
@@ -24,6 +25,10 @@ const getVisibleStatus = (report: any, role: string) =>
     ? report.instructorReportStatus || report.refereeReportStatus || 'No Report'
     : report.refereeReportStatus || report.instructorReportStatus || 'No Report';
 
+const isReviewed = (report: any) => report.instructorReportStatus === 'Reviewed';
+const isSubmitted = (report: any) => report.refereeReportStatus === 'Submitted' && !isReviewed(report);
+const isOverdue = (report: any) => report.deadlineExceeded && !isReviewed(report);
+
 export default function ReportsScreen() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -31,6 +36,7 @@ export default function ReportsScreen() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [mode, setMode] = useState<'standard' | 'to'>(user?.role === 'TO' || user?.role === 'TO Supervisor' ? 'to' : 'standard');
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
 
   const reportsQuery = useQuery({
     queryKey: ['mobile-reports', user?.id, user?.role, seasonId, mode],
@@ -50,8 +56,36 @@ export default function ReportsScreen() {
 
   const reports = useMemo(() => reportsQuery.data?.reports || [], [reportsQuery.data?.reports]);
   const showModeToggle = user?.role === 'Instructor' || user?.role === 'Staff';
-  const overdueCount = reports.filter((report) => report.deadlineExceeded).length;
-  const submittedCount = reports.filter((report) => getVisibleStatus(report, user?.role || '') === 'Submitted').length;
+  const usesProfileOverview =
+    (user?.role === 'Instructor' && (mode === 'standard' || mode === 'to')) ||
+    (user?.role === 'TO Supervisor' && mode === 'to');
+
+  const availableReports = reports.filter((report) => isSubmitted(report));
+  const profiles = Object.values(
+    reports.reduce<Record<string, { id: string; name: string; photoUrl?: string | null; submittedCount: number; overdueCount: number }>>((acc, report) => {
+      if (!acc[report.refereeId]) {
+        acc[report.refereeId] = {
+          id: report.refereeId,
+          name: report.refereeName,
+          photoUrl: report.photoUrl || null,
+          submittedCount: 0,
+          overdueCount: 0,
+        };
+      }
+      if (isSubmitted(report)) {
+        acc[report.refereeId].submittedCount += 1;
+      }
+      if (isOverdue(report)) {
+        acc[report.refereeId].overdueCount += 1;
+      }
+      return acc;
+    }, {}),
+  );
+
+  const selectedReports = selectedProfileId ? reports.filter((report) => report.refereeId === selectedProfileId) : [];
+  const selectedSubmitted = selectedReports.filter((report) => isSubmitted(report) && !report.deadlineExceeded);
+  const selectedOverdue = selectedReports.filter((report) => isOverdue(report));
+  const selectedReviewed = selectedReports.filter((report) => isReviewed(report));
 
   if (!user) {
     return <Redirect href="/login" />;
@@ -61,6 +95,53 @@ export default function ReportsScreen() {
     return <Redirect href="/home" />;
   }
 
+  const renderReportCard = (report: any, allowAddTime = false) => {
+    const visibleStatus = getVisibleStatus(report, user.role);
+    const tone = STATUS_TONE[visibleStatus] || { bg: theme.colors.canvasAlt, fg: theme.colors.primary };
+
+    return (
+      <Pressable
+        key={`${report.nominationId}-${report.refereeId}-${report.reportMode}`}
+        style={[sharedStyles.sectionCard, styles.reportCard]}
+        onPress={() =>
+          router.push(
+            `/reports/${report.nominationId}/${report.refereeId}?mode=${user.role === 'TO' || user.role === 'TO Supervisor' ? 'to' : mode}` as never,
+          )
+        }
+      >
+        <View style={styles.reportTopRow}>
+          <Text style={styles.gameCode}>{report.gameCode}</Text>
+          <View style={styles.topActions}>
+            {allowAddTime ? (
+              <Pressable
+                style={styles.addTimeButton}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  void extendMutation.mutate({ nominationId: report.nominationId, refereeId: report.refereeId });
+                }}
+              >
+                <Text style={styles.addTimeButtonText}>Add Time</Text>
+              </Pressable>
+            ) : null}
+            <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
+              <Text style={[styles.statusPillText, { color: tone.fg }]}>{visibleStatus.toUpperCase()}</Text>
+            </View>
+          </View>
+        </View>
+
+        <Text style={styles.teams}>{report.teams}</Text>
+        <Text style={styles.meta}>{formatDateLabel(report.matchDate)}</Text>
+        <Text style={styles.meta}>{report.refereeName}</Text>
+        <Text style={styles.meta}>
+          {formatTimeLabel(report.matchTime)} - {report.venue}
+        </Text>
+        {report.reviewScore !== null ? <Text style={styles.scoreText}>Score: {report.reviewScore}</Text> : null}
+        {report.reportDeadlineAt ? <Text style={styles.deadlineText}>Deadline: {formatDateTimeLabel(report.reportDeadlineAt)}</Text> : null}
+        {report.deadlineMessage ? <Text style={styles.warningText}>{report.deadlineMessage}</Text> : null}
+      </Pressable>
+    );
+  };
+
   return (
     <ScreenShell user={user} title={t('reports.title')} subtitle={t('reports.subtitle')} showSeasonSwitcher>
       {showModeToggle ? (
@@ -68,20 +149,20 @@ export default function ReportsScreen() {
           {(['standard', 'to'] as const).map((item) => {
             const active = mode === item;
             return (
-              <Pressable key={item} style={[styles.modeButton, active ? styles.modeButtonActive : null]} onPress={() => setMode(item)}>
+              <Pressable
+                key={item}
+                style={[styles.modeButton, active ? styles.modeButtonActive : null]}
+                onPress={() => {
+                  setSelectedProfileId(null);
+                  setMode(item);
+                }}
+              >
                 <Text style={[styles.modeButtonText, active ? styles.modeButtonTextActive : null]}>{item === 'standard' ? 'Standard' : 'TO'}</Text>
               </Pressable>
             );
           })}
         </View>
       ) : null}
-
-      <View style={[sharedStyles.sectionCard, styles.summaryCard]}>
-        <Text style={styles.summaryTitle}>Report desk</Text>
-        <Text style={styles.summarySubtitle}>
-          {submittedCount} submitted reports and {overdueCount} overdue reports in this season.
-        </Text>
-      </View>
 
       {reportsQuery.isLoading ? (
         <View style={sharedStyles.sectionCard}>
@@ -98,60 +179,58 @@ export default function ReportsScreen() {
         </View>
       ) : null}
 
-      {!reportsQuery.isLoading && !reports.length ? (
-        <View style={sharedStyles.sectionCard}>
-          <Text style={sharedStyles.muted}>{t('common.noData')}</Text>
-        </View>
-      ) : null}
-
-      <View style={styles.cardsColumn}>
-        {reports.map((report) => {
-          const visibleStatus = getVisibleStatus(report, user.role);
-          const tone = STATUS_TONE[visibleStatus] || { bg: theme.colors.canvasAlt, fg: theme.colors.primary };
-
-          return (
-            <Pressable
-              key={`${report.nominationId}-${report.refereeId}-${report.reportMode}`}
-              style={[sharedStyles.sectionCard, styles.reportCard]}
-              onPress={() =>
-                router.push(
-                  `/reports/${report.nominationId}/${report.refereeId}?mode=${user.role === 'TO' || user.role === 'TO Supervisor' ? 'to' : mode}` as never,
-                )
-              }
-            >
-              <View style={styles.reportTopRow}>
-                <Text style={styles.gameCode}>{report.gameCode}</Text>
-                <View style={styles.topActions}>
-                  {report.canAddTime ? (
-                    <Pressable
-                      style={styles.addTimeButton}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        void extendMutation.mutate({ nominationId: report.nominationId, refereeId: report.refereeId });
-                      }}
-                    >
-                      <Text style={styles.addTimeButtonText}>Add Time</Text>
-                    </Pressable>
-                  ) : null}
-                  <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
-                    <Text style={[styles.statusPillText, { color: tone.fg }]}>{visibleStatus.toUpperCase()}</Text>
-                  </View>
-                </View>
-              </View>
-
-              <Text style={styles.teams}>{report.teams}</Text>
-              <Text style={styles.meta}>{formatDateLabel(report.matchDate)}</Text>
-              <Text style={styles.meta}>{report.refereeName}</Text>
-              <Text style={styles.meta}>
-                {formatTimeLabel(report.matchTime)} - {report.venue}
-              </Text>
-              {report.reviewScore !== null ? <Text style={styles.scoreText}>Score: {report.reviewScore}</Text> : null}
-              {report.reportDeadlineAt ? <Text style={styles.deadlineText}>Deadline: {formatDateTimeLabel(report.reportDeadlineAt)}</Text> : null}
-              {report.deadlineMessage ? <Text style={styles.warningText}>{report.deadlineMessage}</Text> : null}
+      {usesProfileOverview ? (
+        selectedProfileId ? (
+          <View style={styles.cardsColumn}>
+            <Pressable style={styles.backToProfiles} onPress={() => setSelectedProfileId(null)}>
+              <Text style={styles.backToProfilesText}>Back to profiles</Text>
             </Pressable>
-          );
-        })}
-      </View>
+
+            <Text style={styles.sectionLabel}>Submitted reports</Text>
+            {selectedSubmitted.length ? selectedSubmitted.map((report) => renderReportCard(report)) : <View style={sharedStyles.sectionCard}><Text style={sharedStyles.muted}>No submitted reports.</Text></View>}
+
+            <Text style={styles.sectionLabel}>Deadline passed</Text>
+            {selectedOverdue.length ? selectedOverdue.map((report) => renderReportCard(report, true)) : <View style={sharedStyles.sectionCard}><Text style={sharedStyles.muted}>No overdue reports.</Text></View>}
+
+            <Text style={styles.sectionLabel}>Reviewed reports</Text>
+            {selectedReviewed.length ? selectedReviewed.map((report) => renderReportCard(report)) : <View style={sharedStyles.sectionCard}><Text style={sharedStyles.muted}>No reviewed reports.</Text></View>}
+          </View>
+        ) : (
+          <View style={styles.cardsColumn}>
+            <Text style={styles.sectionLabel}>Available reports</Text>
+            {availableReports.length ? availableReports.map((report) => renderReportCard(report)) : <View style={sharedStyles.sectionCard}><Text style={sharedStyles.muted}>No submitted reports waiting for review.</Text></View>}
+
+            <Text style={styles.sectionLabel}>{mode === 'to' ? 'TO profiles' : 'Referee profiles'}</Text>
+            {profiles.length ? (
+              profiles.map((profile) => (
+                <Pressable key={profile.id} style={[sharedStyles.sectionCard, styles.profileCard]} onPress={() => setSelectedProfileId(profile.id)}>
+                  <Avatar photoUrl={profile.photoUrl || ''} fullName={profile.name} size={52} />
+                  <View style={styles.profileText}>
+                    <Text style={styles.profileName}>{profile.name}</Text>
+                    <View style={styles.profileCounts}>
+                      <Text style={styles.profileCount}>Submitted: {profile.submittedCount}</Text>
+                      <Text style={styles.profileCount}>Deadlines: {profile.overdueCount}</Text>
+                    </View>
+                  </View>
+                </Pressable>
+              ))
+            ) : (
+              <View style={sharedStyles.sectionCard}>
+                <Text style={sharedStyles.muted}>No profiles found.</Text>
+              </View>
+            )}
+          </View>
+        )
+      ) : (
+        <View style={styles.cardsColumn}>
+          {!reportsQuery.isLoading && !reports.length ? (
+            <View style={sharedStyles.sectionCard}>
+              <Text style={sharedStyles.muted}>{t('common.noData')}</Text>
+            </View>
+          ) : null}
+          {reports.map((report) => renderReportCard(report, Boolean(report.canAddTime)))}
+        </View>
+      )}
     </ScreenShell>
   );
 }
@@ -184,19 +263,6 @@ const styles = StyleSheet.create({
   modeButtonTextActive: {
     color: theme.colors.white,
   },
-  summaryCard: {
-    gap: 8,
-  },
-  summaryTitle: {
-    color: theme.colors.text,
-    fontSize: 24,
-    fontWeight: '900',
-  },
-  summarySubtitle: {
-    color: theme.colors.muted,
-    fontSize: 14,
-    lineHeight: 20,
-  },
   errorCard: {
     borderColor: '#f3c4c4',
     backgroundColor: '#fff2f2',
@@ -208,6 +274,11 @@ const styles = StyleSheet.create({
   },
   cardsColumn: {
     gap: 14,
+  },
+  sectionLabel: {
+    color: theme.colors.text,
+    fontSize: 20,
+    fontWeight: '900',
   },
   reportCard: {
     gap: 10,
@@ -280,5 +351,43 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     fontWeight: '700',
+  },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  profileText: {
+    flex: 1,
+    gap: 6,
+  },
+  profileName: {
+    color: theme.colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  profileCounts: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  profileCount: {
+    color: theme.colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  backToProfiles: {
+    alignSelf: 'flex-start',
+    minHeight: 42,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+  },
+  backToProfilesText: {
+    color: theme.colors.white,
+    fontSize: 13,
+    fontWeight: '900',
   },
 });

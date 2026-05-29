@@ -18,8 +18,10 @@ export default function RankingScreen() {
 
   const rankingQuery = useQuery({
     queryKey: ['mobile-ranking', user?.id, user?.role, seasonId],
-    queryFn: () => getMobileRanking(user!, seasonId),
+    queryFn: () => getMobileRanking(user!, seasonId, { compact: true }),
     enabled: Boolean(user),
+    staleTime: 60_000,
+    retry: 2,
   });
 
   if (!user) {
@@ -42,6 +44,15 @@ export default function RankingScreen() {
         </View>
       ) : null}
 
+      {rankingQuery.isError ? (
+        <View style={sharedStyles.sectionCard}>
+          <Text style={sharedStyles.sectionTitle}>Could not load ranking</Text>
+          <Text style={sharedStyles.muted}>
+            {rankingQuery.error instanceof Error ? rankingQuery.error.message : 'Please try again in a moment.'}
+          </Text>
+        </View>
+      ) : null}
+
       {leaderboard.slice(0, 20).map((item, index) => (
         <Pressable key={item.refereeId} style={styles.row} onPress={() => router.push(`/ranking/${item.refereeId}` as never)}>
           <View style={[styles.rankBadge, index < 3 ? styles.rankBadgeTop : null]}>
@@ -56,7 +67,7 @@ export default function RankingScreen() {
         </Pressable>
       ))}
 
-      {!rankingQuery.isLoading && !leaderboard.length ? (
+      {!rankingQuery.isLoading && !rankingQuery.isError && !leaderboard.length ? (
         <View style={sharedStyles.sectionCard}>
           <Text style={sharedStyles.muted}>{t('common.noData')}</Text>
         </View>

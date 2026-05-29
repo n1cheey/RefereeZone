@@ -1,8 +1,8 @@
 import { env } from '@/src/config/env';
 import { supabase } from '@/src/services/supabase-client';
 
-const API_TIMEOUT_MS = 20000;
-const API_RETRY_DELAY_MS = 350;
+const API_TIMEOUT_MS = 45000;
+const API_RETRY_DELAY_MS = 700;
 
 export class ApiRequestError extends Error {
   status?: number;
@@ -25,11 +25,25 @@ const isAbortError = (error: unknown) =>
   'name' in error &&
   (error as { name?: string }).name === 'AbortError';
 
+const isRetryableStatus = (status?: number) => [408, 425, 429, 500, 502, 503, 504].includes(Number(status || 0));
+
+const parseResponsePayload = (text: string) => {
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+};
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = String(options.method || 'GET').toUpperCase();
   const canRetry = method === 'GET' || method === 'HEAD';
 
-  for (let attempt = 0; attempt < (canRetry ? 3 : 1); attempt += 1) {
+  for (let attempt = 0; attempt < (canRetry ? 4 : 1); attempt += 1) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
@@ -48,22 +62,30 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
       });
 
       const text = await response.text();
-      const responseData = text ? JSON.parse(text) : null;
+      const responseData = parseResponsePayload(text);
 
       if (!response.ok) {
+        if (canRetry && attempt < 3 && isRetryableStatus(response.status)) {
+          await delay(API_RETRY_DELAY_MS);
+          continue;
+        }
         throw new ApiRequestError(
-          typeof responseData?.message === 'string' ? responseData.message : 'Request failed.',
+          typeof responseData === 'object' && responseData !== null && 'message' in responseData && typeof responseData.message === 'string'
+            ? responseData.message
+            : typeof responseData === 'string' && responseData.trim()
+              ? responseData
+              : 'Request failed.',
           response.status,
         );
       }
 
       return responseData as T;
     } catch (error) {
-      const isLastAttempt = attempt === (canRetry ? 2 : 0);
       const isAbort = isAbortError(error);
       const isNetwork = error instanceof TypeError;
+      const isRetryableApiError = error instanceof ApiRequestError && isRetryableStatus(error.status);
 
-      if (!isLastAttempt && (isAbort || isNetwork)) {
+      if (attempt < (canRetry ? 3 : 0) && (isAbort || isNetwork || isRetryableApiError)) {
         await delay(API_RETRY_DELAY_MS);
         continue;
       }
@@ -76,11 +98,11 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
         throw new ApiRequestError('API request timed out. Please try again.');
       }
 
-      throw new ApiRequestError('API server is unavailable.');
+      throw new ApiRequestError('API server is temporarily unavailable. Please try again.');
     } finally {
       clearTimeout(timeoutId);
     }
   }
 
-  throw new ApiRequestError('API server is unavailable.');
+  throw new ApiRequestError('API server is temporarily unavailable. Please try again.');
 }

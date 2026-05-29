@@ -37,15 +37,17 @@ export default function ChatScreen() {
   const [search, setSearch] = useState('');
 
   const chatQuery = useQuery({
-    queryKey: ['mobile-chat-bootstrap'],
+    queryKey: ['mobile-chat-bootstrap', user?.id],
     queryFn: getMobileChatBootstrap,
     enabled: Boolean(user),
+    staleTime: 30_000,
+    retry: 2,
   });
 
   const deleteConversationMutation = useMutation({
     mutationFn: (conversationId: string) => deleteMobileChatConversation(conversationId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['mobile-chat-bootstrap'] });
+      await queryClient.invalidateQueries({ queryKey: ['mobile-chat-bootstrap', user?.id] });
     },
   });
 

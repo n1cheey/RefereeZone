@@ -231,3 +231,12 @@ export interface MobileHomeShortcut {
   route: MobileHomeRoute | MobileAdminRoute;
   labelKey: string;
 }
+
+export interface MobileRefereeDirectoryItem {
+  id: string;
+  fullName: string;
+  email: string;
+  licenseNumber: string;
+  photoUrl: string;
+  role: UserRole;
+}

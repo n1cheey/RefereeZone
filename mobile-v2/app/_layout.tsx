@@ -1,5 +1,5 @@
 import { Stack, router } from 'expo-router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import * as Notifications from 'expo-notifications';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -10,9 +10,8 @@ import { AuthProvider, useAuth } from '@/src/providers/auth-provider';
 import { LanguageProvider } from '@/src/providers/language-provider';
 import { SeasonProvider } from '@/src/providers/season-provider';
 import { resolvePushNavigationPath } from '@/src/services/push-service';
+import { queryClient } from '@/src/services/query-client';
 import { theme } from '@/src/theme/theme';
-
-const queryClient = new QueryClient();
 
 function RootNavigator() {
   const { locked } = useAuth();

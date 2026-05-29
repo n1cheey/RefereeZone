@@ -11,6 +11,7 @@ import {
   MobileInstructorNomination,
   MobileMemberDirectoryItem,
   MobileMonthlyStats,
+  MobileRefereeDirectoryItem,
   MobileRefereeNomination,
   MobileRankingResponse,
   MobileUserTestSummary,
@@ -50,6 +51,7 @@ type ReportsListItem = {
   matchTime: string;
   venue: string;
   refereeName: string;
+  photoUrl?: string | null;
   refereeReportStatus: string | null;
   instructorReportStatus: string | null;
   reviewScore: number | null;
@@ -228,10 +230,10 @@ export function deleteMobileAllowedAccess(user: User, accessId: string) {
   });
 }
 
-export function getMobileRanking(user: User, seasonId?: string | null) {
+export function getMobileRanking(user: User, seasonId?: string | null, options?: { compact?: boolean }) {
   const targetPath = user.role === 'TO' || user.role === 'TO Supervisor' ? '/api/rankings/to' : '/api/rankings';
   return apiRequest<MobileRankingResponse>(
-    `${targetPath}?userId=${encodeURIComponent(user.id)}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
+    `${targetPath}?userId=${encodeURIComponent(user.id)}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}${options?.compact ? '&compact=1' : ''}`,
   );
 }
 
@@ -240,6 +242,39 @@ export function getMobileReports(user: User, seasonId?: string | null, modeOverr
   return apiRequest<{ reports: ReportsListItem[] }>(
     `/api/reports?userId=${encodeURIComponent(user.id)}&mode=${mode}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
   );
+}
+
+export function getMobileRefereeDirectory(user: User) {
+  return apiRequest<{ referees: MobileRefereeDirectoryItem[] }>(`/api/referees?instructorId=${encodeURIComponent(user.id)}`);
+}
+
+export function createMobileNomination(
+  user: User,
+  payload: {
+    gameCode: string;
+    teams: string;
+    matchDate: string;
+    matchTime: string;
+    venue: string;
+    refereeIds: string[];
+    seasonId?: string | null;
+  },
+) {
+  return apiRequest<{ message: string; nomination: MobileInstructorNomination }>('/api/nominations', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      userId: user.id,
+      instructorId: user.id,
+      gameCode: payload.gameCode,
+      teams: payload.teams,
+      matchDate: payload.matchDate,
+      matchTime: payload.matchTime,
+      venue: payload.venue,
+      refereeIds: payload.refereeIds,
+      seasonId: payload.seasonId,
+    }),
+  });
 }
 
 export function getFinancialistSummary(startDate: string, endDate: string) {

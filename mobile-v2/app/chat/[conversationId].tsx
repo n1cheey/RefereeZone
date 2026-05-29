@@ -15,19 +15,20 @@ import { formatTimeLabel } from '@/src/utils/format';
 
 export default function ChatThreadScreen() {
   const { user } = useAuth();
-  const { conversationId } = useLocalSearchParams<{ conversationId: string }>();
+  const params = useLocalSearchParams<{ conversationId: string }>();
+  const conversationId = Array.isArray(params.conversationId) ? params.conversationId[0] : params.conversationId;
   const queryClient = useQueryClient();
   const [message, setMessage] = useState('');
 
   const chatQuery = useQuery({
-    queryKey: ['mobile-chat-bootstrap'],
+    queryKey: ['mobile-chat-bootstrap', user?.id],
     queryFn: getMobileChatBootstrap,
     enabled: Boolean(user),
   });
 
   const messagesQuery = useQuery({
-    queryKey: ['mobile-chat-messages', conversationId],
-    queryFn: () => getMobileChatMessages(conversationId),
+    queryKey: ['mobile-chat-messages', user?.id, conversationId],
+    queryFn: () => getMobileChatMessages(conversationId!),
     enabled: Boolean(user && conversationId),
     refetchInterval: 7000,
   });
@@ -42,8 +43,8 @@ export default function ChatThreadScreen() {
     mutationFn: () => sendMobileChatMessage({ conversationId, body: message }),
     onSuccess: async () => {
       setMessage('');
-      await queryClient.invalidateQueries({ queryKey: ['mobile-chat-messages', conversationId] });
-      await queryClient.invalidateQueries({ queryKey: ['mobile-chat-bootstrap'] });
+      await queryClient.invalidateQueries({ queryKey: ['mobile-chat-messages', user?.id, conversationId] });
+      await queryClient.invalidateQueries({ queryKey: ['mobile-chat-bootstrap', user?.id] });
     },
   });
 
@@ -53,6 +54,10 @@ export default function ChatThreadScreen() {
 
   if (!user) {
     return <Redirect href="/login" />;
+  }
+
+  if (!conversationId) {
+    return <Redirect href="/chat" />;
   }
 
   return (

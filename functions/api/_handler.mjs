@@ -5365,25 +5365,14 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
       })
       .filter(Boolean)
       .sort(sortByMatchDesc);
-
-    const testReportItems = await listTestReportTOItems(admin, currentUser);
-    return [...standardItems, ...testReportItems].sort((left, right) => {
-      const matchOrder = sortByMatchDesc(left, right);
-      if (matchOrder !== 0) {
-        return matchOrder;
-      }
-
-      const typeOrder = left.reportMode.localeCompare(right.reportMode);
-      if (typeOrder !== 0) {
-        return typeOrder;
-      }
-
-      return left.slotNumber - right.slotNumber;
-    });
   }
 
   if (currentUser.role === 'Instructor') {
-    const { data, error } = await admin.from('nominations').select('*');
+    let nominationsQuery = admin.from('nominations').select('*');
+    if (normalizedSeasonId) {
+      nominationsQuery = nominationsQuery.eq('season_id', normalizedSeasonId);
+    }
+    const { data, error } = await nominationsQuery;
     const nominations = filterRowsBySeason(
       ensureData(data || [], error, 'Failed to load reports.'),
       normalizedSeasonId,
@@ -5487,7 +5476,12 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
 
     const nominationIds = [...new Set(assignments.map((assignment) => assignment.nomination_id))];
     const refereeIds = [...new Set(assignments.map((assignment) => assignment.referee_id))];
-    const nominations = await listNominationsByIds(admin, nominationIds);
+    const nominations = filterRowsBySeason(
+      await listNominationsByIds(admin, nominationIds),
+      normalizedSeasonId,
+      (nomination) => nomination.season_id,
+      (nomination) => nomination.match_date,
+    );
     const referees = await listProfilesByIds(admin, refereeIds);
     const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
     const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
