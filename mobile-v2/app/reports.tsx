@@ -1,7 +1,7 @@
 import { Redirect, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { ScreenShell, sharedStyles } from '@/src/components/screen-shell';
 import { useAuth } from '@/src/providers/auth-provider';
@@ -19,6 +19,11 @@ const STATUS_TONE: Record<string, { bg: string; fg: string }> = {
   'No Report': { bg: '#fff6d8', fg: '#b08218' },
 };
 
+const getVisibleStatus = (report: any, role: string) =>
+  role === 'Instructor' || role === 'Staff' || role === 'TO Supervisor'
+    ? report.instructorReportStatus || report.refereeReportStatus || 'No Report'
+    : report.refereeReportStatus || report.instructorReportStatus || 'No Report';
+
 export default function ReportsScreen() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -31,6 +36,8 @@ export default function ReportsScreen() {
     queryKey: ['mobile-reports', user?.id, user?.role, seasonId, mode],
     queryFn: () => getMobileReports(user!, seasonId, mode),
     enabled: Boolean(user),
+    staleTime: 30_000,
+    retry: 2,
   });
 
   const extendMutation = useMutation({
@@ -41,6 +48,11 @@ export default function ReportsScreen() {
     },
   });
 
+  const reports = useMemo(() => reportsQuery.data?.reports || [], [reportsQuery.data?.reports]);
+  const showModeToggle = user?.role === 'Instructor' || user?.role === 'Staff';
+  const overdueCount = reports.filter((report) => report.deadlineExceeded).length;
+  const submittedCount = reports.filter((report) => getVisibleStatus(report, user?.role || '') === 'Submitted').length;
+
   if (!user) {
     return <Redirect href="/login" />;
   }
@@ -48,13 +60,6 @@ export default function ReportsScreen() {
   if (user.role === 'Financialist') {
     return <Redirect href="/home" />;
   }
-
-  const reports = reportsQuery.data?.reports || [];
-  const readyCount = reports.filter((report) => !report.refereeReportStatus || report.refereeReportStatus === 'Draft').length;
-  const draftsCount = reports.filter((report) => report.refereeReportStatus === 'Draft' || report.instructorReportStatus === 'Draft').length;
-  const submittedCount = reports.filter((report) => report.refereeReportStatus === 'Submitted' || report.instructorReportStatus === 'Submitted').length;
-  const reviewedCount = reports.filter((report) => report.instructorReportStatus === 'Reviewed').length;
-  const showModeToggle = user.role === 'Instructor' || user.role === 'Staff';
 
   return (
     <ScreenShell user={user} title={t('reports.title')} subtitle={t('reports.subtitle')} showSeasonSwitcher>
@@ -72,82 +77,81 @@ export default function ReportsScreen() {
       ) : null}
 
       <View style={[sharedStyles.sectionCard, styles.summaryCard]}>
-        <Text style={styles.summaryEyebrow}>ABL REPORT DESK</Text>
-        <Text style={styles.summaryTitle}>Track review flow, overdue reports and matches that need action.</Text>
-        <View style={styles.metricsGrid}>
-          <View style={styles.metricBox}>
-            <Text style={styles.metricValue}>{readyCount}</Text>
-            <Text style={styles.metricLabel}>Ready to start</Text>
-          </View>
-          <View style={styles.metricBox}>
-            <Text style={styles.metricValue}>{draftsCount}</Text>
-            <Text style={styles.metricLabel}>Working drafts</Text>
-          </View>
-          <View style={styles.metricBox}>
-            <Text style={styles.metricValue}>{submittedCount}</Text>
-            <Text style={styles.metricLabel}>Submitted</Text>
-          </View>
-          <View style={styles.metricBox}>
-            <Text style={styles.metricValue}>{reviewedCount}</Text>
-            <Text style={styles.metricLabel}>Reviewed</Text>
-          </View>
-        </View>
-        <Text style={styles.summaryWarning}>
-          {reports.filter((report) => report.deadlineExceeded).length} reports already passed the deadline window.
+        <Text style={styles.summaryTitle}>Report desk</Text>
+        <Text style={styles.summarySubtitle}>
+          {submittedCount} submitted reports and {overdueCount} overdue reports in this season.
         </Text>
       </View>
 
-      {reports.map((report) => {
-        const visibleStatus =
-          user.role === 'Instructor' || user.role === 'Staff' || user.role === 'TO Supervisor'
-            ? report.instructorReportStatus || report.refereeReportStatus || 'No Report'
-            : report.refereeReportStatus || report.instructorReportStatus || 'No Report';
-        const tone = STATUS_TONE[visibleStatus] || { bg: theme.colors.canvasAlt, fg: theme.colors.primary };
+      {reportsQuery.isLoading ? (
+        <View style={sharedStyles.sectionCard}>
+          <Text style={sharedStyles.muted}>Loading reports...</Text>
+        </View>
+      ) : null}
 
-        return (
-          <Pressable
-            key={`${report.nominationId}-${report.refereeId}`}
-            style={[sharedStyles.sectionCard, styles.reportCard]}
-            onPress={() =>
-              router.push(
-                `/reports/${report.nominationId}/${report.refereeId}?mode=${user.role === 'TO' || user.role === 'TO Supervisor' ? 'to' : mode}` as never,
-              )
-            }
-          >
-            <View style={styles.reportTopRow}>
-              <Text style={styles.gameCode}>{report.gameCode}</Text>
-              {report.canAddTime ? (
-                <Pressable style={styles.addTimeButton} onPress={() => void extendMutation.mutate({ nominationId: report.nominationId, refereeId: report.refereeId })}>
-                  <Text style={styles.addTimeButtonText}>Add Time</Text>
-                </Pressable>
-              ) : null}
-            </View>
-
-            <View style={styles.reportMainRow}>
-              <View style={styles.reportMainText}>
-                <Text style={styles.teams}>{report.teams}</Text>
-                <Text style={styles.meta}>
-                  {formatDateLabel(report.matchDate)} | {report.refereeName}
-                </Text>
-                {report.reviewScore !== null ? <Text style={styles.scoreText}>Instructor score: {report.reviewScore}</Text> : null}
-                {report.reportDeadlineAt ? (
-                  <Text style={styles.deadlineText}>Report deadline: {formatDateTimeLabel(report.reportDeadlineAt)}</Text>
-                ) : null}
-                <Text style={styles.meta}>{formatTimeLabel(report.matchTime)} • {report.venue}</Text>
-              </View>
-              <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
-                <Text style={[styles.statusPillText, { color: tone.fg }]}>{visibleStatus.toUpperCase()}</Text>
-              </View>
-            </View>
-          </Pressable>
-        );
-      })}
+      {reportsQuery.isError ? (
+        <View style={[sharedStyles.sectionCard, styles.errorCard]}>
+          <Text style={styles.errorTitle}>Could not load reports right now.</Text>
+          <Text style={sharedStyles.muted}>
+            {reportsQuery.error instanceof Error ? reportsQuery.error.message : 'Please try again in a moment.'}
+          </Text>
+        </View>
+      ) : null}
 
       {!reportsQuery.isLoading && !reports.length ? (
         <View style={sharedStyles.sectionCard}>
           <Text style={sharedStyles.muted}>{t('common.noData')}</Text>
         </View>
       ) : null}
+
+      <View style={styles.cardsColumn}>
+        {reports.map((report) => {
+          const visibleStatus = getVisibleStatus(report, user.role);
+          const tone = STATUS_TONE[visibleStatus] || { bg: theme.colors.canvasAlt, fg: theme.colors.primary };
+
+          return (
+            <Pressable
+              key={`${report.nominationId}-${report.refereeId}-${report.reportMode}`}
+              style={[sharedStyles.sectionCard, styles.reportCard]}
+              onPress={() =>
+                router.push(
+                  `/reports/${report.nominationId}/${report.refereeId}?mode=${user.role === 'TO' || user.role === 'TO Supervisor' ? 'to' : mode}` as never,
+                )
+              }
+            >
+              <View style={styles.reportTopRow}>
+                <Text style={styles.gameCode}>{report.gameCode}</Text>
+                <View style={styles.topActions}>
+                  {report.canAddTime ? (
+                    <Pressable
+                      style={styles.addTimeButton}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        void extendMutation.mutate({ nominationId: report.nominationId, refereeId: report.refereeId });
+                      }}
+                    >
+                      <Text style={styles.addTimeButtonText}>Add Time</Text>
+                    </Pressable>
+                  ) : null}
+                  <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
+                    <Text style={[styles.statusPillText, { color: tone.fg }]}>{visibleStatus.toUpperCase()}</Text>
+                  </View>
+                </View>
+              </View>
+
+              <Text style={styles.teams}>{report.teams}</Text>
+              <Text style={styles.meta}>{formatDateLabel(report.matchDate)}</Text>
+              <Text style={styles.meta}>{report.refereeName}</Text>
+              <Text style={styles.meta}>
+                {formatTimeLabel(report.matchTime)} - {report.venue}
+              </Text>
+              {report.reviewScore !== null ? <Text style={styles.scoreText}>Score: {report.reviewScore}</Text> : null}
+              {report.reportDeadlineAt ? <Text style={styles.deadlineText}>Deadline: {formatDateTimeLabel(report.reportDeadlineAt)}</Text> : null}
+              {report.deadlineMessage ? <Text style={styles.warningText}>{report.deadlineMessage}</Text> : null}
+            </Pressable>
+          );
+        })}
+      </View>
     </ScreenShell>
   );
 }
@@ -164,7 +168,7 @@ const styles = StyleSheet.create({
   },
   modeButton: {
     flex: 1,
-    minHeight: 58,
+    minHeight: 56,
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
@@ -174,63 +178,49 @@ const styles = StyleSheet.create({
   },
   modeButtonText: {
     color: theme.colors.text,
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '900',
   },
   modeButtonTextActive: {
     color: theme.colors.white,
   },
   summaryCard: {
-    gap: 16,
-  },
-  summaryEyebrow: {
-    color: '#d59b2d',
-    fontSize: 12,
-    fontWeight: '900',
+    gap: 8,
   },
   summaryTitle: {
     color: theme.colors.text,
-    fontSize: 20,
-    lineHeight: 28,
+    fontSize: 24,
     fontWeight: '900',
   },
-  metricsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  metricBox: {
-    width: '47.5%',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: theme.colors.line,
-    backgroundColor: theme.colors.canvasAlt,
-    padding: 16,
-    gap: 8,
-  },
-  metricValue: {
-    color: theme.colors.primary,
-    fontSize: 28,
-    fontWeight: '900',
-  },
-  metricLabel: {
+  summarySubtitle: {
     color: theme.colors.muted,
     fontSize: 14,
-    fontWeight: '700',
+    lineHeight: 20,
   },
-  summaryWarning: {
+  errorCard: {
+    borderColor: '#f3c4c4',
+    backgroundColor: '#fff2f2',
+  },
+  errorTitle: {
     color: theme.colors.primary,
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  cardsColumn: {
+    gap: 14,
   },
   reportCard: {
-    gap: 14,
+    gap: 10,
   },
   reportTopRow: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    alignItems: 'center',
     gap: 12,
+  },
+  topActions: {
+    alignItems: 'flex-end',
+    gap: 8,
   },
   gameCode: {
     color: '#d59b2d',
@@ -238,8 +228,8 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   addTimeButton: {
-    minWidth: 102,
-    minHeight: 46,
+    minWidth: 98,
+    minHeight: 42,
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -248,18 +238,20 @@ const styles = StyleSheet.create({
   },
   addTimeButtonText: {
     color: theme.colors.white,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '900',
   },
-  reportMainRow: {
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
+  statusPill: {
+    minWidth: 118,
+    minHeight: 40,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
   },
-  reportMainText: {
-    flex: 1,
-    gap: 8,
+  statusPillText: {
+    fontSize: 13,
+    fontWeight: '900',
   },
   teams: {
     color: theme.colors.text,
@@ -283,16 +275,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: '800',
   },
-  statusPill: {
-    minWidth: 118,
-    minHeight: 42,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-  },
-  statusPillText: {
-    fontSize: 14,
-    fontWeight: '900',
+  warningText: {
+    color: '#9f6d20',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
   },
 });

@@ -1,4 +1,4 @@
-const EMPTY_DASH = '—';
+const EMPTY_DASH = '-';
 
 const safeDate = (value: string | Date | null | undefined) => {
   if (!value) {

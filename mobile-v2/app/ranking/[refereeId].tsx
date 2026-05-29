@@ -15,11 +15,8 @@ const CATEGORY_LABELS: { key: keyof MobileRankingPerformanceProfile; label: stri
   { key: 'physicalFitness', label: 'Physical' },
   { key: 'mechanics', label: 'Mechanics' },
   { key: 'iot', label: 'IOT' },
-  { key: 'criteriaScore', label: 'Criteria' },
   { key: 'teamworkScore', label: 'Teamwork' },
-  { key: 'gameControl', label: 'Game control' },
   { key: 'newPhilosophy', label: 'Philosophy' },
-  { key: 'communication', label: 'Communication' },
   { key: 'externalEvaluation', label: 'External' },
 ];
 
@@ -147,11 +144,6 @@ export default function RankingDetailScreen() {
               </View>
               <Text style={styles.historyTeams}>{entry.teams || 'Teams unavailable'}</Text>
               <Text style={styles.historyMeta}>{formatDateLabel(entry.evaluationDate)}</Text>
-              <View style={styles.historyMetrics}>
-                <Text style={styles.historyMetric}>Criteria {entry.criteriaScore.toFixed(1)}</Text>
-                <Text style={styles.historyMetric}>Control {entry.gameControl.toFixed(1)}</Text>
-                <Text style={styles.historyMetric}>Communication {entry.communication.toFixed(1)}</Text>
-              </View>
               {entry.note ? <Text style={styles.historyNote}>{entry.note}</Text> : null}
             </View>
           ))
@@ -337,22 +329,6 @@ const styles = StyleSheet.create({
     color: theme.colors.muted,
     fontSize: 14,
     fontWeight: '700',
-  },
-  historyMetrics: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  historyMetric: {
-    color: theme.colors.primary,
-    fontSize: 12,
-    fontWeight: '800',
-    backgroundColor: theme.colors.card,
-    borderWidth: 1,
-    borderColor: theme.colors.line,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
   },
   historyNote: {
     color: theme.colors.muted,

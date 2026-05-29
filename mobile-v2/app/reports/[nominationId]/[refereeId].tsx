@@ -14,11 +14,15 @@ export default function ReportDetailScreen() {
   const { seasonId } = useSeason();
   const queryClient = useQueryClient();
   const params = useLocalSearchParams<{ nominationId: string; refereeId: string; mode?: 'standard' | 'to' }>();
+  const nominationId = Array.isArray(params.nominationId) ? params.nominationId[0] : params.nominationId;
+  const refereeId = Array.isArray(params.refereeId) ? params.refereeId[0] : params.refereeId;
+  const mode = (Array.isArray(params.mode) ? params.mode[0] : params.mode) || 'standard';
 
   const reportQuery = useQuery({
-    queryKey: ['mobile-report-detail', params.nominationId, params.refereeId, params.mode, seasonId, user?.id],
-    queryFn: () => getMobileReportDetail(user!, params.nominationId, params.refereeId, params.mode || 'standard', seasonId),
-    enabled: Boolean(user && params.nominationId && params.refereeId),
+    queryKey: ['mobile-report-detail', nominationId, refereeId, mode, seasonId, user?.id],
+    queryFn: () => getMobileReportDetail(user!, nominationId!, refereeId!, mode, seasonId),
+    enabled: Boolean(user && nominationId && refereeId),
+    retry: 2,
   });
 
   const initialDraft = useMemo(() => {
@@ -48,9 +52,9 @@ export default function ReportDetailScreen() {
     mutationFn: (action: 'Draft' | 'Submitted') =>
       saveMobileReport({
         user: user!,
-        nominationId: params.nominationId,
-        refereeId: params.refereeId,
-        mode: params.mode || 'standard',
+        nominationId: nominationId!,
+        refereeId: refereeId!,
+        mode,
         action,
         gameCode: reportQuery.data?.report.item.gameCode,
         teams: reportQuery.data?.report.item.teams,
@@ -66,7 +70,7 @@ export default function ReportDetailScreen() {
         seasonId,
       }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['mobile-report-detail', params.nominationId, params.refereeId, params.mode, seasonId, user?.id] });
+      await queryClient.invalidateQueries({ queryKey: ['mobile-report-detail', nominationId, refereeId, mode, seasonId, user?.id] });
       await queryClient.invalidateQueries({ queryKey: ['mobile-reports', user?.id, user?.role, seasonId] });
     },
   });
@@ -75,12 +79,36 @@ export default function ReportDetailScreen() {
     return <Redirect href="/login" />;
   }
 
+  if (!nominationId || !refereeId) {
+    return (
+      <ScreenShell user={user} title="Report" subtitle="Missing report reference">
+        <View style={sharedStyles.sectionCard}>
+          <Text style={sharedStyles.muted}>This report link is incomplete.</Text>
+        </View>
+      </ScreenShell>
+    );
+  }
+
   const detail = reportQuery.data?.report;
-  if (!detail) {
+
+  if (reportQuery.isLoading && !detail) {
     return (
       <ScreenShell user={user} title="Report" subtitle="Loading report...">
         <View style={sharedStyles.sectionCard}>
           <Text style={sharedStyles.muted}>Loading...</Text>
+        </View>
+      </ScreenShell>
+    );
+  }
+
+  if (reportQuery.isError || !detail) {
+    return (
+      <ScreenShell user={user} title="Report" subtitle="Could not load report">
+        <View style={[sharedStyles.sectionCard, styles.errorCard]}>
+          <Text style={styles.errorTitle}>Report is unavailable right now.</Text>
+          <Text style={sharedStyles.muted}>
+            {reportQuery.error instanceof Error ? reportQuery.error.message : 'Please try again in a moment.'}
+          </Text>
         </View>
       </ScreenShell>
     );
@@ -93,25 +121,25 @@ export default function ReportDetailScreen() {
       <ScrollView contentContainerStyle={{ gap: 16 }}>
         <View style={sharedStyles.sectionCard}>
           <Text style={sharedStyles.sectionTitle}>Current report</Text>
-          <Text style={sharedStyles.muted}>{detail.item.matchDate} · {detail.item.matchTime}</Text>
+          <Text style={sharedStyles.muted}>{detail.item.matchDate} - {detail.item.matchTime}</Text>
           <Text style={sharedStyles.muted}>{detail.item.venue}</Text>
-          <Text style={sharedStyles.muted}>Referee: {detail.item.refereeName}</Text>
+          <Text style={sharedStyles.muted}>Official: {detail.item.refereeName}</Text>
         </View>
 
         {activeDraft ? (
           <View style={sharedStyles.sectionCard}>
             <Text style={sharedStyles.sectionTitle}>Saved content</Text>
             <Text style={sharedStyles.muted}>Score: {activeDraft.feedbackScore}</Text>
-            <Text style={sharedStyles.muted}>{activeDraft.threePO_IOT || '—'}</Text>
-            <Text style={sharedStyles.muted}>{activeDraft.criteria || '—'}</Text>
-            <Text style={sharedStyles.muted}>{activeDraft.teamwork || '—'}</Text>
-            <Text style={sharedStyles.muted}>{activeDraft.generally || '—'}</Text>
+            <Text style={sharedStyles.muted}>{activeDraft.threePO_IOT || '-'}</Text>
+            <Text style={sharedStyles.muted}>{activeDraft.criteria || '-'}</Text>
+            <Text style={sharedStyles.muted}>{activeDraft.teamwork || '-'}</Text>
+            <Text style={sharedStyles.muted}>{activeDraft.generally || '-'}</Text>
           </View>
         ) : null}
 
         {detail.canEditCurrentUserReport ? (
           <View style={sharedStyles.sectionCard}>
-            <Text style={sharedStyles.sectionTitle}>Edit draft</Text>
+            <Text style={sharedStyles.sectionTitle}>Edit report</Text>
             <TextInput style={styles.input} value={feedbackScore} onChangeText={setFeedbackScore} placeholder="Score" keyboardType="numeric" />
             <TextInput style={styles.input} value={threePO} onChangeText={setThreePO} placeholder="Three PO / IOT" multiline />
             <TextInput style={styles.input} value={criteria} onChangeText={setCriteria} placeholder="Criteria" multiline />
@@ -147,6 +175,15 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: 10,
+  },
+  errorCard: {
+    borderColor: '#f3c4c4',
+    backgroundColor: '#fff2f2',
+  },
+  errorTitle: {
+    color: theme.colors.primary,
+    fontSize: 16,
+    fontWeight: '900',
   },
   secondaryButton: {
     flex: 1,
