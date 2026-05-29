@@ -27,7 +27,15 @@ export default function NewsScreen() {
   const posts = newsQuery.data?.posts || [];
 
   return (
-    <ScreenShell user={user} title={t('news.title')} subtitle={t('news.subtitle')}>
+    <ScreenShell
+      user={user}
+      title={t('news.title')}
+      subtitle={t('news.subtitle')}
+      refreshing={newsQuery.isRefetching}
+      onRefresh={() => {
+        void newsQuery.refetch();
+      }}
+    >
       {newsQuery.isError ? (
         <View style={sharedStyles.sectionCard}>
           <Text style={sharedStyles.sectionTitle}>Could not load news</Text>

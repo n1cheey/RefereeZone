@@ -57,7 +57,7 @@ export default function ReportsScreen() {
   const reports = useMemo(() => reportsQuery.data?.reports || [], [reportsQuery.data?.reports]);
   const showModeToggle = user?.role === 'Instructor' || user?.role === 'Staff';
   const usesProfileOverview =
-    (user?.role === 'Instructor' && (mode === 'standard' || mode === 'to')) ||
+    ((user?.role === 'Instructor' || user?.role === 'Staff') && (mode === 'standard' || mode === 'to')) ||
     (user?.role === 'TO Supervisor' && mode === 'to');
 
   const availableReports = reports.filter((report) => isSubmitted(report));
@@ -143,7 +143,16 @@ export default function ReportsScreen() {
   };
 
   return (
-    <ScreenShell user={user} title={t('reports.title')} subtitle={t('reports.subtitle')} showSeasonSwitcher>
+    <ScreenShell
+      user={user}
+      title={t('reports.title')}
+      subtitle={t('reports.subtitle')}
+      showSeasonSwitcher
+      refreshing={reportsQuery.isRefetching}
+      onRefresh={() => {
+        void reportsQuery.refetch();
+      }}
+    >
       {showModeToggle ? (
         <View style={styles.modeToggle}>
           {(['standard', 'to'] as const).map((item) => {

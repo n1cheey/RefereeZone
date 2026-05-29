@@ -75,7 +75,15 @@ export default function ChatScreen() {
   }
 
   return (
-    <ScreenShell user={user} title={t('chat.title')} subtitle={t('chat.subtitle')}>
+    <ScreenShell
+      user={user}
+      title={t('chat.title')}
+      subtitle={t('chat.subtitle')}
+      refreshing={chatQuery.isRefetching}
+      onRefresh={() => {
+        void chatQuery.refetch();
+      }}
+    >
       <View style={styles.searchWrap}>
         <TextInput
           style={styles.searchInput}

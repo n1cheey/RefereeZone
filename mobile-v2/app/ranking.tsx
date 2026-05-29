@@ -32,7 +32,16 @@ export default function RankingScreen() {
   const current = rankingQuery.data?.currentUserItem;
 
   return (
-    <ScreenShell user={user} title={t('ranking.title')} subtitle={t('ranking.subtitle')} showSeasonSwitcher>
+    <ScreenShell
+      user={user}
+      title={t('ranking.title')}
+      subtitle={t('ranking.subtitle')}
+      showSeasonSwitcher
+      refreshing={rankingQuery.isRefetching}
+      onRefresh={() => {
+        void rankingQuery.refetch();
+      }}
+    >
       {current ? (
         <View style={styles.heroCard}>
           <Avatar photoUrl={current.photoUrl} fullName={current.refereeName} size={64} />

@@ -101,7 +101,25 @@ export default function HomeScreen() {
     .slice(0, 3);
 
   return (
-    <ScreenShell user={user} title="" subtitle="">
+      <ScreenShell
+        user={user}
+        title=""
+        subtitle=""
+        refreshing={
+          gamesQuery.isRefetching ||
+          chatQuery.isRefetching ||
+          newsQuery.isRefetching ||
+          announcementQuery.isRefetching
+        }
+        onRefresh={() => {
+          void Promise.all([
+            gamesQuery.refetch(),
+            chatQuery.refetch(),
+            newsQuery.refetch(),
+            announcementQuery.refetch(),
+          ]);
+        }}
+      >
       <View style={styles.hero}>
         <Avatar photoUrl={user.photoUrl} fullName={user.fullName} size={64} />
         <View style={styles.heroText}>

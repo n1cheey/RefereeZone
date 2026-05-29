@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomNav } from '@/src/components/bottom-nav';
@@ -15,9 +15,19 @@ interface ScreenShellProps {
   subtitle?: string;
   children: ReactNode;
   showSeasonSwitcher?: boolean;
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }
 
-export function ScreenShell({ user, title, subtitle, children, showSeasonSwitcher = false }: ScreenShellProps) {
+export function ScreenShell({
+  user,
+  title,
+  subtitle,
+  children,
+  showSeasonSwitcher = false,
+  refreshing = false,
+  onRefresh,
+}: ScreenShellProps) {
   const { seasonId, setSeasonId } = useSeason();
 
   return (
@@ -30,7 +40,21 @@ export function ScreenShell({ user, title, subtitle, children, showSeasonSwitche
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            onRefresh ? (
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={theme.colors.primary}
+                colors={[theme.colors.primary]}
+                progressBackgroundColor={theme.colors.card}
+              />
+            ) : undefined
+          }
+        >
           <View style={styles.header}>
             {title ? <Text style={styles.title}>{title}</Text> : null}
             {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}

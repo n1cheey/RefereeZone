@@ -1,65 +1,71 @@
 const TEAM_LOGO_BASE = 'https://raw.githubusercontent.com/n1cheey/RefereeZone/main/teams';
 
-const TEAM_ALIASES: { canonical: string; filename: string; aliases: string[] }[] = [
+type TeamAliasEntry = {
+  canonical: string;
+  filename: string;
+  aliases: string[];
+};
+
+const TEAM_ALIASES: TeamAliasEntry[] = [
   {
     canonical: 'Abşeron Lions BK',
     filename: 'Absheron_Lions_BK.png',
-    aliases: ['abşeron lions bk', 'absheron lions bk', 'abseron lions bk'],
+    aliases: ['Abşeron Lions BK', 'Absheron Lions BK', 'Abseron Lions BK'],
   },
   {
     canonical: 'Gəncə BK',
     filename: 'Gəncə_BK.jpg',
-    aliases: ['gəncə bk', 'gence bk', 'ganca bk'],
+    aliases: ['Gəncə BK', 'Gence BK', 'Ganca BK'],
   },
   {
     canonical: 'Lənkəran BK',
     filename: 'Lənkəran_BK.jpg',
-    aliases: ['lənkəran bk', 'lenkeran bk'],
+    aliases: ['Lənkəran BK', 'Lenkeran BK'],
   },
   {
     canonical: 'Naxçıvan BK',
     filename: 'Nakhchivan_BK.png',
-    aliases: ['naxçıvan bk', 'nakhchivan bk'],
+    aliases: ['Naxçıvan BK', 'Nakhchivan BK'],
   },
   {
     canonical: 'Neftçi İK',
     filename: 'Neftçi_ik.png',
-    aliases: ['neftçi ik', 'neftchi ik', 'neftci ik'],
+    aliases: ['Neftçi İK', 'Neftchi IK', 'Neftci IK'],
   },
   {
     canonical: 'NTD BK',
     filename: 'NTD_BK.png',
-    aliases: ['ntd bk'],
+    aliases: ['NTD BK'],
   },
   {
     canonical: 'Ordu İK',
     filename: 'Ordu_IK.jpg',
-    aliases: ['ordu ik', 'ordu i̇k'],
+    aliases: ['Ordu İK', 'Ordu IK'],
   },
   {
     canonical: 'Quba BK',
     filename: 'Quba_BK.png',
-    aliases: ['quba bk'],
+    aliases: ['Quba BK'],
   },
   {
     canonical: 'Sabah BK',
     filename: 'Sabah_BK.png',
-    aliases: ['sabah bk'],
+    aliases: ['Sabah BK'],
   },
   {
     canonical: 'Sərhədçi BK',
     filename: 'serhedci_bk.jpg',
-    aliases: ['sərhədçi bk', 'serhedci bk', 'sərhədçi pik'],
+    aliases: ['Sərhədçi BK', 'Serhedci BK', 'Sərhədçi PİK'],
   },
   {
     canonical: 'Şəki BK',
     filename: 'Sheki_BK.jpg',
-    aliases: ['şəki bk', 'sheki bk'],
+    aliases: ['Şəki BK', 'Sheki BK'],
   },
   {
     canonical: 'Sumqayıt BK',
     filename: 'Sumqayit.jpg',
-    aliases: ['sumqayıt bk', 'sumqayit bk'],
+    aliases: ['Sumqayıt BK', 'Sumqayit BK'],
   },
 ];
 
@@ -95,7 +101,9 @@ for (const team of TEAM_ALIASES) {
   }
 }
 
-const KNOWN_TEAMS = TEAM_ALIASES.map((item) => item.canonical).sort((left, right) => right.length - left.length);
+export const KNOWN_TEAM_OPTIONS = TEAM_ALIASES.map((item) => item.canonical).sort((left, right) =>
+  left.localeCompare(right, 'az'),
+);
 
 const cleanDisplayTeam = (value: string) => {
   const normalized = normalizeTeamKey(value);
@@ -108,13 +116,16 @@ export const splitTeams = (teams: string) => {
     return ['', ''];
   }
 
-  const vsMatch = raw.split(/\s+(?:vs|v\.?)\s+/i).map((item) => item.trim()).filter(Boolean);
+  const vsMatch = raw
+    .split(/\s+(?:vs|v\.?)\s+/i)
+    .map((item) => item.trim())
+    .filter(Boolean);
   if (vsMatch.length === 2) {
-    return vsMatch as [string, string];
+    return vsMatch.map(cleanDisplayTeam) as [string, string];
   }
 
   const normalizedFull = normalizeTeamKey(raw);
-  for (const home of KNOWN_TEAMS) {
+  for (const home of KNOWN_TEAM_OPTIONS) {
     const normalizedHome = normalizeTeamKey(home);
     if (!normalizedFull.startsWith(normalizedHome)) {
       continue;
@@ -131,7 +142,10 @@ export const splitTeams = (teams: string) => {
     }
   }
 
-  const hyphenMatch = raw.split(/\s+-\s+/).map((item) => item.trim()).filter(Boolean);
+  const hyphenMatch = raw
+    .split(/\s+-\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
   if (hyphenMatch.length === 2) {
     return hyphenMatch.map(cleanDisplayTeam) as [string, string];
   }
@@ -142,4 +156,13 @@ export const splitTeams = (teams: string) => {
 export const getTeamLogoUri = (teamName: string) => {
   const item = LOGO_MAP.get(normalizeTeamKey(teamName));
   return item ? `${TEAM_LOGO_BASE}/${encodeURIComponent(item.filename)}` : null;
+};
+
+export const searchTeamOptions = (query: string) => {
+  const normalizedQuery = normalizeTeamKey(query);
+  if (!normalizedQuery) {
+    return KNOWN_TEAM_OPTIONS;
+  }
+
+  return KNOWN_TEAM_OPTIONS.filter((team) => normalizeTeamKey(team).includes(normalizedQuery));
 };

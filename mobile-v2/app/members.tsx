@@ -42,18 +42,24 @@ export default function MembersScreen() {
     queryKey: ['mobile-members', user?.id],
     queryFn: () => getMobileMembers(user!),
     enabled: Boolean(user && (user.role === 'Instructor' || user.role === 'Staff')),
+    staleTime: 60_000,
+    retry: 2,
   });
 
   const accessQuery = useQuery({
     queryKey: ['mobile-allowed-access', user?.id],
     queryFn: () => getMobileAllowedAccess(user!),
     enabled: Boolean(user && user.role === 'Instructor'),
+    staleTime: 60_000,
+    retry: 2,
   });
 
   const memberDetailQuery = useQuery({
     queryKey: ['mobile-member-detail', selectedMemberId],
     queryFn: () => getMobileMemberDetail(selectedMemberId!),
     enabled: Boolean(selectedMemberId),
+    staleTime: 60_000,
+    retry: 2,
   });
 
   useEffect(() => {
@@ -126,7 +132,19 @@ export default function MembersScreen() {
   }
 
   return (
-    <ScreenShell user={user} title={t('members.title')} subtitle={t('members.subtitle')}>
+    <ScreenShell
+      user={user}
+      title={t('members.title')}
+      subtitle={t('members.subtitle')}
+      refreshing={membersQuery.isRefetching || accessQuery.isRefetching || memberDetailQuery.isRefetching}
+      onRefresh={() => {
+        void Promise.all([
+          membersQuery.refetch(),
+          activeTab === 'access' ? accessQuery.refetch() : Promise.resolve(),
+          selectedMemberId ? memberDetailQuery.refetch() : Promise.resolve(),
+        ]);
+      }}
+    >
       <View style={styles.segmentWrap}>
         <Pressable
           style={[styles.segmentButton, activeTab === 'directory' ? styles.segmentButtonActive : null]}
