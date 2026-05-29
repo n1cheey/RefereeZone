@@ -8,7 +8,7 @@ import { ScreenShell, sharedStyles } from '@/src/components/screen-shell';
 import { useAuth } from '@/src/providers/auth-provider';
 import { useLanguage } from '@/src/providers/language-provider';
 import { useSeason } from '@/src/providers/season-provider';
-import { getMobileReports } from '@/src/services/modules-service';
+import { getMobileReportOverview, getMobileReports, getMobileReportProfile } from '@/src/services/modules-service';
 import { extendMobileReportDeadline } from '@/src/services/reports-service';
 import { theme } from '@/src/theme/theme';
 import { formatDateLabel, formatDateTimeLabel, formatTimeLabel } from '@/src/utils/format';
@@ -25,10 +25,6 @@ const getVisibleStatus = (report: any, role: string) =>
     ? report.instructorReportStatus || report.refereeReportStatus || 'No Report'
     : report.refereeReportStatus || report.instructorReportStatus || 'No Report';
 
-const isReviewed = (report: any) => report.instructorReportStatus === 'Reviewed';
-const isSubmitted = (report: any) => report.refereeReportStatus === 'Submitted' && !isReviewed(report);
-const isOverdue = (report: any) => report.deadlineExceeded && !isReviewed(report);
-
 export default function ReportsScreen() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -38,10 +34,31 @@ export default function ReportsScreen() {
   const [mode, setMode] = useState<'standard' | 'to'>(user?.role === 'TO' || user?.role === 'TO Supervisor' ? 'to' : 'standard');
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
 
+  const showModeToggle = user?.role === 'Instructor' || user?.role === 'Staff';
+  const usesProfileOverview =
+    ((user?.role === 'Instructor' || user?.role === 'Staff') && (mode === 'standard' || mode === 'to')) ||
+    (user?.role === 'TO Supervisor' && mode === 'to');
+
   const reportsQuery = useQuery({
     queryKey: ['mobile-reports', user?.id, user?.role, seasonId, mode],
     queryFn: () => getMobileReports(user!, seasonId, mode),
-    enabled: Boolean(user),
+    enabled: Boolean(user) && !usesProfileOverview,
+    staleTime: 30_000,
+    retry: 2,
+  });
+
+  const reportOverviewQuery = useQuery({
+    queryKey: ['mobile-reports-overview', user?.id, user?.role, seasonId, mode],
+    queryFn: () => getMobileReportOverview(user!, seasonId, mode),
+    enabled: Boolean(user) && usesProfileOverview && !selectedProfileId,
+    staleTime: 30_000,
+    retry: 2,
+  });
+
+  const reportProfileQuery = useQuery({
+    queryKey: ['mobile-reports-profile', user?.id, user?.role, seasonId, mode, selectedProfileId],
+    queryFn: () => getMobileReportProfile(user!, selectedProfileId!, seasonId, mode),
+    enabled: Boolean(user) && usesProfileOverview && Boolean(selectedProfileId),
     staleTime: 30_000,
     retry: 2,
   });
@@ -50,42 +67,29 @@ export default function ReportsScreen() {
     mutationFn: ({ nominationId, refereeId }: { nominationId: string; refereeId: string }) =>
       extendMobileReportDeadline(user!, nominationId, refereeId, mode),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['mobile-reports', user?.id, user?.role, seasonId, mode] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['mobile-reports', user?.id, user?.role, seasonId, mode] }),
+        queryClient.invalidateQueries({ queryKey: ['mobile-reports-overview', user?.id, user?.role, seasonId, mode] }),
+        queryClient.invalidateQueries({ queryKey: ['mobile-reports-profile', user?.id, user?.role, seasonId, mode, selectedProfileId] }),
+      ]);
     },
   });
 
   const reports = useMemo(() => reportsQuery.data?.reports || [], [reportsQuery.data?.reports]);
-  const showModeToggle = user?.role === 'Instructor' || user?.role === 'Staff';
-  const usesProfileOverview =
-    ((user?.role === 'Instructor' || user?.role === 'Staff') && (mode === 'standard' || mode === 'to')) ||
-    (user?.role === 'TO Supervisor' && mode === 'to');
-
-  const availableReports = reports.filter((report) => isSubmitted(report));
-  const profiles = Object.values(
-    reports.reduce<Record<string, { id: string; name: string; photoUrl?: string | null; submittedCount: number; overdueCount: number }>>((acc, report) => {
-      if (!acc[report.refereeId]) {
-        acc[report.refereeId] = {
-          id: report.refereeId,
-          name: report.refereeName,
-          photoUrl: report.photoUrl || null,
-          submittedCount: 0,
-          overdueCount: 0,
-        };
-      }
-      if (isSubmitted(report)) {
-        acc[report.refereeId].submittedCount += 1;
-      }
-      if (isOverdue(report)) {
-        acc[report.refereeId].overdueCount += 1;
-      }
-      return acc;
-    }, {}),
-  );
-
-  const selectedReports = selectedProfileId ? reports.filter((report) => report.refereeId === selectedProfileId) : [];
-  const selectedSubmitted = selectedReports.filter((report) => isSubmitted(report) && !report.deadlineExceeded);
-  const selectedOverdue = selectedReports.filter((report) => isOverdue(report));
-  const selectedReviewed = selectedReports.filter((report) => isReviewed(report));
+  const availableReports = reportOverviewQuery.data?.availableReports || [];
+  const profiles = reportOverviewQuery.data?.profiles || [];
+  const selectedSubmitted = reportProfileQuery.data?.submittedReports || [];
+  const selectedOverdue = reportProfileQuery.data?.overdueReports || [];
+  const selectedReviewed = reportProfileQuery.data?.reviewedReports || [];
+  const activeError = reportProfileQuery.error || reportOverviewQuery.error || reportsQuery.error;
+  const activeLoading =
+    reportsQuery.isLoading ||
+    reportOverviewQuery.isLoading ||
+    reportProfileQuery.isLoading;
+  const activeRefetching =
+    reportsQuery.isRefetching ||
+    reportOverviewQuery.isRefetching ||
+    reportProfileQuery.isRefetching;
 
   if (!user) {
     return <Redirect href="/login" />;
@@ -148,8 +152,17 @@ export default function ReportsScreen() {
       title={t('reports.title')}
       subtitle={t('reports.subtitle')}
       showSeasonSwitcher
-      refreshing={reportsQuery.isRefetching}
+      refreshing={activeRefetching}
       onRefresh={() => {
+        if (usesProfileOverview) {
+          if (selectedProfileId) {
+            void reportProfileQuery.refetch();
+            return;
+          }
+          void reportOverviewQuery.refetch();
+          return;
+        }
+
         void reportsQuery.refetch();
       }}
     >
@@ -173,17 +186,17 @@ export default function ReportsScreen() {
         </View>
       ) : null}
 
-      {reportsQuery.isLoading ? (
+      {activeLoading ? (
         <View style={sharedStyles.sectionCard}>
           <Text style={sharedStyles.muted}>Loading reports...</Text>
         </View>
       ) : null}
 
-      {reportsQuery.isError ? (
+      {activeError ? (
         <View style={[sharedStyles.sectionCard, styles.errorCard]}>
           <Text style={styles.errorTitle}>Could not load reports right now.</Text>
           <Text style={sharedStyles.muted}>
-            {reportsQuery.error instanceof Error ? reportsQuery.error.message : 'Please try again in a moment.'}
+            {activeError instanceof Error ? activeError.message : 'Please try again in a moment.'}
           </Text>
         </View>
       ) : null}
@@ -232,7 +245,7 @@ export default function ReportsScreen() {
         )
       ) : (
         <View style={styles.cardsColumn}>
-          {!reportsQuery.isLoading && !reports.length ? (
+          {!activeLoading && !reports.length ? (
             <View style={sharedStyles.sectionCard}>
               <Text style={sharedStyles.muted}>{t('common.noData')}</Text>
             </View>

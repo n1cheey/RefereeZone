@@ -192,6 +192,19 @@ const filterRowsBySeason = (rows, expectedSeasonId, getStoredSeasonId, getDateVa
   return rows.filter((row) => matchesSeasonId(getStoredSeasonId(row), getDateValue(row), normalizedExpectedSeasonId));
 };
 
+const getSeasonDateRange = (seasonId) => {
+  const normalizedSeasonId = normalizeSeasonId(seasonId);
+  if (!normalizedSeasonId) {
+    return null;
+  }
+
+  if (normalizedSeasonId === '2026-2027') {
+    return { start: '2026-09-01', end: '2027-08-31' };
+  }
+
+  return { start: '2025-09-01', end: '2026-08-31' };
+};
+
 const applySeasonFilter = (query) => query;
 const normalizeVisibleToRefereeIds = (value) => {
   if (!Array.isArray(value)) {
@@ -5292,6 +5305,233 @@ const listTOReportItems = async (admin, currentUser, seasonId = null) => {
     });
 };
 
+const shouldUseMobileReportProfiles = (currentUser, reportMode = REPORT_MODE.STANDARD) => {
+  const normalizedReportMode = normalizeReportMode(reportMode);
+  return (
+    ((currentUser.role === 'Instructor' || currentUser.role === 'Staff') &&
+      (normalizedReportMode === REPORT_MODE.STANDARD || normalizedReportMode === REPORT_MODE.TO)) ||
+    (currentUser.role === 'TO Supervisor' && normalizedReportMode === REPORT_MODE.TO)
+  );
+};
+
+const listSeasonNominationsMinimal = async (admin, seasonId = null) => {
+  let query = admin
+    .from('nominations')
+    .select('id, game_code, teams, match_date, match_time, venue, season_id')
+    .order('match_date', { ascending: false })
+    .order('match_time', { ascending: false });
+
+  const dateRange = getSeasonDateRange(seasonId);
+  if (dateRange) {
+    query = query.gte('match_date', dateRange.start).lte('match_date', dateRange.end);
+  }
+
+  const { data, error } = await query;
+  return ensureData(data || [], error, 'Failed to load reports.');
+};
+
+const buildMobileProfilePayload = (items, profileId = null) => {
+  if (profileId) {
+    const selectedItems = items.filter((item) => item.refereeId === profileId);
+    return {
+      submittedReports: selectedItems.filter(
+        (item) => item.refereeReportStatus === REPORT_STATUS.SUBMITTED && item.instructorReportStatus !== REPORT_STATUS.REVIEWED && !item.deadlineExceeded,
+      ),
+      overdueReports: selectedItems.filter(
+        (item) => item.deadlineExceeded && item.instructorReportStatus !== REPORT_STATUS.REVIEWED,
+      ),
+      reviewedReports: selectedItems.filter((item) => item.instructorReportStatus === REPORT_STATUS.REVIEWED),
+    };
+  }
+
+  const availableReports = items.filter(
+    (item) => item.refereeReportStatus === REPORT_STATUS.SUBMITTED && item.instructorReportStatus !== REPORT_STATUS.REVIEWED,
+  );
+  const profiles = Object.values(
+    items.reduce((accumulator, item) => {
+      if (!accumulator[item.refereeId]) {
+        accumulator[item.refereeId] = {
+          id: item.refereeId,
+          name: item.refereeName,
+          photoUrl: item.photoUrl || null,
+          submittedCount: 0,
+          overdueCount: 0,
+        };
+      }
+
+      if (item.refereeReportStatus === REPORT_STATUS.SUBMITTED && item.instructorReportStatus !== REPORT_STATUS.REVIEWED) {
+        accumulator[item.refereeId].submittedCount += 1;
+      }
+
+      if (item.deadlineExceeded && item.instructorReportStatus !== REPORT_STATUS.REVIEWED) {
+        accumulator[item.refereeId].overdueCount += 1;
+      }
+
+      return accumulator;
+    }, {}),
+  );
+
+  return {
+    availableReports,
+    profiles,
+  };
+};
+
+const listMobileStandardReportItems = async (admin, currentUser, seasonId = null) => {
+  const nominations = await listSeasonNominationsMinimal(admin, seasonId);
+
+  if (!nominations.length) {
+    return [];
+  }
+
+  await expirePendingAssignments(admin, nominations.map((nomination) => nomination.id));
+  const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id))).filter(
+    (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
+  );
+
+  if (!assignments.length) {
+    return [];
+  }
+
+  const referees = await listProfilesByIds(
+    admin,
+    [...new Set(assignments.map((assignment) => assignment.referee_id))],
+  );
+  const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
+  const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
+  const reports = await loadReportsForPairs(
+    admin,
+    assignments.map((assignment) => ({
+      nominationId: assignment.nomination_id,
+      refereeId: assignment.referee_id,
+    })),
+  );
+  const reportsByPairKey = groupReportsByPairKey(reports);
+
+  return assignments
+    .map((assignment) => {
+      const nomination = nominationMap.get(assignment.nomination_id);
+      if (!nomination) {
+        return null;
+      }
+
+      const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.referee_id}`) || [];
+      const refereeReport = pairReports.find(
+        (report) => report.author_role === 'Referee' && report.status === REPORT_STATUS.SUBMITTED,
+      );
+      const instructorReport = pairReports.find(
+        (report) => report.author_role === 'Instructor' && report.status === REPORT_STATUS.REVIEWED,
+      );
+
+      return buildReportListItem({
+        nomination,
+        assignment,
+        refereeName: refereeMap.get(assignment.referee_id)?.full_name || 'Unknown referee',
+        photoUrl: refereeMap.get(assignment.referee_id)?.photo_url || DEFAULT_PHOTO_URL,
+        refereeReportStatus: refereeReport?.status || null,
+        instructorReportStatus: instructorReport?.status || null,
+        reviewScore: instructorReport?.score ?? null,
+        currentUserRole: currentUser.role,
+      });
+    })
+    .filter(Boolean)
+    .sort(sortByMatchDesc);
+};
+
+const listMobileTOReportItems = async (admin, currentUser, seasonId = null) => {
+  const normalizedSeasonId = normalizeSeasonId(seasonId);
+  const seasonNominations = await listSeasonNominationsMinimal(admin, seasonId);
+  const seasonNominationIds = new Set(seasonNominations.map((nomination) => nomination.id));
+
+  let assignments = [];
+  if (currentUser.role === 'TO Supervisor') {
+    const { data, error } = await admin
+      .from('nomination_tos')
+      .select('*')
+      .eq('assigned_by', currentUser.id)
+      .order('created_at', { ascending: false });
+    assignments = ensureData(data || [], error, 'Failed to load TO reports.');
+  } else {
+    assignments = await listTOAssignmentsByNominationIds(admin, seasonNominations.map((nomination) => nomination.id));
+  }
+
+  const filteredAssignments = assignments.filter(
+    (assignment) =>
+      assignment.status !== ASSIGNMENT_STATUS.DECLINED &&
+      (!normalizedSeasonId || seasonNominationIds.has(assignment.nomination_id)),
+  );
+
+  if (!filteredAssignments.length) {
+    return [];
+  }
+
+  const nominationIds = [...new Set(filteredAssignments.map((assignment) => assignment.nomination_id))];
+  const toIds = [...new Set(filteredAssignments.map((assignment) => assignment.to_id))];
+  const [nominations, toOfficials, reports] = await Promise.all([
+    listNominationsByIds(admin, nominationIds),
+    listProfilesByIds(admin, toIds),
+    loadReportsForPairs(
+      admin,
+      filteredAssignments.map((assignment) => ({
+        nominationId: assignment.nomination_id,
+        refereeId: assignment.to_id,
+      })),
+    ),
+  ]);
+  const filteredNominations = filterRowsBySeason(
+    nominations,
+    normalizedSeasonId,
+    (nomination) => nomination.season_id,
+    (nomination) => nomination.match_date,
+  );
+  const nominationMap = new Map(filteredNominations.map((nomination) => [nomination.id, nomination]));
+  const toMap = new Map(toOfficials.map((official) => [official.id, official]));
+  const reportsByPairKey = groupReportsByPairKey(reports);
+
+  return filteredAssignments
+    .map((assignment) => {
+      const nomination = nominationMap.get(assignment.nomination_id);
+      if (!nomination) {
+        return null;
+      }
+
+      const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.to_id}`) || [];
+      const toReport = pairReports.find((report) => report.author_role === 'Referee');
+      const supervisorReport = pairReports.find(
+        (report) => report.author_role === 'Instructor' && report.author_id === assignment.assigned_by,
+      );
+
+      return buildReportListItem({
+        nomination,
+        assignment,
+        refereeName: toMap.get(assignment.to_id)?.full_name || 'Unknown TO',
+        photoUrl: toMap.get(assignment.to_id)?.photo_url || DEFAULT_PHOTO_URL,
+        refereeReportStatus: toReport?.status || null,
+        instructorReportStatus: supervisorReport?.status || null,
+        reviewScore: supervisorReport?.score ?? null,
+        currentUserRole: currentUser.role,
+        reportMode: REPORT_MODE.TO,
+      });
+    })
+    .filter(Boolean)
+    .sort(sortByMatchDesc);
+};
+
+const getMobileReportsPayload = async (admin, currentUser, reportMode = REPORT_MODE.STANDARD, seasonId = null, profileId = null) => {
+  const normalizedReportMode = normalizeReportMode(reportMode);
+
+  if (!shouldUseMobileReportProfiles(currentUser, reportMode)) {
+    return { reports: await listReportItems(admin, currentUser, normalizedReportMode, seasonId) };
+  }
+
+  const items =
+    normalizedReportMode === REPORT_MODE.TO
+      ? await listMobileTOReportItems(admin, currentUser, seasonId)
+      : await listMobileStandardReportItems(admin, currentUser, seasonId);
+
+  return buildMobileProfilePayload(items, profileId);
+};
+
 const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STANDARD, seasonId = null) => {
   const normalizedReportMode = normalizeReportMode(reportMode);
   const normalizedSeasonId = normalizeSeasonId(seasonId);
@@ -6613,6 +6853,7 @@ const routeRequest = async (event) => {
   const requestUrl = new URL(event.rawUrl || `https://local.refzone${event.path || '/'}`);
   const reportMode = normalizeReportMode(requestUrl.searchParams.get('mode') || body.mode);
   const seasonId = normalizeSeasonId(requestUrl.searchParams.get('seasonId') || body.seasonId);
+  const reportProfileId = String(requestUrl.searchParams.get('profileId') || '').trim();
   const compactRanking = requestUrl.searchParams.get('compact') === '1';
 
   if (method === 'GET' && path === '/health') {
@@ -6980,6 +7221,10 @@ const routeRequest = async (event) => {
 
   if (method === 'GET' && path === '/reports') {
     return json(200, { reports: await listReportItems(admin, currentUser, reportMode, seasonId) });
+  }
+
+  if (method === 'GET' && path === '/mobile/reports') {
+    return json(200, await getMobileReportsPayload(admin, currentUser, reportMode, seasonId, reportProfileId || null));
   }
 
   const reportMatch = path.match(/^\/reports\/([^/]+)\/([^/]+)$/);
