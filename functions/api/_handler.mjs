@@ -2090,7 +2090,7 @@ const loadReportsForPairs = async (admin, pairs) => {
   const refereeIds = [...new Set(pairs.map((pair) => pair.refereeId))];
   const { data, error } = await admin
     .from('reports')
-    .select('*')
+    .select('id, nomination_id, referee_id, author_id, author_role, status, score, google_drive_url, visible_to_referee_ids, updated_at')
     .in('nomination_id', nominationIds)
     .in('referee_id', refereeIds);
 
