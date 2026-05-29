@@ -125,6 +125,17 @@ const buildFormDataFromDetail = (detail: ReportDetail, role: User['role']) => {
   };
 };
 
+const isReviewedReport = (item: ReportListItem) => item.instructorReportStatus === 'Reviewed';
+const isSubmittedReport = (item: ReportListItem) => item.refereeReportStatus === 'Submitted' && !isReviewedReport(item);
+const isOverduePendingReport = (item: ReportListItem) => item.deadlineExceeded && !isReviewedReport(item);
+
+interface ReportProfileSummary {
+  refereeId: string;
+  refereeName: string;
+  submittedCount: number;
+  overdueCount: number;
+}
+
 const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard' as ReportMode }) => {
   const { language, t } = useI18n();
   const { activeSeasonId } = useSeason();
@@ -175,10 +186,12 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       reportMode: intent.reportMode || initialReportMode,
     };
   });
+  const [selectedProfile, setSelectedProfile] = useState<ReportProfileSummary | null>(null);
   const isTestReportPage = currentReportMode === 'test_to';
   const isTOReportPage = currentReportMode === 'to';
   const canWriteReportsOnPage = isTestReportPage ? isInstructor : isTOReportPage ? isTO || isTOSupervisor : isInstructor || isReferee;
   const pageTitle = t('reports.title');
+  const usesProfileOverview = (isInstructor && currentReportMode === 'standard') || (isTOSupervisor && currentReportMode === 'to');
 
   const buildNewTestReportDetail = async (): Promise<ReportDetail> => {
     const response = await getReferees(user.id);
@@ -279,6 +292,10 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       setCurrentReportMode('standard');
     }
   }, [canViewRefereeReports, canViewTOReports, currentReportMode]);
+
+  useEffect(() => {
+    setSelectedProfile(null);
+  }, [activeSeasonId, currentReportMode]);
 
   const openReportDetail = async (item: ReportListItem) => {
     setErrorMessage('');
@@ -480,6 +497,111 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
     return false;
   });
+
+  const profileOverviewReports = reports.filter((item) => item.reportMode === currentReportMode);
+  const availableReports = profileOverviewReports.filter((item) => isSubmittedReport(item));
+  const reportProfiles = Object.values(
+    profileOverviewReports.reduce<Record<string, ReportProfileSummary>>((accumulator, item) => {
+      if (!accumulator[item.refereeId]) {
+        accumulator[item.refereeId] = {
+          refereeId: item.refereeId,
+          refereeName: item.refereeName,
+          submittedCount: 0,
+          overdueCount: 0,
+        };
+      }
+
+      if (isSubmittedReport(item)) {
+        accumulator[item.refereeId].submittedCount += 1;
+      }
+
+      if (isOverduePendingReport(item)) {
+        accumulator[item.refereeId].overdueCount += 1;
+      }
+
+      return accumulator;
+    }, {}),
+  ).sort((left, right) => {
+    const leftWeight = left.submittedCount + left.overdueCount;
+    const rightWeight = right.submittedCount + right.overdueCount;
+    if (rightWeight !== leftWeight) {
+      return rightWeight - leftWeight;
+    }
+
+    return left.refereeName.localeCompare(right.refereeName);
+  });
+
+  const selectedProfileReports = selectedProfile
+    ? profileOverviewReports.filter((item) => item.refereeId === selectedProfile.refereeId)
+    : [];
+  const selectedProfileSubmittedReports = selectedProfileReports.filter((item) => isSubmittedReport(item) && !item.deadlineExceeded);
+  const selectedProfileOverdueReports = selectedProfileReports.filter((item) => isOverduePendingReport(item));
+  const selectedProfileReviewedReports = selectedProfileReports.filter((item) => isReviewedReport(item));
+
+  const renderReportCard = (report: ReportListItem, options?: { allowAddTime?: boolean }) => {
+    const statusLabel = getDisplayStatus(report, user.role);
+    const slotLabel = report.reportMode === 'to' ? getTOSlotLabel(report.slotNumber, language) : getNominationSlotLabel(report.slotNumber, language);
+
+    return (
+      <button
+        key={`${report.reportMode}-${report.nominationId}-${report.refereeId}`}
+        onClick={() => openReportDetail(report)}
+        className="group w-full rounded-2xl border border-slate-100 bg-white p-5 text-left shadow-sm transition-colors hover:bg-slate-50"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="rz-game-code text-xs uppercase text-[#581c1c]">{getDisplayGameCode(report.gameCode)}</div>
+            <div className="mt-1 text-xl font-bold text-slate-900">{getDisplayMatchTeams(report.teams)}</div>
+            <div className="mt-2 text-sm text-slate-500">
+              {`${report.matchDate} | ${getDisplayPersonName(report.refereeName)} | ${slotLabel}`}
+            </div>
+          </div>
+
+          <div className="flex flex-col items-end gap-2">
+            {options?.allowAddTime ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleAddTime(report.nominationId, report.refereeId);
+                }}
+                disabled={isSaving}
+                className="inline-flex items-center gap-2 rounded-full bg-[#7a1f24] px-4 py-2 text-xs font-bold text-white disabled:opacity-70"
+              >
+                <AlarmClockPlus size={14} />
+                {isSaving ? 'Adding...' : 'Add Time'}
+              </button>
+            ) : null}
+            <span className={`rounded-full px-4 py-2 text-xs font-bold ${getStatusClasses(statusLabel)}`}>
+              {getReportStatusLabel(statusLabel, language)}
+            </span>
+          </div>
+        </div>
+
+        {report.deadlineMessage ? (
+          <div className="mt-3 text-sm font-semibold text-[#7a1f24]">{report.deadlineMessage}</div>
+        ) : null}
+      </button>
+    );
+  };
+
+  const renderSection = (title: string, items: ReportListItem[], options?: { allowAddTime?: boolean; emptyText?: string }) => (
+    <section className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-black text-slate-900">{title}</h3>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <div className="rounded-2xl border border-slate-100 bg-white p-4 text-sm text-slate-500">
+          {options?.emptyText || 'No reports in this section.'}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {items.map((item) => renderReportCard(item, { allowAddTime: options?.allowAddTime }))}
+        </div>
+      )}
+    </section>
+  );
 
   const renderGoogleDriveButton = (url: string) =>
     url ? (
@@ -911,6 +1033,53 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
     );
   }
 
+  if (usesProfileOverview && selectedProfile) {
+    return (
+      <Layout title={`${pageTitle} · ${getDisplayPersonName(selectedProfile.refereeName)}`} onBack={onBack}>
+        {errorMessage && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {errorMessage}
+          </div>
+        )}
+        {successMessage && (
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {successMessage}
+          </div>
+        )}
+
+        <div className="mb-6 rounded-[28px] border border-[#57131b]/10 bg-[linear-gradient(135deg,#57131b_0%,#6f1d1b_44%,#8f3d19_100%)] p-6 text-white shadow-[0_20px_50px_rgba(87,19,27,0.14)]">
+          <div className="text-xs font-bold uppercase tracking-[0.22em] text-white/65">Report Profile</div>
+          <div className="mt-2 text-3xl font-black tracking-tight">{getDisplayPersonName(selectedProfile.refereeName)}</div>
+          <div className="mt-4 flex flex-wrap gap-3 text-sm">
+            <span className="rounded-full border border-white/15 bg-white/10 px-4 py-2 font-bold">
+              Submitted: {selectedProfile.submittedCount}
+            </span>
+            <span className="rounded-full border border-white/15 bg-white/10 px-4 py-2 font-bold">
+              Deadlines: {selectedProfile.overdueCount}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedProfile(null)}
+            className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-[#57131b]"
+          >
+            <ArrowRight size={16} className="rotate-180" />
+            Back to profiles
+          </button>
+        </div>
+
+        <div className="space-y-8">
+          {renderSection('Submitted Reports', selectedProfileSubmittedReports, { emptyText: 'No submitted reports waiting for review.' })}
+          {renderSection('Deadline Passed', selectedProfileOverdueReports, {
+            allowAddTime: true,
+            emptyText: 'No expired report deadlines.',
+          })}
+          {renderSection('Reviewed Reports', selectedProfileReviewedReports, { emptyText: 'No reviewed reports yet.' })}
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout title={pageTitle} onBack={onBack}>
       {canViewRefereeReports && canViewTOReports && (
@@ -947,7 +1116,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         </div>
       )}
 
-      {canWriteReportsOnPage && (
+      {canWriteReportsOnPage && !usesProfileOverview && (
         <div className="mb-4 flex items-center justify-between px-1">
           <h3 className="px-1 text-sm font-semibold uppercase tracking-widest text-slate-400">{t('common.recentActivity')}</h3>
           <button
@@ -967,7 +1136,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         </div>
       )}
 
-      {isChoosingNew && !isTestReportPage && (
+      {isChoosingNew && !isTestReportPage && !usesProfileOverview && (
         <div className="mb-5 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
           <h3 className="mb-3 text-base font-bold text-slate-900">{t('reports.chooseGameForNew')}</h3>
           {eligibleNewReports.length === 0 ? (
@@ -993,6 +1162,47 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
       {isLoading ? (
         <p className="text-sm text-slate-500">{t('reports.loading')}</p>
+      ) : usesProfileOverview ? (
+        <div className="space-y-8">
+          {renderSection('Available Reports', availableReports, { emptyText: 'No submitted reports waiting for review.' })}
+
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-black text-slate-900">Profiles</h3>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">{reportProfiles.length}</span>
+            </div>
+
+            {reportProfiles.length === 0 ? (
+              <div className="rounded-2xl border border-slate-100 bg-white p-4 text-sm text-slate-500">
+                No report profiles found for this season.
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {reportProfiles.map((profile) => (
+                  <button
+                    key={profile.refereeId}
+                    onClick={() => setSelectedProfile(profile)}
+                    className="rounded-2xl border border-slate-100 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  >
+                    <div className="text-lg font-black text-slate-900">{getDisplayPersonName(profile.refereeName)}</div>
+                    <div className="mt-4 flex flex-wrap gap-2 text-sm">
+                      <span className="rounded-full bg-blue-50 px-3 py-1 font-bold text-blue-700">
+                        Submitted: {profile.submittedCount}
+                      </span>
+                      <span className="rounded-full bg-red-50 px-3 py-1 font-bold text-red-700">
+                        Deadlines: {profile.overdueCount}
+                      </span>
+                    </div>
+                    <div className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-[#57131b]">
+                      Open reports
+                      <ArrowRight size={16} />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       ) : reports.length === 0 ? (
         <div className="rounded-xl border border-slate-100 bg-white p-4 text-sm text-slate-500">
           {isTestReportPage ? 'No practice reports found.' : isTOReportPage ? t('reports.toNone') : t('reports.none')}

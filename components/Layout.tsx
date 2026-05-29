@@ -25,12 +25,26 @@ const Layout: React.FC<LayoutProps> = ({ children, title, onBack, onLogout, show
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               {showBack ? (
-                <button
-                  onClick={onBack}
-                  className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
-                >
-                  <ChevronLeft size={22} />
-                </button>
+                <>
+                  <button
+                    onClick={onBack}
+                    className="flex h-10 w-10 flex-none items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <ChevronLeft size={22} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent(HOME_NAVIGATION_EVENT))}
+                    className="flex-none rounded-xl transition hover:opacity-90"
+                    aria-label="Go to home page"
+                  >
+                    <img
+                      src="/img/Header.jpg"
+                      alt="ABL header logo"
+                      className="h-11 w-auto max-w-[170px] object-contain shadow-none"
+                    />
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
