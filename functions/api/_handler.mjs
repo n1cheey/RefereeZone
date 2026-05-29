@@ -192,10 +192,7 @@ const filterRowsBySeason = (rows, expectedSeasonId, getStoredSeasonId, getDateVa
   return rows.filter((row) => matchesSeasonId(getStoredSeasonId(row), getDateValue(row), normalizedExpectedSeasonId));
 };
 
-const applySeasonFilter = (query, seasonId) => {
-  const normalizedSeasonId = normalizeSeasonId(seasonId);
-  return normalizedSeasonId ? query.eq('season_id', normalizedSeasonId) : query;
-};
+const applySeasonFilter = (query) => query;
 const normalizeVisibleToRefereeIds = (value) => {
   if (!Array.isArray(value)) {
     return [];
@@ -5160,7 +5157,12 @@ const listTestReportTOItems = async (admin, currentUser, seasonId = null) => {
       seasonId,
     );
 
-    const reports = ensureData(data || [], error, 'Failed to load reports.');
+    const reports = filterRowsBySeason(
+      ensureData(data || [], error, 'Failed to load reports.'),
+      seasonId,
+      (report) => report.season_id,
+      (report) => report.match_date,
+    );
     return reports.map((report) =>
       buildManualTestReportTOItem({
         report,
@@ -5179,7 +5181,12 @@ const listTestReportTOItems = async (admin, currentUser, seasonId = null) => {
       seasonId,
     );
 
-    const reports = ensureData(data || [], error, 'Failed to load reports.');
+    const reports = filterRowsBySeason(
+      ensureData(data || [], error, 'Failed to load reports.'),
+      seasonId,
+      (report) => report.season_id,
+      (report) => report.match_date,
+    );
     const referees = await listProfilesByIds(
       admin,
       [...new Set(reports.map((report) => report.referee_id))],
@@ -5369,9 +5376,6 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
 
   if (currentUser.role === 'Instructor') {
     let nominationsQuery = admin.from('nominations').select('*');
-    if (normalizedSeasonId) {
-      nominationsQuery = nominationsQuery.eq('season_id', normalizedSeasonId);
-    }
     const { data, error } = await nominationsQuery;
     const nominations = filterRowsBySeason(
       ensureData(data || [], error, 'Failed to load reports.'),
