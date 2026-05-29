@@ -187,6 +187,7 @@ export interface ReportListItem {
   matchTime: string;
   venue: string;
   refereeName: string;
+  photoUrl?: string;
   slotNumber: number;
   refereeReportStatus: ReportStatus | null;
   instructorReportStatus: ReportStatus | null;

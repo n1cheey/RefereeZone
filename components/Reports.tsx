@@ -5,7 +5,6 @@ import { getCanonicalVenueName, getDisplayGameCode, getDisplayMatchTeams, getDis
 import { ReportDetail, ReportListItem, ReportMode, ReportStatus, User } from '../types';
 import { getNominationSlotLabel, getTOSlotLabel } from '../slotLabels';
 import { deleteReport, extendReportDeadline, getReportDetail, getReports, saveReport } from '../services/reportsService';
-import { getReferees } from '../services/nominationService';
 import { isViewCacheFresh, readViewCache, writeViewCache } from '../services/viewCache';
 import { getReportStatusLabel, useI18n } from '../i18n';
 import { useSeason } from '../services/seasonContext';
@@ -187,7 +186,6 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       reportMode: intent.reportMode || initialReportMode,
     };
   });
-  const [profilePhotoUrls, setProfilePhotoUrls] = useState<Record<string, string>>({});
   const [selectedProfile, setSelectedProfile] = useState<ReportProfileSummary | null>(null);
   const isTestReportPage = currentReportMode === 'test_to';
   const isTOReportPage = currentReportMode === 'to';
@@ -300,42 +298,6 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
   useEffect(() => {
     setSelectedProfile(null);
   }, [activeSeasonId, currentReportMode]);
-
-  useEffect(() => {
-    if (!usesProfileOverview || !isInstructor) {
-      return;
-    }
-
-    let isMounted = true;
-
-    const loadProfilePhotos = async () => {
-      try {
-        const response = await getReferees(user.id);
-        if (!isMounted) {
-          return;
-        }
-
-        setProfilePhotoUrls(
-          response.referees.reduce<Record<string, string>>((accumulator, referee) => {
-            if (referee.photoUrl) {
-              accumulator[referee.id] = referee.photoUrl;
-            }
-            return accumulator;
-          }, {}),
-        );
-      } catch {
-        if (isMounted) {
-          setProfilePhotoUrls({});
-        }
-      }
-    };
-
-    void loadProfilePhotos();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isInstructor, user.id, usesProfileOverview]);
 
   const openReportDetail = async (item: ReportListItem) => {
     setErrorMessage('');
@@ -548,14 +510,13 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         accumulator[item.refereeId] = {
           refereeId: item.refereeId,
           refereeName: item.refereeName,
-          photoUrl: profilePhotoUrls[item.refereeId] || '',
+          photoUrl: item.photoUrl || '',
           submittedCount: 0,
           overdueCount: 0,
         };
       }
-
-      if (!accumulator[item.refereeId].photoUrl && profilePhotoUrls[item.refereeId]) {
-        accumulator[item.refereeId].photoUrl = profilePhotoUrls[item.refereeId];
+      if (!accumulator[item.refereeId].photoUrl && item.photoUrl) {
+        accumulator[item.refereeId].photoUrl = item.photoUrl;
       }
 
       if (isSubmittedReport(item)) {
