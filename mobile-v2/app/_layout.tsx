@@ -31,6 +31,18 @@ function RootNavigator() {
       <Stack.Screen name="pin-setup" />
       <Stack.Screen name="biometric-setup" />
       <Stack.Screen name="home" />
+      <Stack.Screen name="my-games" />
+      <Stack.Screen name="chat" />
+      <Stack.Screen name="reports" />
+      <Stack.Screen name="ranking" />
+      <Stack.Screen name="news" />
+      <Stack.Screen name="members" />
+      <Stack.Screen name="profile" />
+      <Stack.Screen name="availability" />
+      <Stack.Screen name="tests" />
+      <Stack.Screen name="calendar" />
+      <Stack.Screen name="finance" />
+      <Stack.Screen name="notifications" />
     </Stack>
   );
 }

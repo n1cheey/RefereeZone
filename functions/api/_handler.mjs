@@ -1853,6 +1853,69 @@ const listTOAssignmentsByUserId = async (admin, toId) => {
   return ensureData(data || [], error, 'Failed to load TO assignments.');
 };
 
+const getMobileFinanceSummary = async (admin, currentUser, startDate, endDate) => {
+  if (currentUser.role !== 'Financialist') {
+    throw new HttpError(403, 'Only Financialist accounts can view this finance summary.');
+  }
+
+  const normalizedStartDate = String(startDate || '').trim();
+  const normalizedEndDate = String(endDate || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedStartDate) || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedEndDate)) {
+    throw new HttpError(400, 'Use YYYY-MM-DD for the finance date range.');
+  }
+
+  const { data, error } = await admin
+    .from('nominations')
+    .select('id, match_date, referee_fee, to_fee')
+    .gte('match_date', normalizedStartDate)
+    .lte('match_date', normalizedEndDate)
+    .order('match_date', { ascending: false });
+  const nominations = ensureData(data || [], error, 'Failed to load finance nominations.');
+
+  const nominationIds = nominations.map((nomination) => nomination.id);
+  await autoAcceptPastAssignments(admin, nominationIds);
+  const [refereeAssignments, toAssignments] = await Promise.all([
+    listAssignmentsByNominationIds(admin, nominationIds),
+    listTOAssignmentsByNominationIds(admin, nominationIds),
+  ]);
+
+  const acceptedRefereeCountByNominationId = refereeAssignments.reduce((accumulator, assignment) => {
+    if (assignment.status !== ASSIGNMENT_STATUS.ACCEPTED) {
+      return accumulator;
+    }
+
+    accumulator.set(assignment.nomination_id, (accumulator.get(assignment.nomination_id) || 0) + 1);
+    return accumulator;
+  }, new Map());
+
+  const acceptedTOCountByNominationId = toAssignments.reduce((accumulator, assignment) => {
+    if (assignment.status !== ASSIGNMENT_STATUS.ACCEPTED) {
+      return accumulator;
+    }
+
+    accumulator.set(assignment.nomination_id, (accumulator.get(assignment.nomination_id) || 0) + 1);
+    return accumulator;
+  }, new Map());
+
+  const summary = nominations.reduce(
+    (accumulator, nomination) => {
+      accumulator.nominationsCount += 1;
+      accumulator.refereeTotal += (acceptedRefereeCountByNominationId.get(nomination.id) || 0) * Number(nomination.referee_fee || 0);
+      accumulator.toTotal += (acceptedTOCountByNominationId.get(nomination.id) || 0) * Number(nomination.to_fee || 0);
+      return accumulator;
+    },
+    {
+      rangeStart: normalizedStartDate,
+      rangeEnd: normalizedEndDate,
+      refereeTotal: 0,
+      toTotal: 0,
+      nominationsCount: 0,
+    },
+  );
+
+  return { summary };
+};
+
 const groupRowsByNominationId = (rows = []) => {
   const grouped = new Map();
 
@@ -6915,6 +6978,10 @@ const routeRequest = async (event) => {
 
   if (method === 'GET' && path === '/rankings/to') {
     return json(200, await getRankingDashboard(admin, currentUser, 'TO', seasonId));
+  }
+
+  if (method === 'POST' && path === '/mobile/finance-summary') {
+    return json(200, await getMobileFinanceSummary(admin, currentUser, body.startDate, body.endDate));
   }
 
   if (method === 'GET' && path === '/rankings/admin') {

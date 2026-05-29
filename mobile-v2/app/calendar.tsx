@@ -1,35 +1,48 @@
-import { Redirect, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Redirect } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
+import { Text, View } from 'react-native';
+
+import { ScreenShell, sharedStyles } from '@/src/components/screen-shell';
 import { useAuth } from '@/src/providers/auth-provider';
 import { useLanguage } from '@/src/providers/language-provider';
-import { theme } from '@/src/theme/theme';
+import { getMyGames } from '@/src/services/modules-service';
+import { formatDateLabel } from '@/src/utils/format';
 
 export default function CalendarScreen() {
-  const router = useRouter();
-  const { t } = useLanguage();
   const { user } = useAuth();
-  if (!user) return <Redirect href="/login" />;
+  const { t } = useLanguage();
+
+  const gamesQuery = useQuery({
+    queryKey: ['mobile-calendar', user?.id],
+    queryFn: () => getMyGames(user!),
+    enabled: Boolean(user),
+  });
+
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
+
+  const assignmentGames = gamesQuery.data?.assignments || [];
+  const instructorGames = gamesQuery.data?.instructorNominations || [];
+  const allItems = [
+    ...instructorGames.map((game) => ({ key: game.id, date: game.matchDate, teams: game.teams, gameCode: game.gameCode })),
+    ...assignmentGames.map((game) => ({
+      key: game.nominationId,
+      date: game.matchDate,
+      teams: game.teams,
+      gameCode: game.gameCode,
+    })),
+  ].sort((left, right) => left.date.localeCompare(right.date));
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.root}>
-        <View style={styles.card}>
-          <Text style={styles.title}>{t('home.calendar')}</Text>
-          <Text style={styles.subtitle}>{t('home.comingSoon')}</Text>
+    <ScreenShell user={user} title={t('calendar.title')} subtitle={t('calendar.subtitle')}>
+      {allItems.map((item) => (
+        <View key={item.key} style={sharedStyles.sectionCard}>
+          <Text style={sharedStyles.sectionTitle}>{item.gameCode}</Text>
+          <Text style={sharedStyles.muted}>{item.teams}</Text>
+          <Text style={sharedStyles.muted}>{formatDateLabel(item.date)}</Text>
         </View>
-        <Pressable style={styles.button} onPress={() => router.replace('/home')}>
-          <Text style={styles.buttonText}>{t('common.backHome')}</Text>
-        </Pressable>
-      </View>
-    </SafeAreaView>
+      ))}
+    </ScreenShell>
   );
 }
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.canvas },
-  root: { flex: 1, padding: 20, gap: 16 },
-  card: { backgroundColor: theme.colors.card, borderWidth: 1, borderColor: theme.colors.line, borderRadius: theme.radius.lg, padding: 22, gap: 8 },
-  title: { color: theme.colors.text, fontSize: 26, fontWeight: '900' },
-  subtitle: { color: theme.colors.muted, fontSize: 15, lineHeight: 22 },
-  button: { minHeight: 54, borderRadius: theme.radius.sm, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
-  buttonText: { color: theme.colors.white, fontSize: 15, fontWeight: '900' },
-});

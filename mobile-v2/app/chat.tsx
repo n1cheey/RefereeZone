@@ -1,35 +1,48 @@
-import { Redirect, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Redirect } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
+import { Text, View } from 'react-native';
+
+import { Avatar } from '@/src/components/avatar';
+import { ScreenShell, sharedStyles } from '@/src/components/screen-shell';
 import { useAuth } from '@/src/providers/auth-provider';
 import { useLanguage } from '@/src/providers/language-provider';
-import { theme } from '@/src/theme/theme';
+import { getMobileChatBootstrap } from '@/src/services/modules-service';
+import { formatDateLabel } from '@/src/utils/format';
 
 export default function ChatScreen() {
-  const router = useRouter();
-  const { t } = useLanguage();
   const { user } = useAuth();
-  if (!user) return <Redirect href="/login" />;
+  const { t } = useLanguage();
+
+  const chatQuery = useQuery({
+    queryKey: ['mobile-chat'],
+    queryFn: getMobileChatBootstrap,
+    enabled: Boolean(user),
+  });
+
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
+
+  const conversations = chatQuery.data?.conversations || [];
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.root}>
-        <View style={styles.card}>
-          <Text style={styles.title}>{t('home.chat')}</Text>
-          <Text style={styles.subtitle}>{t('home.comingSoon')}</Text>
+    <ScreenShell user={user} title={t('chat.title')} subtitle={t('chat.subtitle')}>
+      {conversations.map((conversation) => (
+        <View key={conversation.id} style={sharedStyles.sectionCard}>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+            <Avatar fullName={conversation.otherUser.fullName} size={46} />
+            <View style={{ flex: 1, gap: 3 }}>
+              <Text style={sharedStyles.sectionTitle}>{conversation.otherUser.fullName}</Text>
+              <Text style={sharedStyles.muted}>{conversation.otherUser.role}</Text>
+            </View>
+            <Text style={sharedStyles.pillText}>{conversation.unreadCount}</Text>
+          </View>
+          <Text style={sharedStyles.muted}>{conversation.lastMessageText || t('common.noData')}</Text>
+          <Text style={sharedStyles.muted}>
+            {conversation.lastMessageAt ? formatDateLabel(conversation.lastMessageAt.slice(0, 10)) : '—'}
+          </Text>
         </View>
-        <Pressable style={styles.button} onPress={() => router.replace('/home')}>
-          <Text style={styles.buttonText}>{t('common.backHome')}</Text>
-        </Pressable>
-      </View>
-    </SafeAreaView>
+      ))}
+    </ScreenShell>
   );
 }
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: theme.colors.canvas },
-  root: { flex: 1, padding: 20, gap: 16 },
-  card: { backgroundColor: theme.colors.card, borderWidth: 1, borderColor: theme.colors.line, borderRadius: theme.radius.lg, padding: 22, gap: 8 },
-  title: { color: theme.colors.text, fontSize: 26, fontWeight: '900' },
-  subtitle: { color: theme.colors.muted, fontSize: 15, lineHeight: 22 },
-  button: { minHeight: 54, borderRadius: theme.radius.sm, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
-  buttonText: { color: theme.colors.white, fontSize: 15, fontWeight: '900' },
-});
