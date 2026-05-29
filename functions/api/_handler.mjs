@@ -1247,6 +1247,23 @@ const markChatConversationRead = async (admin, currentUser, conversationId) => {
   return { conversationId, readAt: now };
 };
 
+const deleteChatConversation = async (admin, currentUser, conversationId) => {
+  const conversation = await loadChatConversationById(admin, conversationId);
+  requireChatConversationParticipant(conversation, currentUser.id);
+
+  const { error: messagesError } = await admin.from('chat_messages').delete().eq('conversation_id', conversationId);
+  if (messagesError) {
+    throw new HttpError(500, 'Failed to delete chat messages.');
+  }
+
+  const { error: conversationError } = await admin.from('chat_conversations').delete().eq('id', conversationId);
+  if (conversationError) {
+    throw new HttpError(500, 'Failed to delete chat conversation.');
+  }
+
+  clearChatBootstrapCache();
+};
+
 const sendChatMessage = async (admin, currentUser, body) => {
   const messageBody = String(body.body || '').trim();
   if (!messageBody) {
@@ -6259,11 +6276,12 @@ const getRankingDashboardConfig = (role, subjectRole = null) => {
   };
 };
 
-const getRankingDashboard = async (admin, currentUser, subjectRole = null, seasonId = null) => {
+const getRankingDashboard = async (admin, currentUser, subjectRole = null, seasonId = null, options = {}) => {
   const rankingConfig = {
     ...getRankingDashboardConfig(currentUser.role, subjectRole),
     seasonId: normalizeSeasonId(seasonId),
   };
+  const compact = options.compact === true;
   const rankingState = await getCachedRankingState(admin, rankingConfig);
   const totalReferees = rankingState.leaderboard.length;
 
@@ -6291,8 +6309,8 @@ const getRankingDashboard = async (admin, currentUser, subjectRole = null, seaso
       refereeHistories: {},
       currentUserItem: null,
       performanceProfile: null,
-      visiblePerformanceProfiles: Array.from(rankingState.performanceProfiles.values()),
-      performanceEntries: rankingState.performanceEntries,
+      visiblePerformanceProfiles: compact ? [] : Array.from(rankingState.performanceProfiles.values()),
+      performanceEntries: compact ? [] : rankingState.performanceEntries,
       totalReferees,
       canViewFullLeaderboard: true,
     };
@@ -6590,6 +6608,7 @@ const routeRequest = async (event) => {
   const requestUrl = new URL(event.rawUrl || `https://local.refzone${event.path || '/'}`);
   const reportMode = normalizeReportMode(requestUrl.searchParams.get('mode') || body.mode);
   const seasonId = normalizeSeasonId(requestUrl.searchParams.get('seasonId') || body.seasonId);
+  const compactRanking = requestUrl.searchParams.get('compact') === '1';
 
   if (method === 'GET' && path === '/health') {
     return json(200, { status: 'ok' });
@@ -6704,6 +6723,14 @@ const routeRequest = async (event) => {
     return json(200, {
       message: 'Chat marked as read.',
       result: await markChatConversationRead(admin, currentUser, chatReadMatch[1]),
+    });
+  }
+
+  const chatConversationMatch = path.match(/^\/chat\/conversations\/([^/]+)$/);
+  if (method === 'DELETE' && chatConversationMatch) {
+    await deleteChatConversation(admin, currentUser, chatConversationMatch[1]);
+    return json(200, {
+      message: 'Chat conversation deleted.',
     });
   }
 
@@ -6973,11 +7000,11 @@ const routeRequest = async (event) => {
   }
 
   if (method === 'GET' && path === '/rankings') {
-    return json(200, await getRankingDashboard(admin, currentUser, null, seasonId));
+    return json(200, await getRankingDashboard(admin, currentUser, null, seasonId, { compact: compactRanking }));
   }
 
   if (method === 'GET' && path === '/rankings/to') {
-    return json(200, await getRankingDashboard(admin, currentUser, 'TO', seasonId));
+    return json(200, await getRankingDashboard(admin, currentUser, 'TO', seasonId, { compact: compactRanking }));
   }
 
   if (method === 'POST' && path === '/mobile/finance-summary') {

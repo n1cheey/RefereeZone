@@ -8,6 +8,8 @@ export const theme = {
     muted: '#6f6257',
     primary: '#5b1723',
     primaryAccent: '#8a3a1d',
+    navActive: '#ff9f1a',
+    navMuted: '#d4c9cd',
     white: '#ffffff',
     success: '#117b4d',
     successSoft: '#e3f7ec',

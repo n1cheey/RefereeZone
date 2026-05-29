@@ -199,7 +199,9 @@ const Nominations: React.FC<NominationsProps> = ({ user, onBack, onNavigate }) =
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Failed to load nominations.');
+          if (!readViewCache(cacheKey)) {
+            setErrorMessage(error instanceof Error ? error.message : 'Failed to load nominations.');
+          }
         }
       } finally {
         if (isMounted && showLoader) {

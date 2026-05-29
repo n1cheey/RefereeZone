@@ -2,12 +2,21 @@ import { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 import { ApiRequestError, apiRequest } from '@/src/services/api-client';
 import { supabase } from '@/src/services/supabase-client';
-import { User } from '@/src/types/domain';
+import { User, UserRole } from '@/src/types/domain';
 
 export interface LoginPayload {
   email: string;
   password: string;
 }
+
+export interface RegisterPayload extends LoginPayload {
+  fullName: string;
+  role: UserRole;
+}
+
+const JSON_HEADERS = {
+  'Content-Type': 'application/json',
+};
 
 const PROFILE_RETRY_DELAYS_MS = [350, 900, 1800];
 
@@ -90,6 +99,34 @@ export async function loginUser(payload: LoginPayload): Promise<{ user: User }> 
   }
 
   throw new Error('Profile was not found after sign in.');
+}
+
+export async function registerUser(payload: RegisterPayload): Promise<{ user: User }> {
+  await apiRequest<{ message: string; user?: User }>(
+    '/api/auth/register',
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(payload),
+    },
+  );
+
+  return loginUser({
+    email: payload.email,
+    password: payload.password,
+  });
+}
+
+export async function requestPasswordReset(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) {
+    throw new Error('Enter your e-mail address first.');
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail);
+  if (error) {
+    throw new Error(error.message || 'Failed to send password reset e-mail.');
+  }
 }
 
 export async function logoutUser() {

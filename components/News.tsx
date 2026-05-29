@@ -82,7 +82,9 @@ const News: React.FC<NewsProps> = ({ user, onBack }) => {
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Failed to load news.');
+          if (!cachedPosts?.length) {
+            setErrorMessage(error instanceof Error ? error.message : 'Failed to load news.');
+          }
         }
       } finally {
         if (isMounted) {

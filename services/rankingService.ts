@@ -12,15 +12,19 @@ const JSON_HEADERS = {
   'Content-Type': 'application/json',
 };
 
-const getSeasonQuery = (seasonId?: LeagueSeasonId | null) =>
-  seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : '';
+const getSeasonQuery = (seasonId?: LeagueSeasonId | null, compact = false) =>
+  `${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}${compact ? '&compact=1' : ''}`;
 
-export function getRankingDashboard(userId: string, seasonId?: LeagueSeasonId | null) {
-  return apiRequest<RankingDashboardData>(`/api/rankings?userId=${encodeURIComponent(userId)}${getSeasonQuery(seasonId)}`);
+export function getRankingDashboard(userId: string, seasonId?: LeagueSeasonId | null, compact = false) {
+  return apiRequest<RankingDashboardData>(
+    `/api/rankings?userId=${encodeURIComponent(userId)}${getSeasonQuery(seasonId, compact)}`,
+  );
 }
 
-export function getTORankingDashboard(userId: string, seasonId?: LeagueSeasonId | null) {
-  return apiRequest<RankingDashboardData>(`/api/rankings/to?userId=${encodeURIComponent(userId)}${getSeasonQuery(seasonId)}`);
+export function getTORankingDashboard(userId: string, seasonId?: LeagueSeasonId | null, compact = false) {
+  return apiRequest<RankingDashboardData>(
+    `/api/rankings/to?userId=${encodeURIComponent(userId)}${getSeasonQuery(seasonId, compact)}`,
+  );
 }
 
 export function getRankingAdminData(instructorId: string, seasonId?: LeagueSeasonId | null) {

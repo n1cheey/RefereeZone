@@ -26,19 +26,20 @@ export default function PinSetupScreen() {
     return <Redirect href="/biometric-setup" />;
   }
 
-  const handleCreateSubmit = () => {
-    if (pin.length < 4) {
+  const handleCreateSubmit = (candidatePin = pin) => {
+    if (candidatePin.length < 4) {
       setError(t('auth.pinTooShort'));
       setPin('');
       return;
     }
 
     setError('');
+    setPin(candidatePin);
     setStep('confirm');
   };
 
-  const handleConfirmSubmit = async () => {
-    if (confirmPin !== pin) {
+  const handleConfirmSubmit = async (candidateConfirmPin = confirmPin) => {
+    if (candidateConfirmPin !== pin) {
       setError(t('auth.pinMismatch'));
       setConfirmPin('');
       return;
@@ -78,7 +79,7 @@ export default function PinSetupScreen() {
           <PinPad
             value={step === 'create' ? pin : confirmPin}
             onChange={step === 'create' ? setPin : setConfirmPin}
-            onSubmit={() => void (step === 'create' ? handleCreateSubmit() : handleConfirmSubmit())}
+            onSubmit={(nextValue) => void (step === 'create' ? handleCreateSubmit(nextValue) : handleConfirmSubmit(nextValue))}
             disabled={saving}
           />
 

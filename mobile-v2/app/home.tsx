@@ -1,3 +1,4 @@
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Redirect, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -8,13 +9,30 @@ import { useAuth } from '@/src/providers/auth-provider';
 import { useLanguage } from '@/src/providers/language-provider';
 import {
   getHomeShortcuts,
+  getMobileAnnouncement,
   getMobileChatBootstrap,
-  getMobileTests,
+  getMobileNews,
   getMonthlyStats,
   getMyGames,
 } from '@/src/services/modules-service';
 import { theme } from '@/src/theme/theme';
-import { formatCurrency } from '@/src/utils/format';
+import { formatCurrency, formatDateLabel, formatDateTimeLabel, formatTimeLabel } from '@/src/utils/format';
+
+const shortcutIconByKey: Record<string, keyof typeof Ionicons.glyphMap | keyof typeof MaterialCommunityIcons.glyphMap> = {
+  announcement: 'megaphone-outline',
+  availability: 'calendar-clear-outline',
+  tests: 'clipboard-outline',
+  calendar: 'calendar-outline',
+  finance: 'wallet-outline',
+};
+
+const shortcutDescriptionByKey: Record<string, string> = {
+  announcement: 'Publish notices',
+  availability: 'Leaves and approvals',
+  tests: 'Attempts and retakes',
+  calendar: 'All season games',
+  finance: 'Monthly summary',
+};
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -23,20 +41,26 @@ export default function HomeScreen() {
 
   const gamesQuery = useQuery({
     queryKey: ['mobile-home-games', user?.id],
-    queryFn: () => getMyGames(user!),
+    queryFn: () => getMyGames(user!, '2026-2027'),
     enabled: Boolean(user),
-  });
-
-  const testsQuery = useQuery({
-    queryKey: ['mobile-home-tests'],
-    queryFn: getMobileTests,
-    enabled: Boolean(user && ['Instructor', 'TO Supervisor', 'Referee', 'TO'].includes(user.role)),
   });
 
   const chatQuery = useQuery({
     queryKey: ['mobile-home-chat'],
     queryFn: getMobileChatBootstrap,
     enabled: Boolean(user),
+  });
+
+  const newsQuery = useQuery({
+    queryKey: ['mobile-home-news'],
+    queryFn: getMobileNews,
+    enabled: Boolean(user),
+  });
+
+  const announcementQuery = useQuery({
+    queryKey: ['mobile-home-announcement', user?.id],
+    queryFn: getMobileAnnouncement,
+    enabled: Boolean(user && ['Instructor', 'TO Supervisor', 'Referee', 'TO'].includes(user.role)),
   });
 
   if (!user) {
@@ -54,93 +78,193 @@ export default function HomeScreen() {
   const games = gamesQuery.data?.assignments || [];
   const instructorGames = gamesQuery.data?.instructorNominations || [];
   const monthlyStats = getMonthlyStats(user, games);
-  const currentMonthManagedGames = instructorGames.filter((game) => {
-    const matchDate = new Date(`${game.matchDate}T00:00:00`);
-    const now = new Date();
-    return matchDate.getFullYear() === now.getFullYear() && matchDate.getMonth() === now.getMonth();
-  }).length;
   const shortcuts = getHomeShortcuts(user.role);
-  const unreadChatCount = (chatQuery.data?.conversations || []).reduce((sum, item) => sum + (item.unreadCount || 0), 0);
-  const testsCount = testsQuery.data?.tests.length || 0;
+  const conversations = chatQuery.data?.conversations || [];
+  const latestNews = (newsQuery.data?.posts || []).slice(0, 2);
+  const showMonthlyStats = ['Referee', 'TO'].includes(user.role);
+  const upcomingGames = [...instructorGames, ...games]
+    .filter((game) => {
+      const date = new Date(`${game.matchDate}T${game.matchTime || '00:00:00'}`);
+      return !Number.isNaN(date.getTime()) && date.getTime() >= Date.now() - 60_000;
+    })
+    .sort((left, right) => {
+      const leftTime = new Date(`${left.matchDate}T${left.matchTime || '00:00:00'}`).getTime();
+      const rightTime = new Date(`${right.matchDate}T${right.matchTime || '00:00:00'}`).getTime();
+      return leftTime - rightTime;
+    })
+    .slice(0, 3);
 
   return (
-    <ScreenShell user={user} title={t('home.title')} subtitle={t('home.subtitle')}>
-      <View style={styles.profileHero}>
-        <Avatar photoUrl={user.photoUrl} fullName={user.fullName} size={68} />
-        <View style={styles.profileTextWrap}>
-          <Text style={styles.profileName}>{user.fullName}</Text>
-          <Text style={styles.profileRole}>{user.role}</Text>
+    <ScreenShell user={user} title="" subtitle="">
+      <View style={styles.hero}>
+        <Avatar photoUrl={user.photoUrl} fullName={user.fullName} size={64} />
+        <View style={styles.heroText}>
+          <Text style={styles.heroName}>{user.fullName}</Text>
+          <Text style={styles.heroRole}>{user.role}</Text>
         </View>
       </View>
 
-      <View style={styles.statsRow}>
-        <View style={[sharedStyles.sectionCard, styles.statCard]}>
-          <Text style={styles.statLabel}>
-            {user.role === 'Instructor' ? t('common.monthManaged') : t('common.monthMatches')}
-          </Text>
-          <Text style={styles.statValue}>
-            {user.role === 'Instructor' || user.role === 'TO Supervisor' ? currentMonthManagedGames : monthlyStats.matchesCount}
-          </Text>
+      {showMonthlyStats ? (
+        <View style={styles.statsRow}>
+          <View style={[sharedStyles.sectionCard, styles.statCard, styles.statCardDark]}>
+            <Text style={styles.statCaption}>{t('common.monthMatches')}</Text>
+            <Text style={styles.statValueLight}>{monthlyStats.matchesCount}</Text>
+          </View>
+          <View style={[sharedStyles.sectionCard, styles.statCard]}>
+            <Text style={styles.statCaption}>{t('common.monthEarnings')}</Text>
+            <Text style={styles.statValue}>{formatCurrency(monthlyStats.earnings)}</Text>
+          </View>
         </View>
-        <View style={[sharedStyles.sectionCard, styles.statCard]}>
-          <Text style={styles.statLabel}>{t('common.monthEarnings')}</Text>
-          <Text style={styles.statValue}>{formatCurrency(monthlyStats.earnings)}</Text>
-        </View>
-      </View>
+      ) : null}
 
-      <View style={sharedStyles.sectionCard}>
-        <Text style={sharedStyles.sectionTitle}>{t('home.quickActions')}</Text>
-        <View style={styles.shortcutsGrid}>
-          {shortcuts.map((item) => (
+      {announcementQuery.data?.announcement ? (
+        <View style={[sharedStyles.sectionCard, styles.sectionPanel]}>
+          <View style={styles.sectionHeader}>
+            <Text style={sharedStyles.sectionTitle}>Announcement</Text>
+            {(user.role === 'Instructor' || user.role === 'TO Supervisor') ? (
+              <Pressable onPress={() => router.push('/announcement')}>
+                <Text style={styles.linkText}>Edit</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          <Text style={styles.announcementText}>{announcementQuery.data.announcement.message}</Text>
+          <Text style={styles.announcementMeta}>
+            {announcementQuery.data.announcement.createdByName} • {formatDateTimeLabel(announcementQuery.data.announcement.createdAt)}
+          </Text>
+        </View>
+      ) : null}
+
+      {shortcuts.length ? (
+        <View style={[sharedStyles.sectionCard, styles.sectionPanel]}>
+          <Text style={sharedStyles.sectionTitle}>{t('home.quickActions')}</Text>
+          <View style={styles.shortcutsGrid}>
+            {shortcuts.map((item) => (
+              <Pressable
+                key={item.key}
+                style={styles.shortcutCard}
+                onPress={() => router.push(item.route as never)}
+              >
+                <View style={styles.shortcutIconWrap}>
+                  <Ionicons
+                    name={(shortcutIconByKey[item.key] as keyof typeof Ionicons.glyphMap) || 'grid-outline'}
+                    size={20}
+                    color={theme.colors.primary}
+                  />
+                </View>
+                <Text style={styles.shortcutTitle}>{t(item.labelKey)}</Text>
+                <Text style={styles.shortcutDescription}>{shortcutDescriptionByKey[item.key] || 'Open module'}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      ) : null}
+
+      <View style={[sharedStyles.sectionCard, styles.sectionPanel]}>
+        <View style={styles.sectionHeader}>
+          <Text style={sharedStyles.sectionTitle}>Upcoming games</Text>
+          <Pressable onPress={() => router.push('/my-games')}>
+            <Text style={styles.linkText}>Open all</Text>
+          </Pressable>
+        </View>
+        {upcomingGames.length ? (
+          upcomingGames.map((game) => (
             <Pressable
-              key={item.key}
-              style={styles.shortcutCard}
-              onPress={() => router.push(item.route as never)}
+              key={'nominationId' in game ? game.nominationId : game.id}
+              style={styles.upcomingCard}
+              onPress={() => router.push('/my-games')}
             >
-              <Text style={styles.shortcutTitle}>{t(item.labelKey)}</Text>
-              <Text style={styles.shortcutMeta}>
-                {item.key === 'tests'
-                  ? `${testsCount}`
-                  : item.key === 'calendar'
-                    ? `${games.length + instructorGames.length}`
-                    : item.key === 'finance'
-                      ? formatCurrency(monthlyStats.earnings)
-                      : t('common.open')}
+              <Text style={styles.upcomingCode}>{game.gameCode}</Text>
+              <Text style={styles.upcomingTeams}>{game.teams}</Text>
+              <Text style={styles.upcomingMeta}>
+                {formatDateLabel(game.matchDate)} • {formatTimeLabel(game.matchTime)}
               </Text>
+              <Text style={styles.upcomingMeta}>{game.venue}</Text>
             </Pressable>
-          ))}
-        </View>
+          ))
+        ) : (
+          <Text style={sharedStyles.muted}>{t('common.noData')}</Text>
+        )}
       </View>
 
-      <View style={sharedStyles.sectionCard}>
-        <Text style={sharedStyles.sectionTitle}>{t('home.chat')}</Text>
-        <Text style={sharedStyles.muted}>
-          {unreadChatCount > 0 ? `${unreadChatCount} unread` : t('common.noData')}
-        </Text>
+      <View style={[sharedStyles.sectionCard, styles.sectionPanel]}>
+        <View style={styles.sectionHeader}>
+          <Text style={sharedStyles.sectionTitle}>{t('home.chat')}</Text>
+          <Pressable onPress={() => router.push('/chat')}>
+            <Text style={styles.linkText}>Open all</Text>
+          </Pressable>
+        </View>
+        {conversations.length ? (
+          conversations.slice(0, 3).map((conversation) => (
+            <Pressable
+              key={conversation.id}
+              style={styles.previewRow}
+              onPress={() => router.push(`/chat/${conversation.id}` as never)}
+            >
+              <Avatar photoUrl={conversation.otherUser.photoUrl} fullName={conversation.otherUser.fullName} size={44} />
+              <View style={styles.previewText}>
+                <View style={styles.previewTopLine}>
+                  <Text style={styles.previewName}>{conversation.otherUser.fullName}</Text>
+                  <Text style={styles.previewTime}>{formatTimeLabel(conversation.lastMessageAt)}</Text>
+                </View>
+                <Text style={styles.previewMessage} numberOfLines={1}>
+                  {conversation.lastMessageText || t('common.noData')}
+                </Text>
+              </View>
+            </Pressable>
+          ))
+        ) : (
+          <Text style={sharedStyles.muted}>{t('common.noData')}</Text>
+        )}
+      </View>
+
+      <View style={[sharedStyles.sectionCard, styles.sectionPanel]}>
+        <View style={styles.sectionHeader}>
+          <Text style={sharedStyles.sectionTitle}>{t('home.news')}</Text>
+          <Pressable onPress={() => router.push('/news')}>
+            <Text style={styles.linkText}>Open all</Text>
+          </Pressable>
+        </View>
+        {latestNews.length ? (
+          latestNews.map((post) => (
+            <Pressable key={post.id} style={styles.newsRow} onPress={() => router.push('/news')}>
+              <View style={styles.newsBadge}>
+                <MaterialCommunityIcons name="newspaper-variant-outline" size={18} color={theme.colors.primary} />
+              </View>
+              <View style={styles.newsText}>
+                <Text style={styles.newsMeta}>{post.createdByName} • {formatDateTimeLabel(post.createdAt)}</Text>
+                <Text style={styles.newsBody} numberOfLines={2}>
+                  {post.commentary}
+                </Text>
+              </View>
+            </Pressable>
+          ))
+        ) : (
+          <Text style={sharedStyles.muted}>{t('common.noData')}</Text>
+        )}
       </View>
     </ScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  profileHero: {
+  hero: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     backgroundColor: theme.colors.primary,
-    borderRadius: theme.radius.md,
+    borderRadius: theme.radius.lg,
     padding: 18,
   },
-  profileTextWrap: {
+  heroText: {
     flex: 1,
     gap: 4,
   },
-  profileName: {
+  heroName: {
     color: theme.colors.white,
-    fontSize: 28,
+    fontSize: 29,
     fontWeight: '900',
   },
-  profileRole: {
+  heroRole: {
     color: 'rgba(255,255,255,0.84)',
     fontSize: 15,
     fontWeight: '700',
@@ -151,18 +275,40 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    minHeight: 122,
+    minHeight: 112,
     justifyContent: 'space-between',
   },
-  statLabel: {
+  statCardDark: {
+    backgroundColor: '#2b0e17',
+    borderColor: '#2b0e17',
+  },
+  statCaption: {
     color: theme.colors.muted,
     fontSize: 13,
     fontWeight: '800',
   },
   statValue: {
     color: theme.colors.text,
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '900',
+  },
+  statValueLight: {
+    color: theme.colors.white,
+    fontSize: 26,
+    fontWeight: '900',
+  },
+  sectionPanel: {
+    gap: 16,
+  },
+  announcementText: {
+    color: theme.colors.text,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  announcementMeta: {
+    color: theme.colors.muted,
+    fontSize: 12,
   },
   shortcutsGrid: {
     flexDirection: 'row',
@@ -170,23 +316,131 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   shortcutCard: {
-    width: '47%',
-    minHeight: 92,
-    borderRadius: theme.radius.sm,
+    width: '47.5%',
+    minHeight: 118,
+    borderRadius: 24,
+    backgroundColor: theme.colors.canvasAlt,
     borderWidth: 1,
     borderColor: theme.colors.line,
-    backgroundColor: theme.colors.canvasAlt,
-    padding: 14,
-    justifyContent: 'space-between',
+    padding: 16,
+    gap: 12,
+  },
+  shortcutIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(91,23,35,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   shortcutTitle: {
     color: theme.colors.text,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '900',
   },
-  shortcutMeta: {
+  shortcutDescription: {
+    color: theme.colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  linkText: {
     color: theme.colors.primary,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: '900',
+  },
+  upcomingCard: {
+    borderRadius: 20,
+    backgroundColor: theme.colors.canvasAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    padding: 14,
+    gap: 6,
+  },
+  upcomingCode: {
+    color: theme.colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  upcomingTeams: {
+    color: theme.colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 24,
+  },
+  upcomingMeta: {
+    color: theme.colors.muted,
+    fontSize: 13,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 18,
+    backgroundColor: theme.colors.canvasAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    padding: 12,
+  },
+  previewText: {
+    flex: 1,
+    gap: 4,
+  },
+  previewTopLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  previewName: {
+    color: theme.colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+    flex: 1,
+  },
+  previewTime: {
+    color: theme.colors.muted,
+    fontSize: 12,
+  },
+  previewMessage: {
+    color: theme.colors.muted,
+    fontSize: 13,
+  },
+  newsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    borderRadius: 18,
+    backgroundColor: theme.colors.canvasAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    padding: 12,
+  },
+  newsBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: 'rgba(91,23,35,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newsText: {
+    flex: 1,
+    gap: 4,
+  },
+  newsMeta: {
+    color: theme.colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  newsBody: {
+    color: theme.colors.text,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

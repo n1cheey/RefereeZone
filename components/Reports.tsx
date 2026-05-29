@@ -249,7 +249,9 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         }
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Failed to load reports.');
+          if (!cachedReports?.length) {
+            setErrorMessage(error instanceof Error ? error.message : 'Failed to load reports.');
+          }
         }
       } finally {
         if (isMounted) {
@@ -299,7 +301,9 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       setIsEditingCurrentReport(false);
       setIsChoosingNew(false);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Failed to load report detail.');
+      if (!cachedDetail) {
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to load report detail.');
+      }
     }
   };
 

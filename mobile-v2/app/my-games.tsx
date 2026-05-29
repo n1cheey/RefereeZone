@@ -1,98 +1,160 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Redirect } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
-import { StyleSheet, Text, View } from 'react-native';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useState } from 'react';
 
 import { ScreenShell, sharedStyles } from '@/src/components/screen-shell';
 import { TeamBadge } from '@/src/components/team-badge';
 import { useAuth } from '@/src/providers/auth-provider';
 import { useLanguage } from '@/src/providers/language-provider';
-import { getMyGames } from '@/src/services/modules-service';
+import { useSeason } from '@/src/providers/season-provider';
+import { getMyGames, updateMobileMatchDetails } from '@/src/services/modules-service';
 import { splitTeams } from '@/src/services/team-logos';
 import { theme } from '@/src/theme/theme';
 import { MobileInstructorNomination, MobileRefereeNomination } from '@/src/types/modules';
-import { formatCurrency, formatDateLabel } from '@/src/utils/format';
+import { formatCurrency, formatDateLabel, formatTimeLabel } from '@/src/utils/format';
 
-function CrewBlock({ title, members }: { title: string; members: { refereeName?: string; toName?: string; status: string }[] }) {
+function CrewList({
+  title,
+  members,
+  tone,
+}: {
+  title: string;
+  members: { refereeName?: string; toName?: string; status: string }[];
+  tone: 'ref' | 'to' | 'stat';
+}) {
+  const toneColor = tone === 'ref' ? theme.colors.primary : tone === 'to' ? '#1a5f6a' : '#85520f';
+
   return (
-    <View style={styles.crewBlock}>
-      <Text style={styles.crewTitle}>{title}</Text>
+    <View style={styles.crewPanel}>
+      <Text style={[styles.crewTitle, { color: toneColor }]}>{title}</Text>
       {members.length ? (
         members.map((member, index) => (
-          <Text key={`${title}-${index}`} style={styles.crewMember}>
-            {(member.refereeName || member.toName || '—')} · {member.status}
-          </Text>
+          <View key={`${title}-${index}`} style={styles.crewRow}>
+            <Text style={styles.crewName}>{member.refereeName || member.toName || '—'}</Text>
+            <View style={styles.statusChip}>
+              <Text style={styles.statusChipText}>{member.status}</Text>
+            </View>
+          </View>
         ))
       ) : (
-        <Text style={styles.crewEmpty}>—</Text>
+        <Text style={styles.crewEmpty}>No assignments yet</Text>
       )}
     </View>
   );
 }
 
 function MatchCard({
-  gameCode,
-  teams,
-  matchDate,
-  matchTime,
-  venue,
+  game,
   assignmentLabel,
   status,
-  refereeFee,
-  toFee,
-  crew,
-  toCrew,
-  statisticCrew,
-  createdByName,
   t,
+  canEditMedia,
+  onSaveMedia,
 }: {
-  gameCode: string;
-  teams: string;
-  matchDate: string;
-  matchTime: string;
-  venue: string;
+  game: MobileInstructorNomination | MobileRefereeNomination;
   assignmentLabel?: string;
   status?: string;
-  refereeFee?: number | null;
-  toFee?: number | null;
-  crew?: MobileRefereeNomination['crew'] | MobileInstructorNomination['referees'];
-  toCrew?: MobileRefereeNomination['toCrew'] | MobileInstructorNomination['toCrew'];
-  statisticCrew?: MobileRefereeNomination['statisticCrew'] | MobileInstructorNomination['statisticCrew'];
-  createdByName?: string;
   t: (key: string) => string;
+  canEditMedia: boolean;
+  onSaveMedia: (payload: { matchVideoUrl: string; matchProtocolUrl: string }) => Promise<void>;
 }) {
-  const [homeTeam, awayTeam] = splitTeams(teams);
+  const [homeTeam, awayTeam] = splitTeams(game.teams);
+  const [editing, setEditing] = useState(false);
+  const [videoUrl, setVideoUrl] = useState(game.matchVideoUrl || '');
+  const [protocolUrl, setProtocolUrl] = useState(game.matchProtocolUrl || '');
 
   return (
-    <View style={sharedStyles.sectionCard}>
-      <View style={styles.cardTop}>
-        <View style={sharedStyles.pill}>
-          <Text style={sharedStyles.pillText}>{gameCode}</Text>
+    <View style={[sharedStyles.sectionCard, styles.matchCard]}>
+      <View style={styles.headerRow}>
+        <View style={styles.gameCodeChip}>
+          <Text style={styles.gameCodeText}>{game.gameCode}</Text>
         </View>
         {assignmentLabel ? (
-          <View style={[sharedStyles.pill, styles.statusPill]}>
-            <Text style={sharedStyles.pillText}>{assignmentLabel}{status ? ` · ${status}` : ''}</Text>
+          <View style={styles.assignmentChip}>
+            <Text style={styles.assignmentChipText}>{assignmentLabel}{status ? ` • ${status}` : ''}</Text>
           </View>
         ) : null}
       </View>
 
-      <View style={styles.teamRow}>
-        <TeamBadge teamName={homeTeam || teams} />
-        <Text style={styles.vsText}>vs</Text>
-        <TeamBadge teamName={awayTeam || teams} />
+      <View style={styles.teamsCard}>
+        <TeamBadge teamName={homeTeam || game.teams} />
+        <View style={styles.centerMeta}>
+          <Text style={styles.vsText}>VS</Text>
+          <Text style={styles.centerDate}>{formatDateLabel(game.matchDate)}</Text>
+        </View>
+        <TeamBadge teamName={awayTeam || game.teams} />
       </View>
 
-      <Text style={styles.meta}>{formatDateLabel(matchDate)} · {matchTime}</Text>
-      <Text style={styles.meta}>{venue}</Text>
-      {createdByName ? <Text style={styles.meta}>{t('games.createdBy')}: {createdByName}</Text> : null}
-
-      <View style={styles.feesRow}>
-        {refereeFee !== null && refereeFee !== undefined ? <Text style={styles.feeText}>Ref: {formatCurrency(refereeFee)}</Text> : null}
-        {toFee !== null && toFee !== undefined ? <Text style={styles.feeText}>TO: {formatCurrency(toFee)}</Text> : null}
+      <View style={styles.metaGrid}>
+        <View style={styles.metaItem}>
+          <Ionicons name="time-outline" size={16} color={theme.colors.primary} />
+          <Text style={styles.metaText}>{formatTimeLabel(game.matchTime)}</Text>
+        </View>
+        <View style={styles.metaItem}>
+          <Ionicons name="location-outline" size={16} color={theme.colors.primary} />
+          <Text style={styles.metaText}>{game.venue}</Text>
+        </View>
       </View>
 
-      <CrewBlock title={t('games.referees')} members={crew || []} />
-      <CrewBlock title={t('games.toCrew')} members={toCrew || []} />
-      <CrewBlock title={t('games.statCrew')} members={statisticCrew || []} />
+      {(game.refereeFee !== null && game.refereeFee !== undefined) || (game.toFee !== null && game.toFee !== undefined) ? (
+        <View style={styles.feesBar}>
+          {game.refereeFee !== null && game.refereeFee !== undefined ? (
+            <Text style={styles.feeText}>Referee fee: {formatCurrency(game.refereeFee)}</Text>
+          ) : null}
+          {game.toFee !== null && game.toFee !== undefined ? <Text style={styles.feeText}>TO fee: {formatCurrency(game.toFee)}</Text> : null}
+        </View>
+      ) : null}
+
+      <View style={styles.mediaRow}>
+        {game.matchVideoUrl ? (
+          <Pressable style={styles.mediaButton} onPress={() => void Linking.openURL(game.matchVideoUrl!)}>
+            <Text style={styles.mediaButtonText}>YouTube</Text>
+          </Pressable>
+        ) : null}
+        {game.matchProtocolUrl ? (
+          <Pressable style={styles.mediaButton} onPress={() => void Linking.openURL(game.matchProtocolUrl!)}>
+            <Text style={styles.mediaButtonText}>Protocol</Text>
+          </Pressable>
+        ) : null}
+        {canEditMedia ? (
+          <Pressable style={[styles.mediaButton, styles.mediaButtonGhost]} onPress={() => setEditing((value) => !value)}>
+            <Text style={[styles.mediaButtonText, styles.mediaButtonGhostText]}>{editing ? 'Close edit' : 'Edit media'}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {editing ? (
+        <View style={styles.editPanel}>
+          <TextInput
+            style={styles.input}
+            value={videoUrl}
+            onChangeText={setVideoUrl}
+            placeholder="YouTube replay URL"
+            placeholderTextColor={theme.colors.muted}
+          />
+          <TextInput
+            style={styles.input}
+            value={protocolUrl}
+            onChangeText={setProtocolUrl}
+            placeholder="Protocol URL"
+            placeholderTextColor={theme.colors.muted}
+          />
+          <Pressable
+            style={styles.saveButton}
+            onPress={() => {
+              void onSaveMedia({ matchVideoUrl: videoUrl, matchProtocolUrl: protocolUrl }).then(() => setEditing(false));
+            }}
+          >
+            <Text style={styles.saveButtonText}>Save media</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      <CrewList title={t('games.referees')} members={('referees' in game ? game.referees : game.crew) || []} tone="ref" />
+      <CrewList title={t('games.toCrew')} members={game.toCrew || []} tone="to" />
+      <CrewList title={t('games.statCrew')} members={game.statisticCrew || []} tone="stat" />
     </View>
   );
 }
@@ -100,11 +162,24 @@ function MatchCard({
 export default function MyGamesScreen() {
   const { t } = useLanguage();
   const { user } = useAuth();
+  const { seasonId } = useSeason();
+  const queryClient = useQueryClient();
 
   const gamesQuery = useQuery({
-    queryKey: ['mobile-my-games', user?.id],
-    queryFn: () => getMyGames(user!),
+    queryKey: ['mobile-my-games', user?.id, seasonId],
+    queryFn: () => getMyGames(user!, seasonId),
     enabled: Boolean(user),
+  });
+
+  const saveMatchMutation = useMutation({
+    mutationFn: ({ nominationId, matchVideoUrl, matchProtocolUrl }: { nominationId: string; matchVideoUrl: string; matchProtocolUrl: string }) =>
+      updateMobileMatchDetails(nominationId, {
+        matchVideoUrl,
+        matchProtocolUrl,
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['mobile-my-games', user?.id, seasonId] });
+    },
   });
 
   if (!user) {
@@ -113,25 +188,21 @@ export default function MyGamesScreen() {
 
   const instructorGames = gamesQuery.data?.instructorNominations || [];
   const assignmentGames = gamesQuery.data?.assignments || [];
+  const canEditMedia = user.role === 'Instructor' || user.role === 'TO Supervisor';
 
   return (
     <ScreenShell
       user={user}
       title={t('games.title')}
       subtitle={user.role === 'Instructor' || user.role === 'TO Supervisor' ? t('games.instructorView') : t('games.assignmentView')}
+      showSeasonSwitcher
     >
       {instructorGames.map((game) => (
         <MatchCard
           key={game.id}
-          gameCode={game.gameCode}
-          teams={game.teams}
-          matchDate={game.matchDate}
-          matchTime={game.matchTime}
-          venue={game.venue}
-          createdByName={game.createdByName}
-          crew={game.referees}
-          toCrew={game.toCrew}
-          statisticCrew={game.statisticCrew}
+          game={game}
+          canEditMedia={canEditMedia}
+          onSaveMedia={(payload) => saveMatchMutation.mutateAsync({ nominationId: game.id, ...payload }).then(() => undefined)}
           t={t}
         />
       ))}
@@ -139,19 +210,11 @@ export default function MyGamesScreen() {
       {assignmentGames.map((game) => (
         <MatchCard
           key={game.nominationId}
-          gameCode={game.gameCode}
-          teams={game.teams}
-          matchDate={game.matchDate}
-          matchTime={game.matchTime}
-          venue={game.venue}
+          game={game}
           assignmentLabel={game.assignmentLabel}
           status={game.status}
-          refereeFee={game.refereeFee}
-          toFee={game.toFee}
-          crew={game.crew}
-          toCrew={game.toCrew}
-          statisticCrew={game.statisticCrew}
-          createdByName={game.instructorName}
+          canEditMedia={false}
+          onSaveMedia={async () => {}}
           t={t}
         />
       ))}
@@ -166,53 +229,173 @@ export default function MyGamesScreen() {
 }
 
 const styles = StyleSheet.create({
-  cardTop: {
+  matchCard: {
+    gap: 16,
+  },
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
-  statusPill: {
-    backgroundColor: theme.colors.warningSoft,
+  gameCodeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(91,23,35,0.08)',
   },
-  teamRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  vsText: {
-    color: theme.colors.muted,
-    fontSize: 16,
+  gameCodeText: {
+    color: theme.colors.primary,
+    fontSize: 12,
     fontWeight: '900',
   },
-  meta: {
+  assignmentChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: theme.colors.warningSoft,
+  },
+  assignmentChipText: {
+    color: theme.colors.warning,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  teamsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    borderRadius: 24,
+    backgroundColor: theme.colors.canvasAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    padding: 16,
+  },
+  centerMeta: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  vsText: {
+    color: theme.colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  centerDate: {
+    color: theme.colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  metaGrid: {
+    gap: 10,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  metaText: {
     color: theme.colors.muted,
     fontSize: 14,
-    lineHeight: 20,
+    flex: 1,
   },
-  feesRow: {
+  feesBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+    paddingVertical: 2,
   },
   feeText: {
     color: theme.colors.primary,
     fontSize: 13,
     fontWeight: '900',
   },
-  crewBlock: {
-    gap: 6,
-    paddingTop: 6,
+  mediaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  crewTitle: {
+  mediaButton: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primary,
+  },
+  mediaButtonText: {
+    color: theme.colors.white,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  mediaButtonGhost: {
+    backgroundColor: theme.colors.card,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+  },
+  mediaButtonGhostText: {
     color: theme.colors.text,
+  },
+  editPanel: {
+    gap: 10,
+  },
+  input: {
+    minHeight: 48,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.canvasAlt,
+    paddingHorizontal: 14,
+    color: theme.colors.text,
+    fontSize: 14,
+  },
+  saveButton: {
+    minHeight: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.primaryAccent,
+  },
+  saveButtonText: {
+    color: theme.colors.white,
     fontSize: 14,
     fontWeight: '900',
   },
-  crewMember: {
+  crewPanel: {
+    borderRadius: 20,
+    backgroundColor: theme.colors.canvasAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    padding: 14,
+    gap: 10,
+  },
+  crewTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  crewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  crewName: {
+    color: theme.colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+    flex: 1,
+  },
+  statusChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: theme.colors.card,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+  },
+  statusChipText: {
     color: theme.colors.muted,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 11,
+    fontWeight: '800',
   },
   crewEmpty: {
     color: theme.colors.muted,

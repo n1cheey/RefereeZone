@@ -218,6 +218,7 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [isAdminLoading, setIsAdminLoading] = useState(false);
   const [isSavingMatchPerformance, setIsSavingMatchPerformance] = useState(false);
 
   const loadData = async () => {
@@ -233,47 +234,59 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
     }
 
     try {
-      const adminResponse = canManageSubject
-        ? currentRankingMode === 'to'
-          ? await getTORankingAdminData(user.id, activeSeasonId)
-          : await getRankingAdminData(user.id, activeSeasonId)
-        : null;
-      const dashboardResponse = adminResponse
-        ? buildDashboardFromAdminData(adminResponse)
-        : currentRankingMode === 'to'
-          ? await getTORankingDashboard(user.id, activeSeasonId)
-          : await getRankingDashboard(user.id, activeSeasonId);
-      const nextAdminData = adminResponse
-        ? {
-            performanceEntries: adminResponse.performanceEntries,
-            performanceProfiles: adminResponse.performanceProfiles,
-            games: adminResponse.games,
-            referees: adminResponse.referees,
-          }
-        : null;
+      const dashboardResponse =
+        currentRankingMode === 'to'
+          ? await getTORankingDashboard(user.id, activeSeasonId, canManageSubject)
+          : await getRankingDashboard(user.id, activeSeasonId, canManageSubject);
 
       setDashboard(dashboardResponse);
+      setErrorMessage('');
+      setIsLoading(false);
+
+      const defaultSelectedRefereeId =
+        selectedRefereeId || dashboardResponse.currentUserItem?.refereeId || dashboardResponse.leaderboard[0]?.refereeId || '';
+      setSelectedRefereeId(defaultSelectedRefereeId);
+
+      if (!canManageSubject) {
+        setAdminData(null);
+        writeViewCache<RankingViewState>(cacheKey, {
+          dashboard: dashboardResponse,
+          adminData: null,
+        });
+        return;
+      }
+
+      setIsAdminLoading(true);
+      const adminResponse =
+        currentRankingMode === 'to'
+          ? await getTORankingAdminData(user.id, activeSeasonId)
+          : await getRankingAdminData(user.id, activeSeasonId);
+      const nextAdminData = {
+        performanceEntries: adminResponse.performanceEntries,
+        performanceProfiles: adminResponse.performanceProfiles,
+        games: adminResponse.games,
+        referees: adminResponse.referees,
+      };
+
       setAdminData(nextAdminData);
       writeViewCache<RankingViewState>(cacheKey, {
-        dashboard: dashboardResponse,
+        dashboard: {
+          ...dashboardResponse,
+          visiblePerformanceProfiles: adminResponse.performanceProfiles,
+          performanceEntries: adminResponse.performanceEntries,
+        },
         adminData: nextAdminData,
       });
 
-      const defaultSelectedRefereeId =
-        selectedRefereeId ||
-        dashboardResponse.currentUserItem?.refereeId ||
-        dashboardResponse.leaderboard[0]?.refereeId ||
-        adminResponse?.referees[0]?.id ||
-        '';
-      const defaultMatchRefereeId = matchPerformanceRefereeId || adminResponse?.referees[0]?.id || defaultSelectedRefereeId;
-
-      setSelectedRefereeId(defaultSelectedRefereeId);
+      const nextSelectedRefereeId = defaultSelectedRefereeId || adminResponse.referees[0]?.id || '';
+      const defaultMatchRefereeId = matchPerformanceRefereeId || adminResponse.referees[0]?.id || nextSelectedRefereeId;
+      setSelectedRefereeId(nextSelectedRefereeId);
       setMatchPerformanceRefereeId(defaultMatchRefereeId);
-      setErrorMessage('');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : t('ranking.failedToLoad'));
     } finally {
       setIsLoading(false);
+      setIsAdminLoading(false);
     }
   };
 
@@ -628,6 +641,12 @@ const Ranking: React.FC<RankingProps> = ({ user, onBack, rankingMode = 'referee'
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {canManageSubject && !adminData && isAdminLoading && (
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-500 shadow-sm">
+          Loading ranking management data...
         </div>
       )}
 

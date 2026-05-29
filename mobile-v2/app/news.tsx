@@ -6,7 +6,7 @@ import { ScreenShell, sharedStyles } from '@/src/components/screen-shell';
 import { useAuth } from '@/src/providers/auth-provider';
 import { useLanguage } from '@/src/providers/language-provider';
 import { getMobileNews } from '@/src/services/modules-service';
-import { formatDateLabel } from '@/src/utils/format';
+import { formatDateTimeLabel } from '@/src/utils/format';
 
 export default function NewsScreen() {
   const { user } = useAuth();
@@ -29,7 +29,7 @@ export default function NewsScreen() {
       {posts.map((post) => (
         <View key={post.id} style={sharedStyles.sectionCard}>
           <Text style={sharedStyles.sectionTitle}>{post.createdByName}</Text>
-          <Text style={sharedStyles.muted}>{formatDateLabel(post.createdAt)}</Text>
+          <Text style={sharedStyles.muted}>{formatDateTimeLabel(post.createdAt)}</Text>
           <Text style={sharedStyles.muted}>{post.commentary}</Text>
           {post.youtubeUrl ? (
             <Pressable onPress={() => void Linking.openURL(post.youtubeUrl)}>

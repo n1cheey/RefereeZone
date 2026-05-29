@@ -99,7 +99,9 @@ const CalendarView: React.FC<CalendarViewProps> = ({ user, onBack }) => {
           return;
         }
 
-        setErrorMessage(error instanceof Error ? error.message : 'Failed to load calendar.');
+        if (!cached?.length) {
+          setErrorMessage(error instanceof Error ? error.message : 'Failed to load calendar.');
+        }
       } finally {
         if (isMounted) {
           setIsLoading(false);

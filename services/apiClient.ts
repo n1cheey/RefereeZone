@@ -1,13 +1,14 @@
 import { supabase } from './supabaseClient';
 
 const API_TIMEOUT_MS = 45000;
-const API_RETRY_DELAY_MS = 800;
-const GET_CACHE_TTL_MS = 20000;
-const GET_MAX_ATTEMPTS = 3;
+const API_RETRY_DELAY_MS = 700;
+const GET_CACHE_TTL_MS = 30000;
+const GET_STALE_CACHE_MAX_AGE_MS = 15 * 60 * 1000;
+const GET_MAX_ATTEMPTS = 4;
 const AUTH_SESSION_WAIT_MS = 2500;
 const AUTH_SESSION_POLL_MS = 125;
 
-const responseCache = new Map<string, { expiresAt: number; data: unknown }>();
+const responseCache = new Map<string, { fetchedAt: number; expiresAt: number; data: unknown }>();
 const inflightGetRequests = new Map<string, Promise<unknown>>();
 
 export class ApiRequestError extends Error {
@@ -26,6 +27,32 @@ const wait = (delayMs: number) =>
   new Promise<void>((resolve) => {
     window.setTimeout(resolve, delayMs);
   });
+
+const isAbortError = (error: unknown) =>
+  error instanceof DOMException
+    ? error.name === 'AbortError'
+    : typeof error === 'object' && error !== null && 'name' in error && (error as { name?: string }).name === 'AbortError';
+
+const isRetryableStatus = (status?: number) => [408, 425, 429, 500, 502, 503, 504].includes(Number(status || 0));
+
+const hasUsableStaleCache = (cached: { fetchedAt: number; expiresAt: number; data: unknown } | undefined | null) =>
+  Boolean(cached && Date.now() - cached.fetchedAt <= GET_STALE_CACHE_MAX_AGE_MS);
+
+const getTransientErrorMessage = (status?: number) => {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return 'No internet connection. Please check your network.';
+  }
+
+  if (status === 429) {
+    return 'The server is busy right now. Please try again in a moment.';
+  }
+
+  if (status && status >= 500) {
+    return 'The server is temporarily unavailable. Please try again.';
+  }
+
+  return 'Connection problem. Please try again.';
+};
 
 const waitForSessionAccessToken = async () => {
   const deadline = Date.now() + AUTH_SESSION_WAIT_MS;
@@ -77,6 +104,10 @@ export async function apiRequest<T>(url: string, options: RequestInit = {}, auth
     const staleCached = cacheKey ? responseCache.get(cacheKey) : null;
     const maxAttempts = canRetry ? GET_MAX_ATTEMPTS : 1;
 
+    if (cacheKey && typeof navigator !== 'undefined' && navigator.onLine === false && hasUsableStaleCache(staleCached)) {
+      return staleCached!.data as T;
+    }
+
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
@@ -100,11 +131,18 @@ export async function apiRequest<T>(url: string, options: RequestInit = {}, auth
         }
 
         if (!response.ok) {
+          const retryableResponse = canRetry && isRetryableStatus(response.status) && attempt < maxAttempts - 1;
+          if (retryableResponse) {
+            await wait(API_RETRY_DELAY_MS * (attempt + 1));
+            continue;
+          }
+
           throw new ApiRequestError(data?.message || 'Request failed.', response.status);
         }
 
         if (cacheKey) {
           responseCache.set(cacheKey, {
+            fetchedAt: Date.now(),
             data,
             expiresAt: Date.now() + GET_CACHE_TTL_MS,
           });
@@ -114,15 +152,16 @@ export async function apiRequest<T>(url: string, options: RequestInit = {}, auth
 
         return data as T;
       } catch (error) {
-        const isTimeout = error instanceof DOMException && error.name === 'AbortError';
+        const isTimeout = isAbortError(error);
         const isLastAttempt = attempt === maxAttempts - 1;
+        const retryableApiError = error instanceof ApiRequestError && isRetryableStatus(error.status);
 
-        if (!isLastAttempt && (isTimeout || error instanceof TypeError)) {
-          await new Promise((resolve) => window.setTimeout(resolve, API_RETRY_DELAY_MS));
+        if (!isLastAttempt && (isTimeout || error instanceof TypeError || retryableApiError)) {
+          await wait(API_RETRY_DELAY_MS * (attempt + 1));
           continue;
         }
 
-        if (canRetry && staleCached?.data) {
+        if (canRetry && hasUsableStaleCache(staleCached)) {
           return staleCached.data as T;
         }
 
@@ -131,16 +170,23 @@ export async function apiRequest<T>(url: string, options: RequestInit = {}, auth
         }
 
         if (error instanceof ApiRequestError) {
+          if (isRetryableStatus(error.status)) {
+            throw new ApiRequestError(getTransientErrorMessage(error.status), error.status);
+          }
           throw error;
         }
 
-        throw new ApiRequestError('API server is unavailable.');
+        throw new ApiRequestError(getTransientErrorMessage());
       } finally {
         window.clearTimeout(timeoutId);
       }
     }
 
-    throw new ApiRequestError('API server is unavailable.');
+    if (canRetry && hasUsableStaleCache(staleCached)) {
+      return staleCached.data as T;
+    }
+
+    throw new ApiRequestError(getTransientErrorMessage());
   })();
 
   if (cacheKey) {

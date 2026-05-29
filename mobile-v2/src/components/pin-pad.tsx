@@ -6,7 +6,7 @@ interface PinPadProps {
   value: string;
   length?: number;
   onChange: (nextValue: string) => void;
-  onSubmit?: () => void;
+  onSubmit?: (nextValue: string) => void;
   disabled?: boolean;
 }
 
@@ -31,7 +31,7 @@ export function PinPad({ value, length = 4, onChange, onSubmit, disabled = false
     onChange(nextValue);
 
     if (nextValue.length === length && onSubmit) {
-      onSubmit();
+      onSubmit(nextValue);
     }
   };
 

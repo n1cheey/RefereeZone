@@ -368,7 +368,9 @@ const Dashboard: React.FC<DashboardProps> = ({ user, onNavigate, onLogout, onUpd
           }
         } catch (error) {
           if (isMounted) {
-            setDashboardError(error instanceof Error ? error.message : 'Failed to load dashboard data.');
+            if (!hasCachedData) {
+              setDashboardError(error instanceof Error ? error.message : 'Failed to load dashboard data.');
+            }
           }
         } finally {
           if (isMounted && showLoader) {

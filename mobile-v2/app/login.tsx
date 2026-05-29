@@ -221,6 +221,15 @@ export default function LoginScreen() {
                 <Text style={styles.primaryButtonText}>{t('auth.loginButton')}</Text>
               )}
             </Pressable>
+
+            <View style={styles.authLinks}>
+              <Pressable onPress={() => router.push('/register' as never)}>
+                <Text style={styles.authLinkText}>Register</Text>
+              </Pressable>
+              <Pressable onPress={() => router.push('/forgot-password' as never)}>
+                <Text style={styles.authLinkText}>Forgot password?</Text>
+              </Pressable>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -355,4 +364,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   primaryButtonText: { color: theme.colors.white, fontSize: 15, fontWeight: '900', letterSpacing: 0.4 },
+  authLinks: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  authLinkText: {
+    color: theme.colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
 });

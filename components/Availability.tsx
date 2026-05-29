@@ -81,7 +81,9 @@ const Availability: React.FC<AvailabilityProps> = ({ user, onBack }) => {
         setErrorMessage('');
       } catch (error) {
         if (isMounted) {
-          setErrorMessage(error instanceof Error ? error.message : 'Failed to load availability.');
+          if (!cached) {
+            setErrorMessage(error instanceof Error ? error.message : 'Failed to load availability.');
+          }
         }
       } finally {
         if (isMounted && showLoader) {

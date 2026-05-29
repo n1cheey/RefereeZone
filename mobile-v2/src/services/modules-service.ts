@@ -2,12 +2,17 @@ import { apiRequest } from '@/src/services/api-client';
 import { User, UserRole } from '@/src/types/domain';
 import {
   MobileAvailabilityOverview,
+  MobileAnnouncementItem,
+  MobileAllowedAccess,
   MobileBottomNavItem,
   MobileChatConversation,
+  MobileChatUser,
   MobileHomeShortcut,
   MobileInstructorNomination,
+  MobileMemberDirectoryItem,
   MobileMonthlyStats,
   MobileRefereeNomination,
+  MobileRankingResponse,
   MobileUserTestSummary,
 } from '@/src/types/modules';
 
@@ -25,6 +30,7 @@ type TestsListResponse = {
 
 type ChatBootstrapResponse = {
   conversations: MobileChatConversation[];
+  users: MobileChatUser[];
 };
 
 type NewsItem = {
@@ -33,29 +39,6 @@ type NewsItem = {
   commentary: string;
   createdAt: string;
   createdByName: string;
-};
-
-type MemberDirectoryItem = {
-  id: string;
-  fullName: string;
-  email: string;
-  role: UserRole;
-  licenseNumber: string;
-  photoUrl: string;
-};
-
-type RankingLeaderboardItem = {
-  refereeId: string;
-  refereeName: string;
-  photoUrl: string;
-  overallScore: number;
-  rank: number;
-};
-
-type RankingDashboardResponse = {
-  leaderboard: RankingLeaderboardItem[];
-  currentUserItem: RankingLeaderboardItem | null;
-  totalReferees: number;
 };
 
 type ReportsListItem = {
@@ -70,16 +53,22 @@ type ReportsListItem = {
   refereeReportStatus: string | null;
   instructorReportStatus: string | null;
   reviewScore: number | null;
+  deadlineExceeded?: boolean;
+  deadlineMessage?: string | null;
+  canAddTime?: boolean;
+  reportMode?: 'standard' | 'to' | 'test_to';
+  googleDriveUrl?: string | null;
+  reportDeadlineAt?: string | null;
 };
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
 };
 
-export async function getMyGames(user: User) {
+export async function getMyGames(user: User, seasonId?: string | null) {
   if (user.role === 'Instructor' || user.role === 'TO Supervisor') {
     const response = await apiRequest<InstructorDashboardResponse>(
-      `/api/dashboard/instructor/${encodeURIComponent(user.id)}?instructorId=${encodeURIComponent(user.id)}`,
+      `/api/dashboard/instructor/${encodeURIComponent(user.id)}?instructorId=${encodeURIComponent(user.id)}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
     );
     return {
       instructorNominations: response.nominations,
@@ -87,9 +76,19 @@ export async function getMyGames(user: User) {
     };
   }
 
-  if (['Referee', 'TO', 'TO Supervisor', 'Staff', 'Financialist'].includes(user.role)) {
+  if (user.role === 'Staff' || user.role === 'Financialist') {
+    const response = await apiRequest<InstructorDashboardResponse>(
+      `/api/nominations/instructor/${encodeURIComponent(user.id)}?instructorId=${encodeURIComponent(user.id)}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
+    );
+    return {
+      instructorNominations: response.nominations,
+      assignments: [] as MobileRefereeNomination[],
+    };
+  }
+
+  if (['Referee', 'TO'].includes(user.role)) {
     const response = await apiRequest<AssignmentDashboardResponse>(
-      `/api/nominations/referee/${encodeURIComponent(user.id)}?refereeId=${encodeURIComponent(user.id)}`,
+      `/api/nominations/referee/${encodeURIComponent(user.id)}?refereeId=${encodeURIComponent(user.id)}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
     );
     return {
       instructorNominations: [] as MobileInstructorNomination[],
@@ -103,8 +102,32 @@ export async function getMyGames(user: User) {
   };
 }
 
+export async function getAllMobileGames(user: User, seasonId?: string | null) {
+  const response = await apiRequest<InstructorDashboardResponse>(
+    `/api/nominations/instructor/${encodeURIComponent(user.id)}?instructorId=${encodeURIComponent(user.id)}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
+  );
+
+  return response.nominations;
+}
+
 export function getMobileAvailabilityOverview() {
   return apiRequest<MobileAvailabilityOverview>('/api/availability');
+}
+
+export function createMobileAvailabilityRequest(payload: { startDate: string; endDate: string; reason: string }) {
+  return apiRequest<{ message: string; overview: MobileAvailabilityOverview }>('/api/availability', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+}
+
+export function reviewMobileAvailabilityRequest(requestId: string, status: 'Approved' | 'Declined') {
+  return apiRequest<{ message: string; overview: MobileAvailabilityOverview }>(`/api/availability/${encodeURIComponent(requestId)}/review`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ status }),
+  });
 }
 
 export function getMobileTests() {
@@ -119,17 +142,104 @@ export function getMobileNews() {
   return apiRequest<{ posts: NewsItem[] }>('/api/news');
 }
 
+export function getMobileAnnouncement() {
+  return apiRequest<{ announcement: MobileAnnouncementItem | null }>('/api/announcements/current');
+}
+
+export function saveMobileAnnouncement(user: User, payload: { messageAz: string; messageEn: string; messageRu: string }) {
+  const sourceMessage = payload.messageEn || payload.messageAz || payload.messageRu;
+  const sourceLanguage = payload.messageEn ? 'en' : payload.messageAz ? 'az' : 'ru';
+  return apiRequest<{ message: string; announcement: MobileAnnouncementItem }>(
+    '/api/announcements/current',
+    {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        userId: user.id,
+        message: sourceMessage,
+        sourceLanguage,
+        messageAz: payload.messageAz,
+        messageEn: payload.messageEn,
+        messageRu: payload.messageRu,
+      }),
+    },
+  );
+}
+
 export function getMobileMembers(user: User) {
-  return apiRequest<{ members: MemberDirectoryItem[] }>(`/api/members?instructorId=${encodeURIComponent(user.id)}`);
+  return apiRequest<{ members: MobileMemberDirectoryItem[] }>(`/api/members?instructorId=${encodeURIComponent(user.id)}`);
 }
 
-export function getMobileRanking(user: User) {
+export function getMobileMemberDetail(memberId: string) {
+  return apiRequest<{ member: MobileMemberDirectoryItem }>(`/api/members/${encodeURIComponent(memberId)}`);
+}
+
+export function updateMobileMember(
+  user: User,
+  payload: {
+    memberId: string;
+    email: string;
+    fullName: string;
+    licenseNumber: string;
+    photoUrl: string;
+  },
+) {
+  return apiRequest<{ message: string; member: MobileMemberDirectoryItem }>(`/api/members/${encodeURIComponent(payload.memberId)}`, {
+    method: 'PATCH',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      instructorId: user.id,
+      memberId: payload.memberId,
+      email: payload.email,
+      fullName: payload.fullName,
+      licenseNumber: payload.licenseNumber,
+      photoUrl: payload.photoUrl,
+    }),
+  });
+}
+
+export function deleteMobileMember(user: User, memberId: string) {
+  return apiRequest<{ message: string }>(
+    `/api/members/${encodeURIComponent(memberId)}?instructorId=${encodeURIComponent(user.id)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export function getMobileAllowedAccess(user: User) {
+  return apiRequest<{ accessList: MobileAllowedAccess[] }>(`/api/access?instructorId=${encodeURIComponent(user.id)}`);
+}
+
+export function addMobileAllowedAccess(user: User, payload: { email: string; licenseNumber: string; role: UserRole }) {
+  return apiRequest<{ message: string; access: MobileAllowedAccess }>('/api/access', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      instructorId: user.id,
+      email: payload.email,
+      licenseNumber: payload.licenseNumber,
+      role: payload.role,
+    }),
+  });
+}
+
+export function deleteMobileAllowedAccess(user: User, accessId: string) {
+  return apiRequest<{ message: string }>(`/api/access/${encodeURIComponent(accessId)}?instructorId=${encodeURIComponent(user.id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function getMobileRanking(user: User, seasonId?: string | null) {
   const targetPath = user.role === 'TO' || user.role === 'TO Supervisor' ? '/api/rankings/to' : '/api/rankings';
-  return apiRequest<RankingDashboardResponse>(`${targetPath}?userId=${encodeURIComponent(user.id)}`);
+  return apiRequest<MobileRankingResponse>(
+    `${targetPath}?userId=${encodeURIComponent(user.id)}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
+  );
 }
 
-export function getMobileReports(user: User) {
-  return apiRequest<{ reports: ReportsListItem[] }>(`/api/reports?userId=${encodeURIComponent(user.id)}&mode=standard`);
+export function getMobileReports(user: User, seasonId?: string | null, modeOverride?: 'standard' | 'to') {
+  const mode = modeOverride || (user.role === 'TO' || user.role === 'TO Supervisor' ? 'to' : 'standard');
+  return apiRequest<{ reports: ReportsListItem[] }>(
+    `/api/reports?userId=${encodeURIComponent(user.id)}&mode=${mode}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
+  );
 }
 
 export function getFinancialistSummary(startDate: string, endDate: string) {
@@ -148,14 +258,38 @@ export function getFinancialistSummary(startDate: string, endDate: string) {
   });
 }
 
+export function updateMobileMatchDetails(
+  nominationId: string,
+  payload: {
+    finalScore?: string | null;
+    matchVideoUrl?: string | null;
+    matchProtocolUrl?: string | null;
+    refereeFee?: number | null;
+    toFee?: number | null;
+  },
+) {
+  return apiRequest<{ message: string }>(`/api/nominations/${encodeURIComponent(nominationId)}/score`, {
+    method: 'PATCH',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      finalScore: payload.finalScore || null,
+      matchVideoUrl: payload.matchVideoUrl || null,
+      matchProtocolUrl: payload.matchProtocolUrl || null,
+      refereeFee: payload.refereeFee ?? null,
+      toFee: payload.toFee ?? null,
+    }),
+  });
+}
+
 export function getBottomNavItems(role: UserRole): MobileBottomNavItem[] {
   if (role === 'Instructor') {
     return [
+      { key: 'home', route: '/home', labelKey: 'home.title' },
       { key: 'games', route: '/my-games', labelKey: 'home.myGames' },
       { key: 'chat', route: '/chat', labelKey: 'home.chat' },
-      { key: 'reports', route: '/reports', labelKey: 'home.reports' },
       { key: 'ranking', route: '/ranking', labelKey: 'home.ranking' },
       { key: 'news', route: '/news', labelKey: 'home.news' },
+      { key: 'reports', route: '/reports', labelKey: 'home.reports' },
       { key: 'members', route: '/members', labelKey: 'home.members' },
       { key: 'profile', route: '/profile', labelKey: 'home.profile' },
     ];
@@ -163,6 +297,7 @@ export function getBottomNavItems(role: UserRole): MobileBottomNavItem[] {
 
   if (role === 'Financialist') {
     return [
+      { key: 'home', route: '/home', labelKey: 'home.title' },
       { key: 'games', route: '/my-games', labelKey: 'home.myGames' },
       { key: 'chat', route: '/chat', labelKey: 'home.chat' },
       { key: 'finance', route: '/finance', labelKey: 'home.finance' },
@@ -172,21 +307,23 @@ export function getBottomNavItems(role: UserRole): MobileBottomNavItem[] {
 
   if (role === 'Staff') {
     return [
+      { key: 'home', route: '/home', labelKey: 'home.title' },
       { key: 'games', route: '/my-games', labelKey: 'home.myGames' },
       { key: 'chat', route: '/chat', labelKey: 'home.chat' },
-      { key: 'reports', route: '/reports', labelKey: 'home.reports' },
       { key: 'ranking', route: '/ranking', labelKey: 'home.ranking' },
       { key: 'news', route: '/news', labelKey: 'home.news' },
+      { key: 'reports', route: '/reports', labelKey: 'home.reports' },
       { key: 'profile', route: '/profile', labelKey: 'home.profile' },
     ];
   }
 
   return [
+    { key: 'home', route: '/home', labelKey: 'home.title' },
     { key: 'games', route: '/my-games', labelKey: 'home.myGames' },
     { key: 'chat', route: '/chat', labelKey: 'home.chat' },
-    { key: 'reports', route: '/reports', labelKey: 'home.reports' },
     { key: 'ranking', route: '/ranking', labelKey: 'home.ranking' },
     { key: 'news', route: '/news', labelKey: 'home.news' },
+    { key: 'reports', route: '/reports', labelKey: 'home.reports' },
     { key: 'profile', route: '/profile', labelKey: 'home.profile' },
   ];
 }
@@ -195,12 +332,14 @@ export function getHomeShortcuts(role: UserRole): MobileHomeShortcut[] {
   switch (role) {
     case 'Instructor':
       return [
+        { key: 'announcement', route: '/announcement', labelKey: 'home.announcement' },
         { key: 'availability', route: '/availability', labelKey: 'home.availability' },
         { key: 'tests', route: '/tests', labelKey: 'home.tests' },
         { key: 'calendar', route: '/calendar', labelKey: 'home.calendar' },
       ];
     case 'TO Supervisor':
       return [
+        { key: 'announcement', route: '/announcement', labelKey: 'home.announcement' },
         { key: 'availability', route: '/availability', labelKey: 'home.availability' },
         { key: 'tests', route: '/tests', labelKey: 'home.tests' },
         { key: 'calendar', route: '/calendar', labelKey: 'home.calendar' },
@@ -240,7 +379,7 @@ export function getMonthlyStats(user: User, assignments: MobileRefereeNomination
     return sum + fee;
   }, 0);
 
-  if (['Referee', 'TO', 'TO Supervisor', 'Staff', 'Financialist'].includes(user.role)) {
+  if (['Referee', 'TO'].includes(user.role)) {
     return {
       matchesCount: acceptedAssignments.length,
       earnings,
@@ -248,7 +387,7 @@ export function getMonthlyStats(user: User, assignments: MobileRefereeNomination
   }
 
   return {
-    matchesCount: currentMonthAssignments.length,
+    matchesCount: 0,
     earnings: 0,
   };
 }

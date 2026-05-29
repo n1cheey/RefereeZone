@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Redirect } from 'expo-router';
 
@@ -17,18 +18,16 @@ export default function ProfileScreen() {
 
   return (
     <ScreenShell user={user} title={t('profile.title')} subtitle={t('profile.subtitle')}>
-      <View style={sharedStyles.sectionCard}>
-        <View style={styles.hero}>
-          <Avatar photoUrl={user.photoUrl} fullName={user.fullName} size={68} />
-          <View style={styles.textWrap}>
-            <Text style={styles.name}>{user.fullName}</Text>
-            <Text style={styles.meta}>{user.role}</Text>
-            <Text style={styles.meta}>{user.email}</Text>
-          </View>
+      <View style={styles.hero}>
+        <Avatar photoUrl={user.photoUrl} fullName={user.fullName} size={78} />
+        <View style={styles.heroText}>
+          <Text style={styles.heroName}>{user.fullName}</Text>
+          <Text style={styles.heroRole}>{user.role}</Text>
+          <Text style={styles.heroEmail}>{user.email}</Text>
         </View>
       </View>
 
-      <View style={sharedStyles.sectionCard}>
+      <View style={[sharedStyles.sectionCard, styles.panel]}>
         <Text style={sharedStyles.sectionTitle}>{t('profile.changeLanguage')}</Text>
         <View style={styles.languageRow}>
           {(['az', 'en', 'ru'] as const).map((code) => {
@@ -46,15 +45,22 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      <View style={sharedStyles.sectionCard}>
+      <View style={[sharedStyles.sectionCard, styles.panel]}>
         <Text style={sharedStyles.sectionTitle}>{t('profile.security')}</Text>
-        <Text style={sharedStyles.muted}>{unlockPreferences.pinEnabled ? t('profile.pinEnabled') : 'PIN disabled'}</Text>
-        <Text style={sharedStyles.muted}>
-          {unlockPreferences.biometricEnabled ? t('profile.biometricEnabled') : 'Biometric disabled'}
-        </Text>
+        <View style={styles.securityRow}>
+          <Ionicons name="lock-closed-outline" size={18} color={theme.colors.primary} />
+          <Text style={sharedStyles.muted}>{unlockPreferences.pinEnabled ? t('profile.pinEnabled') : 'PIN disabled'}</Text>
+        </View>
+        <View style={styles.securityRow}>
+          <Ionicons name="finger-print-outline" size={18} color={theme.colors.primary} />
+          <Text style={sharedStyles.muted}>
+            {unlockPreferences.biometricEnabled ? t('profile.biometricEnabled') : 'Biometric disabled'}
+          </Text>
+        </View>
       </View>
 
       <Pressable style={styles.logoutButton} onPress={() => void logout()}>
+        <Ionicons name="log-out-outline" size={18} color={theme.colors.white} />
         <Text style={styles.logoutText}>{t('common.logout')}</Text>
       </Pressable>
     </ScreenShell>
@@ -64,35 +70,46 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   hero: {
     flexDirection: 'row',
-    gap: 14,
+    gap: 16,
     alignItems: 'center',
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.radius.lg,
+    padding: 18,
   },
-  textWrap: {
+  heroText: {
     flex: 1,
     gap: 4,
   },
-  name: {
-    color: theme.colors.text,
-    fontSize: 22,
+  heroName: {
+    color: theme.colors.white,
+    fontSize: 24,
     fontWeight: '900',
   },
-  meta: {
-    color: theme.colors.muted,
+  heroRole: {
+    color: 'rgba(255,255,255,0.86)',
     fontSize: 14,
+    fontWeight: '800',
+  },
+  heroEmail: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+  },
+  panel: {
+    gap: 14,
   },
   languageRow: {
     flexDirection: 'row',
     gap: 10,
   },
   languagePill: {
-    minWidth: 64,
-    minHeight: 42,
+    minWidth: 72,
+    minHeight: 44,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: theme.colors.line,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.card,
+    backgroundColor: theme.colors.canvasAlt,
   },
   languagePillActive: {
     backgroundColor: theme.colors.primary,
@@ -106,12 +123,19 @@ const styles = StyleSheet.create({
   languageTextActive: {
     color: theme.colors.white,
   },
+  securityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   logoutButton: {
     minHeight: 56,
     borderRadius: theme.radius.sm,
     backgroundColor: theme.colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
   },
   logoutText: {
     color: theme.colors.white,
@@ -119,3 +143,4 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 });
+
