@@ -5691,7 +5691,9 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
       (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
     );
     const directReportRows = await listReportRowsByNominationIds(admin, nominations.map((nomination) => nomination.id));
-    const standardReportRows = directReportRows.filter((report) => report.referee_id);
+    const standardReportRows = directReportRows.filter(
+      (report) => report.referee_id && ['Referee', 'Instructor'].includes(report.author_role),
+    );
     const pairAssignmentMap = new Map(
       assignments.map((assignment) => [`${assignment.nomination_id}:${assignment.referee_id}`, assignment]),
     );
@@ -5798,7 +5800,9 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
       (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
     );
     const directReportRows = await listReportRowsByNominationIds(admin, nominations.map((nomination) => nomination.id));
-    const standardReportRows = directReportRows.filter((report) => report.referee_id);
+    const standardReportRows = directReportRows.filter(
+      (report) => report.referee_id && ['Referee', 'Instructor'].includes(report.author_role),
+    );
     const pairAssignmentMap = new Map(
       assignments.map((assignment) => [`${assignment.nomination_id}:${assignment.referee_id}`, assignment]),
     );
