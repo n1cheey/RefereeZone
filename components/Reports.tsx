@@ -24,13 +24,15 @@ interface ReportsProps {
 
 const FRESH_REPORTS_CACHE_WINDOW_MS = 20000;
 
-const getReportsCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) => `reports:${userId}:${reportMode}:${seasonId}`;
+const REPORTS_CACHE_VERSION = 'v2';
+const getReportsCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
+  `reports:${REPORTS_CACHE_VERSION}:${userId}:${reportMode}:${seasonId}`;
 const getReportOverviewCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
-  `reports-overview:${userId}:${reportMode}:${seasonId}`;
+  `reports-overview:${REPORTS_CACHE_VERSION}:${userId}:${reportMode}:${seasonId}`;
 const getReportProfileCacheKey = (userId: string, reportMode: ReportMode, seasonId: string, profileId: string) =>
-  `reports-profile:${userId}:${reportMode}:${seasonId}:${profileId}`;
+  `reports-profile:${REPORTS_CACHE_VERSION}:${userId}:${reportMode}:${seasonId}:${profileId}`;
 const getReportDetailCacheKey = (userId: string, reportMode: ReportMode, nominationId: string, refereeId: string, seasonId: string) =>
-  `report-detail:${userId}:${reportMode}:${nominationId}:${refereeId}:${seasonId}`;
+  `report-detail:${REPORTS_CACHE_VERSION}:${userId}:${reportMode}:${nominationId}:${refereeId}:${seasonId}`;
 
 const getDisplayStatus = (item: ReportListItem, role: User['role']) => {
   if (item.reportMode === 'test_to') {
