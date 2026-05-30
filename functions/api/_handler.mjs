@@ -619,7 +619,11 @@ const buildReportListItem = ({
     matchTime: nomination.match_time,
     reportDeadlineAt: assignment.report_deadline_at || null,
   };
-  const deadlineExceeded = isDeadlineExceeded(deadlineContext);
+  const rawDeadlineExceeded = isDeadlineExceeded(deadlineContext);
+  const deadlineExceeded =
+    rawDeadlineExceeded &&
+    instructorReportStatus !== REPORT_STATUS.REVIEWED &&
+    !refereeReportStatus;
 
   return {
     nominationId: nomination.id,
@@ -5698,59 +5702,27 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
     const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id), { skipAutoAccept: true })).filter(
       (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
     );
-    const directReportRows = await listReportRowsByNominationIds(admin, nominations.map((nomination) => nomination.id));
-    const standardReportRows = directReportRows.filter(
-      (report) => report.referee_id && ['Referee', 'Instructor'].includes(report.author_role),
-    );
-    const pairAssignmentMap = new Map(
-      assignments.map((assignment) => [`${assignment.nomination_id}:${assignment.referee_id}`, assignment]),
-    );
-    const pairKeys = new Set([
-      ...assignments.map((assignment) => `${assignment.nomination_id}:${assignment.referee_id}`),
-      ...standardReportRows.map((report) => `${report.nomination_id}:${report.referee_id}`),
-    ]);
-    const syntheticAssignments = [...pairKeys].map((pairKey) => {
-      const existingAssignment = pairAssignmentMap.get(pairKey);
-      if (existingAssignment) {
-        return existingAssignment;
-      }
 
-      const [nominationId, refereeId] = pairKey.split(':');
-      const matchingReport = standardReportRows.find(
-        (report) => report.nomination_id === nominationId && report.referee_id === refereeId,
-      );
-
-      return {
-        nomination_id: nominationId,
-        referee_id: refereeId,
-        slot_number: 0,
-        report_deadline_at: matchingReport?.report_deadline_at || null,
-        status: ASSIGNMENT_STATUS.ACCEPTED,
-      };
-    });
-
-    if (!syntheticAssignments.length) {
+    if (!assignments.length) {
       return [];
     }
 
     const referees = await listProfilesByIds(
       admin,
-      [...new Set(syntheticAssignments.map((assignment) => assignment.referee_id))],
+      [...new Set(assignments.map((assignment) => assignment.referee_id))],
     );
     const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
     const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
-    const reports = directReportRows.length
-      ? directReportRows
-      : await safeLoadReportsForPairs(
-          admin,
-          syntheticAssignments.map((assignment) => ({
-            nominationId: assignment.nomination_id,
-            refereeId: assignment.referee_id,
-          })),
-        );
+    const reports = await safeLoadReportsForPairs(
+      admin,
+      assignments.map((assignment) => ({
+        nominationId: assignment.nomination_id,
+        refereeId: assignment.referee_id,
+      })),
+    );
     const reportsByPairKey = groupReportsByPairKey(reports);
 
-    return syntheticAssignments
+    return assignments
       .map((assignment) => {
         const nomination = nominationMap.get(assignment.nomination_id);
         const refereeProfile = refereeMap.get(assignment.referee_id);
@@ -5811,58 +5783,26 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
     const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id), { skipAutoAccept: true })).filter(
       (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
     );
-    const directReportRows = await listReportRowsByNominationIds(admin, nominations.map((nomination) => nomination.id));
-    const standardReportRows = directReportRows.filter(
-      (report) => report.referee_id && ['Referee', 'Instructor'].includes(report.author_role),
-    );
-    const pairAssignmentMap = new Map(
-      assignments.map((assignment) => [`${assignment.nomination_id}:${assignment.referee_id}`, assignment]),
-    );
-    const pairKeys = new Set([
-      ...assignments.map((assignment) => `${assignment.nomination_id}:${assignment.referee_id}`),
-      ...standardReportRows.map((report) => `${report.nomination_id}:${report.referee_id}`),
-    ]);
-    const syntheticAssignments = [...pairKeys].map((pairKey) => {
-      const existingAssignment = pairAssignmentMap.get(pairKey);
-      if (existingAssignment) {
-        return existingAssignment;
-      }
 
-      const [nominationId, refereeId] = pairKey.split(':');
-      const matchingReport = standardReportRows.find(
-        (report) => report.nomination_id === nominationId && report.referee_id === refereeId,
-      );
-
-      return {
-        nomination_id: nominationId,
-        referee_id: refereeId,
-        slot_number: 0,
-        report_deadline_at: matchingReport?.report_deadline_at || null,
-        status: ASSIGNMENT_STATUS.ACCEPTED,
-      };
-    });
-
-    if (!syntheticAssignments.length) {
+    if (!assignments.length) {
       return [];
     }
 
-    const nominationIds = [...new Set(syntheticAssignments.map((assignment) => assignment.nomination_id))];
-    const refereeIds = [...new Set(syntheticAssignments.map((assignment) => assignment.referee_id))];
+    const nominationIds = [...new Set(assignments.map((assignment) => assignment.nomination_id))];
+    const refereeIds = [...new Set(assignments.map((assignment) => assignment.referee_id))];
     const referees = await listProfilesByIds(admin, refereeIds);
     const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
     const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
-    const reports = directReportRows.length
-      ? directReportRows
-      : await safeLoadReportsForPairs(
-          admin,
-          syntheticAssignments.map((assignment) => ({
-            nominationId: assignment.nomination_id,
-            refereeId: assignment.referee_id,
-          })),
-        );
+    const reports = await safeLoadReportsForPairs(
+      admin,
+      assignments.map((assignment) => ({
+        nominationId: assignment.nomination_id,
+        refereeId: assignment.referee_id,
+      })),
+    );
     const reportsByPairKey = groupReportsByPairKey(reports);
 
-    return syntheticAssignments
+    return assignments
       .map((assignment) => {
         const nomination = nominationMap.get(assignment.nomination_id);
         const refereeProfile = refereeMap.get(assignment.referee_id);
