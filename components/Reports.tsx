@@ -332,7 +332,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         }
       } catch (error) {
         if (isMounted) {
-          if (!cachedReports?.length && !cachedOverview && !cachedProfile) {
+          if (!usesProfileOverview && !cachedReports?.length && !cachedOverview && !cachedProfile) {
             setErrorMessage(error instanceof Error ? error.message : 'Failed to load reports.');
           }
         }

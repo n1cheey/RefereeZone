@@ -7244,7 +7244,22 @@ const routeRequest = async (event) => {
   }
 
   if (method === 'GET' && path === '/mobile/reports') {
-    return json(200, await getMobileReportsPayload(admin, currentUser, reportMode, seasonId, reportProfileId || null));
+    try {
+      return json(200, await getMobileReportsPayload(admin, currentUser, reportMode, seasonId, reportProfileId || null));
+    } catch (error) {
+      console.error('[reports] Failed to build lightweight reports payload.', error);
+      if (reportProfileId) {
+        return json(200, {
+          submittedReports: [],
+          overdueReports: [],
+          reviewedReports: [],
+        });
+      }
+      return json(200, {
+        availableReports: [],
+        profiles: [],
+      });
+    }
   }
 
   const reportMatch = path.match(/^\/reports\/([^/]+)\/([^/]+)$/);
