@@ -5659,14 +5659,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
   }
 
   if (currentUser.role === 'Instructor') {
-    let nominationsQuery = admin.from('nominations').select('*');
-    const { data, error } = await nominationsQuery;
-    const nominations = filterRowsBySeason(
-      ensureData(data || [], error, 'Failed to load reports.'),
-      normalizedSeasonId,
-      (nomination) => nomination.season_id,
-      (nomination) => nomination.match_date,
-    );
+    const nominations = await listSeasonNominationsMinimal(admin, normalizedSeasonId);
 
     if (!nominations.length) {
       return [];
@@ -5744,19 +5737,16 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
   }
 
   if (currentUser.role === 'Staff') {
-    const assignmentsResponse = await admin.from('nomination_referees').select('*');
-    const initialAssignments = ensureData(assignmentsResponse.data || [], assignmentsResponse.error, 'Failed to load reports.');
-    await expirePendingAssignments(
-      admin,
-      [...new Set(initialAssignments.map((assignment) => assignment.nomination_id))],
+    const nominations = await listSeasonNominationsMinimal(admin, normalizedSeasonId);
+
+    if (!nominations.length) {
+      return [];
+    }
+
+    await expirePendingAssignments(admin, nominations.map((nomination) => nomination.id));
+    const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id))).filter(
+      (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
     );
-    await autoAcceptPastAssignments(
-      admin,
-      initialAssignments.map((assignment) => assignment.nomination_id),
-    );
-    const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*');
-    const assignments = ensureData(refreshedAssignmentsResponse.data || [], refreshedAssignmentsResponse.error, 'Failed to load reports.')
-      .filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
 
     if (!assignments.length) {
       return [];
@@ -5764,12 +5754,6 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
 
     const nominationIds = [...new Set(assignments.map((assignment) => assignment.nomination_id))];
     const refereeIds = [...new Set(assignments.map((assignment) => assignment.referee_id))];
-    const nominations = filterRowsBySeason(
-      await listNominationsByIds(admin, nominationIds),
-      normalizedSeasonId,
-      (nomination) => nomination.season_id,
-      (nomination) => nomination.match_date,
-    );
     const referees = await listProfilesByIds(admin, refereeIds);
     const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
     const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
