@@ -2138,20 +2138,16 @@ const loadReportsForPairs = async (admin, pairs) => {
   }
 
   const nominationIds = [...new Set(pairs.map((pair) => pair.nominationId).filter(Boolean))];
-  const refereeIds = [...new Set(pairs.map((pair) => pair.refereeId).filter(Boolean))];
   const rows = (
     await Promise.all(
-      chunkArray(nominationIds).flatMap((nominationChunk) =>
-        chunkArray(refereeIds).map(async (refereeChunk) => {
-          const { data, error } = await admin
-            .from('reports')
-            .select('id, nomination_id, referee_id, author_id, author_role, status, score, google_drive_url, visible_to_referee_ids, updated_at')
-            .in('nomination_id', nominationChunk)
-            .in('referee_id', refereeChunk);
+      chunkArray(nominationIds).map(async (nominationChunk) => {
+        const { data, error } = await admin
+          .from('reports')
+          .select('id, nomination_id, referee_id, author_id, author_role, status, score, google_drive_url, visible_to_referee_ids, updated_at')
+          .in('nomination_id', nominationChunk);
 
-          return ensureData(data || [], error, 'Failed to load reports.');
-        }),
-      ),
+        return ensureData(data || [], error, 'Failed to load reports.');
+      }),
     )
   ).flat();
 

@@ -15,6 +15,34 @@ export function getReports(userId: string, mode: ReportMode = 'standard', season
   );
 }
 
+export function getReportOverview(userId: string, mode: ReportMode = 'standard', seasonId?: LeagueSeasonId | null) {
+  return apiRequest<{
+    availableReports: ReportListItem[];
+    profiles: Array<{
+      id: string;
+      name: string;
+      photoUrl?: string | null;
+      submittedCount: number;
+      overdueCount: number;
+    }>;
+  }>(`/api/mobile/reports?userId=${encodeURIComponent(userId)}&${getReportModeQuery(mode)}${getSeasonQuery(seasonId)}`);
+}
+
+export function getReportProfile(
+  userId: string,
+  profileId: string,
+  mode: ReportMode = 'standard',
+  seasonId?: LeagueSeasonId | null,
+) {
+  return apiRequest<{
+    submittedReports: ReportListItem[];
+    overdueReports: ReportListItem[];
+    reviewedReports: ReportListItem[];
+  }>(
+    `/api/mobile/reports?userId=${encodeURIComponent(userId)}&${getReportModeQuery(mode)}${getSeasonQuery(seasonId)}&profileId=${encodeURIComponent(profileId)}`,
+  );
+}
+
 export function getReportDetail(
   userId: string,
   nominationId: string,

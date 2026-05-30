@@ -1,10 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { AlarmClockPlus, ArrowRight, CheckCircle, Clock, ExternalLink, FileWarning, Pencil, Plus, Trash2, X } from 'lucide-react';
 import Layout from './Layout';
 import { getCanonicalVenueName, getDisplayGameCode, getDisplayMatchTeams, getDisplayPersonName } from '../teamLogos';
 import { ReportDetail, ReportListItem, ReportMode, ReportStatus, User } from '../types';
 import { getNominationSlotLabel, getTOSlotLabel } from '../slotLabels';
-import { deleteReport, extendReportDeadline, getReportDetail, getReports, saveReport } from '../services/reportsService';
+import {
+  deleteReport,
+  extendReportDeadline,
+  getReportDetail,
+  getReportOverview,
+  getReportProfile,
+  getReports,
+  saveReport,
+} from '../services/reportsService';
 import { isViewCacheFresh, readViewCache, writeViewCache } from '../services/viewCache';
 import { getReportStatusLabel, useI18n } from '../i18n';
 import { useSeason } from '../services/seasonContext';
@@ -19,6 +27,10 @@ interface ReportsProps {
 const FRESH_REPORTS_CACHE_WINDOW_MS = 20000;
 
 const getReportsCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) => `reports:${userId}:${reportMode}:${seasonId}`;
+const getReportOverviewCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
+  `reports-overview:${userId}:${reportMode}:${seasonId}`;
+const getReportProfileCacheKey = (userId: string, reportMode: ReportMode, seasonId: string, profileId: string) =>
+  `reports-profile:${userId}:${reportMode}:${seasonId}:${profileId}`;
 const getReportDetailCacheKey = (userId: string, reportMode: ReportMode, nominationId: string, refereeId: string, seasonId: string) =>
   `report-detail:${userId}:${reportMode}:${nominationId}:${refereeId}:${seasonId}`;
 
@@ -136,11 +148,28 @@ interface ReportProfileSummary {
   overdueCount: number;
 }
 
+interface ReportOverviewData {
+  availableReports: ReportListItem[];
+  profiles: ReportProfileSummary[];
+}
+
+interface SelectedProfileData {
+  submittedReports: ReportListItem[];
+  overdueReports: ReportListItem[];
+  reviewedReports: ReportListItem[];
+}
+
 const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard' as ReportMode }) => {
   const { language, t } = useI18n();
   const { activeSeasonId } = useSeason();
   const navigationIntentRef = React.useRef(typeof window === 'undefined' ? null : consumeNavigationIntent('reports'));
   const [reports, setReports] = useState<ReportListItem[]>([]);
+  const [overviewData, setOverviewData] = useState<ReportOverviewData>({ availableReports: [], profiles: [] });
+  const [selectedProfileData, setSelectedProfileData] = useState<SelectedProfileData>({
+    submittedReports: [],
+    overdueReports: [],
+    reviewedReports: [],
+  });
   const [selectedDetail, setSelectedDetail] = useState<ReportDetail | null>(null);
   const [isChoosingNew, setIsChoosingNew] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -192,7 +221,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
   const canWriteReportsOnPage = isTestReportPage ? isInstructor : isTOReportPage ? isTO || isTOSupervisor : isInstructor || isReferee;
   const pageTitle = t('reports.title');
   const usesProfileOverview =
-    (isInstructor && (currentReportMode === 'standard' || currentReportMode === 'to')) ||
+    ((isInstructor || isStaff) && (currentReportMode === 'standard' || currentReportMode === 'to')) ||
     (isTOSupervisor && currentReportMode === 'to');
 
   const buildNewTestReportDetail = async (): Promise<ReportDetail> => {
@@ -235,36 +264,75 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
     };
   };
 
-  const loadReports = async () => {
+  const loadReports = useCallback(async () => {
+    if (usesProfileOverview) {
+      if (selectedProfile) {
+        const response = await getReportProfile(user.id, selectedProfile.refereeId, currentReportMode, activeSeasonId);
+        setSelectedProfileData(response);
+        writeViewCache(
+          getReportProfileCacheKey(user.id, currentReportMode, activeSeasonId, selectedProfile.refereeId),
+          response,
+        );
+        return;
+      }
+
+      const response = await getReportOverview(user.id, currentReportMode, activeSeasonId);
+      const normalizedOverview: ReportOverviewData = {
+        availableReports: response.availableReports,
+        profiles: response.profiles.map((profile) => ({
+          refereeId: profile.id,
+          refereeName: profile.name,
+          photoUrl: profile.photoUrl || '',
+          submittedCount: profile.submittedCount,
+          overdueCount: profile.overdueCount,
+        })),
+      };
+      setOverviewData(normalizedOverview);
+      writeViewCache(getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId), normalizedOverview);
+      return;
+    }
+
     const response = await getReports(user.id, currentReportMode, activeSeasonId);
     setReports(response.reports);
     writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), response.reports);
-  };
+  }, [activeSeasonId, currentReportMode, selectedProfile, user.id, usesProfileOverview]);
 
   useEffect(() => {
     let isMounted = true;
-    const cacheKey = getReportsCacheKey(user.id, currentReportMode, activeSeasonId);
+    const reportsCacheKey = getReportsCacheKey(user.id, currentReportMode, activeSeasonId);
+    const overviewCacheKey = getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId);
+    const profileCacheKey =
+      usesProfileOverview && selectedProfile
+        ? getReportProfileCacheKey(user.id, currentReportMode, activeSeasonId, selectedProfile.refereeId)
+        : null;
 
-    const cachedReports = readViewCache<ReportListItem[]>(cacheKey);
+    const cachedReports = !usesProfileOverview ? readViewCache<ReportListItem[]>(reportsCacheKey) : null;
+    const cachedOverview = usesProfileOverview && !selectedProfile ? readViewCache<ReportOverviewData>(overviewCacheKey) : null;
+    const cachedProfile = profileCacheKey ? readViewCache<SelectedProfileData>(profileCacheKey) : null;
+
     if (cachedReports) {
       setReports(cachedReports);
+      setIsLoading(false);
+    } else if (cachedOverview) {
+      setOverviewData(cachedOverview);
+      setIsLoading(false);
+    } else if (cachedProfile) {
+      setSelectedProfileData(cachedProfile);
       setIsLoading(false);
     }
 
     const load = async () => {
-      if (!cachedReports) {
+      if (!cachedReports && !cachedOverview && !cachedProfile) {
         setIsLoading(true);
       }
       try {
-        const response = await getReports(user.id, currentReportMode, activeSeasonId);
         if (isMounted) {
-          setReports(response.reports);
           setErrorMessage('');
-          writeViewCache(cacheKey, response.reports);
+          await loadReports();
         }
       } catch (error) {
         if (isMounted) {
-          if (!cachedReports?.length) {
+          if (!cachedReports?.length && !cachedOverview && !cachedProfile) {
             setErrorMessage(error instanceof Error ? error.message : 'Failed to load reports.');
           }
         }
@@ -275,14 +343,22 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       }
     };
 
-    if (!isViewCacheFresh(cacheKey, FRESH_REPORTS_CACHE_WINDOW_MS)) {
+    const isFresh = cachedReports
+      ? isViewCacheFresh(reportsCacheKey, FRESH_REPORTS_CACHE_WINDOW_MS)
+      : cachedOverview
+        ? isViewCacheFresh(overviewCacheKey, FRESH_REPORTS_CACHE_WINDOW_MS)
+        : cachedProfile && profileCacheKey
+          ? isViewCacheFresh(profileCacheKey, FRESH_REPORTS_CACHE_WINDOW_MS)
+          : false;
+
+    if (!isFresh) {
       void load();
     }
 
     return () => {
       isMounted = false;
     };
-  }, [activeSeasonId, currentReportMode, user.id]);
+  }, [activeSeasonId, currentReportMode, loadReports, selectedProfile, user.id, usesProfileOverview]);
 
   useEffect(() => {
     if (currentReportMode === 'standard' && !canViewRefereeReports && canViewTOReports) {
@@ -297,6 +373,11 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
   useEffect(() => {
     setSelectedProfile(null);
+    setSelectedProfileData({
+      submittedReports: [],
+      overdueReports: [],
+      reviewedReports: [],
+    });
   }, [activeSeasonId, currentReportMode]);
 
   const openReportDetail = async (item: ReportListItem) => {
@@ -500,51 +581,13 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
     return false;
   });
 
-  const profileOverviewReports = reports.filter((item) => item.reportMode === currentReportMode);
   const profileEntityLabel = currentReportMode === 'to' ? 'TO Profile' : 'Report Profile';
   const profilesSectionTitle = currentReportMode === 'to' ? 'TO Profiles' : 'Profiles';
-  const availableReports = profileOverviewReports.filter((item) => isSubmittedReport(item));
-  const reportProfiles = Object.values(
-    profileOverviewReports.reduce<Record<string, ReportProfileSummary>>((accumulator, item) => {
-      if (!accumulator[item.refereeId]) {
-        accumulator[item.refereeId] = {
-          refereeId: item.refereeId,
-          refereeName: item.refereeName,
-          photoUrl: item.photoUrl || '',
-          submittedCount: 0,
-          overdueCount: 0,
-        };
-      }
-      if (!accumulator[item.refereeId].photoUrl && item.photoUrl) {
-        accumulator[item.refereeId].photoUrl = item.photoUrl;
-      }
-
-      if (isSubmittedReport(item)) {
-        accumulator[item.refereeId].submittedCount += 1;
-      }
-
-      if (isOverduePendingReport(item)) {
-        accumulator[item.refereeId].overdueCount += 1;
-      }
-
-      return accumulator;
-    }, {}),
-  ).sort((left, right) => {
-    const leftWeight = left.submittedCount + left.overdueCount;
-    const rightWeight = right.submittedCount + right.overdueCount;
-    if (rightWeight !== leftWeight) {
-      return rightWeight - leftWeight;
-    }
-
-    return left.refereeName.localeCompare(right.refereeName);
-  });
-
-  const selectedProfileReports = selectedProfile
-    ? profileOverviewReports.filter((item) => item.refereeId === selectedProfile.refereeId)
-    : [];
-  const selectedProfileSubmittedReports = selectedProfileReports.filter((item) => isSubmittedReport(item) && !item.deadlineExceeded);
-  const selectedProfileOverdueReports = selectedProfileReports.filter((item) => isOverduePendingReport(item));
-  const selectedProfileReviewedReports = selectedProfileReports.filter((item) => isReviewedReport(item));
+  const availableReports = overviewData.availableReports;
+  const reportProfiles = overviewData.profiles;
+  const selectedProfileSubmittedReports = selectedProfileData.submittedReports;
+  const selectedProfileOverdueReports = selectedProfileData.overdueReports;
+  const selectedProfileReviewedReports = selectedProfileData.reviewedReports;
 
   const renderReportCard = (report: ReportListItem, options?: { allowAddTime?: boolean }) => {
     const statusLabel = getDisplayStatus(report, user.role);
