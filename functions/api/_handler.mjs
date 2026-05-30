@@ -5364,7 +5364,7 @@ const shouldUseMobileReportProfiles = (currentUser, reportMode = REPORT_MODE.STA
 const listSeasonNominationsMinimal = async (admin, seasonId = null) => {
   let query = admin
     .from('nominations')
-    .select('id, game_code, teams, match_date, match_time, venue, season_id')
+    .select('id, game_code, teams, match_date, match_time, venue')
     .order('match_date', { ascending: false })
     .order('match_time', { ascending: false });
 
