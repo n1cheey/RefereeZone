@@ -5482,29 +5482,33 @@ const listMobileStandardReportItems = async (admin, currentUser, seasonId = null
   );
   const reportsByPairKey = groupReportsByPairKey(reports);
 
-  return assignments
-    .map((assignment) => {
-      const nomination = nominationMap.get(assignment.nomination_id);
-      if (!nomination) {
-        return null;
-      }
+    return assignments
+      .map((assignment) => {
+        const nomination = nominationMap.get(assignment.nomination_id);
+        const refereeProfile = refereeMap.get(assignment.referee_id);
+        if (!nomination) {
+          return null;
+        }
+        if (!refereeProfile || refereeProfile.role !== 'Referee') {
+          return null;
+        }
 
-      const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.referee_id}`) || [];
-      const refereeReport = pairReports.find(
-        (report) => report.author_role === 'Referee' && report.status === REPORT_STATUS.SUBMITTED,
-      );
+        const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.referee_id}`) || [];
+        const refereeReport = pairReports.find(
+          (report) => report.author_role === 'Referee' && report.status === REPORT_STATUS.SUBMITTED,
+        );
       const instructorReport = pairReports.find(
         (report) => report.author_role === 'Instructor' && report.status === REPORT_STATUS.REVIEWED,
       );
 
-      return buildReportListItem({
-        nomination,
-        assignment,
-        refereeName: refereeMap.get(assignment.referee_id)?.full_name || 'Unknown referee',
-        photoUrl: refereeMap.get(assignment.referee_id)?.photo_url || DEFAULT_PHOTO_URL,
-        refereeReportStatus: refereeReport?.status || null,
-        instructorReportStatus: instructorReport?.status || null,
-        reviewScore: instructorReport?.score ?? null,
+        return buildReportListItem({
+          nomination,
+          assignment,
+          refereeName: refereeProfile.full_name || 'Unknown referee',
+          photoUrl: refereeProfile.photo_url || DEFAULT_PHOTO_URL,
+          refereeReportStatus: refereeReport?.status || null,
+          instructorReportStatus: instructorReport?.status || null,
+          reviewScore: instructorReport?.score ?? null,
         currentUserRole: currentUser.role,
       });
     })
@@ -5565,7 +5569,11 @@ const listMobileTOReportItems = async (admin, currentUser, seasonId = null) => {
   return filteredAssignments
     .map((assignment) => {
       const nomination = nominationMap.get(assignment.nomination_id);
+      const toProfile = toMap.get(assignment.to_id);
       if (!nomination) {
+        return null;
+      }
+      if (!toProfile || toProfile.role !== 'TO') {
         return null;
       }
 
@@ -5578,8 +5586,8 @@ const listMobileTOReportItems = async (admin, currentUser, seasonId = null) => {
       return buildReportListItem({
         nomination,
         assignment,
-        refereeName: toMap.get(assignment.to_id)?.full_name || 'Unknown TO',
-        photoUrl: toMap.get(assignment.to_id)?.photo_url || DEFAULT_PHOTO_URL,
+        refereeName: toProfile.full_name || 'Unknown TO',
+        photoUrl: toProfile.photo_url || DEFAULT_PHOTO_URL,
         refereeReportStatus: toReport?.status || null,
         instructorReportStatus: supervisorReport?.status || null,
         reviewScore: supervisorReport?.score ?? null,

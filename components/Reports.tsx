@@ -8,6 +8,8 @@ import {
   deleteReport,
   extendReportDeadline,
   getReportDetail,
+  getReportOverview,
+  getReportProfile,
   getReports,
   saveReport,
 } from '../services/reportsService';
@@ -315,23 +317,59 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
 
   const loadReports = useCallback(async () => {
     if (usesProfileOverview) {
-      const fullResponse = await getReports(user.id, currentReportMode, activeSeasonId);
-      setReports(fullResponse.reports);
-      writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), fullResponse.reports);
-
       if (selectedProfile) {
-        const profileData = buildProfileSectionsFromReports(fullResponse.reports, currentReportMode, selectedProfile.refereeId);
-        setSelectedProfileData(profileData);
+        const response = await getReportProfile(user.id, selectedProfile.refereeId, currentReportMode, activeSeasonId);
+        const isEmptyProfilePayload =
+          response.submittedReports.length === 0 &&
+          response.overdueReports.length === 0 &&
+          response.reviewedReports.length === 0;
+
+        if (isEmptyProfilePayload) {
+          const fullResponse = await getReports(user.id, currentReportMode, activeSeasonId);
+          setReports(fullResponse.reports);
+          writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), fullResponse.reports);
+          const profileData = buildProfileSectionsFromReports(fullResponse.reports, currentReportMode, selectedProfile.refereeId);
+          setSelectedProfileData(profileData);
+          writeViewCache(
+            getReportProfileCacheKey(user.id, currentReportMode, activeSeasonId, selectedProfile.refereeId),
+            profileData,
+          );
+          return;
+        }
+
+        setSelectedProfileData(response);
         writeViewCache(
           getReportProfileCacheKey(user.id, currentReportMode, activeSeasonId, selectedProfile.refereeId),
-          profileData,
+          response,
         );
         return;
       }
 
-      const overview = buildOverviewFromReports(fullResponse.reports, currentReportMode);
-      setOverviewData(overview);
-      writeViewCache(getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId), overview);
+      const response = await getReportOverview(user.id, currentReportMode, activeSeasonId);
+      const normalizedOverview: ReportOverviewData = {
+        availableReports: response.availableReports,
+        profiles: response.profiles.map((profile) => ({
+          refereeId: profile.id,
+          refereeName: profile.name,
+          photoUrl: profile.photoUrl || '',
+          submittedCount: profile.submittedCount,
+          overdueCount: profile.overdueCount,
+        })),
+      };
+      const isEmptyOverviewPayload = normalizedOverview.availableReports.length === 0 && normalizedOverview.profiles.length === 0;
+
+      if (isEmptyOverviewPayload) {
+        const fullResponse = await getReports(user.id, currentReportMode, activeSeasonId);
+        setReports(fullResponse.reports);
+        writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), fullResponse.reports);
+        const overview = buildOverviewFromReports(fullResponse.reports, currentReportMode);
+        setOverviewData(overview);
+        writeViewCache(getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId), overview);
+        return;
+      }
+
+      setOverviewData(normalizedOverview);
+      writeViewCache(getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId), normalizedOverview);
       return;
     }
 
