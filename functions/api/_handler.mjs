@@ -5745,7 +5745,11 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
     return syntheticAssignments
       .map((assignment) => {
         const nomination = nominationMap.get(assignment.nomination_id);
+        const refereeProfile = refereeMap.get(assignment.referee_id);
         if (!nomination) {
+          return null;
+        }
+        if (!refereeProfile || refereeProfile.role !== 'Referee') {
           return null;
         }
 
@@ -5770,8 +5774,8 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
         return buildReportListItem({
           nomination,
           assignment,
-          refereeName: refereeMap.get(assignment.referee_id)?.full_name || 'Unknown referee',
-          photoUrl: refereeMap.get(assignment.referee_id)?.photo_url || DEFAULT_PHOTO_URL,
+          refereeName: refereeProfile.full_name || 'Unknown referee',
+          photoUrl: refereeProfile.photo_url || DEFAULT_PHOTO_URL,
           refereeReportStatus: refereeReport?.status || null,
           instructorReportStatus: visibleInstructorReport?.status || null,
           reviewScore: visibleInstructorReport?.score ?? null,
@@ -5853,7 +5857,11 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
     return syntheticAssignments
       .map((assignment) => {
         const nomination = nominationMap.get(assignment.nomination_id);
+        const refereeProfile = refereeMap.get(assignment.referee_id);
         if (!nomination) {
+          return null;
+        }
+        if (!refereeProfile || refereeProfile.role !== 'Referee') {
           return null;
         }
 
@@ -5870,8 +5878,8 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
         return buildReportListItem({
           nomination,
           assignment,
-          refereeName: refereeMap.get(assignment.referee_id)?.full_name || 'Unknown referee',
-          photoUrl: refereeMap.get(assignment.referee_id)?.photo_url || DEFAULT_PHOTO_URL,
+          refereeName: refereeProfile.full_name || 'Unknown referee',
+          photoUrl: refereeProfile.photo_url || DEFAULT_PHOTO_URL,
           refereeReportStatus: refereeReport?.status || null,
           instructorReportStatus: instructorReport?.status || null,
           reviewScore: instructorReport?.score ?? null,
