@@ -159,6 +159,55 @@ interface SelectedProfileData {
   reviewedReports: ReportListItem[];
 }
 
+const buildOverviewFromReports = (items: ReportListItem[], reportMode: ReportMode): ReportOverviewData => {
+  const profileOverviewReports = items.filter((item) => item.reportMode === reportMode);
+  const availableReports = profileOverviewReports.filter((item) => isSubmittedReport(item));
+  const profiles = Object.values(
+    profileOverviewReports.reduce<Record<string, ReportProfileSummary>>((accumulator, item) => {
+      if (!accumulator[item.refereeId]) {
+        accumulator[item.refereeId] = {
+          refereeId: item.refereeId,
+          refereeName: item.refereeName,
+          photoUrl: item.photoUrl || '',
+          submittedCount: 0,
+          overdueCount: 0,
+        };
+      }
+      if (!accumulator[item.refereeId].photoUrl && item.photoUrl) {
+        accumulator[item.refereeId].photoUrl = item.photoUrl;
+      }
+
+      if (isSubmittedReport(item)) {
+        accumulator[item.refereeId].submittedCount += 1;
+      }
+
+      if (isOverduePendingReport(item)) {
+        accumulator[item.refereeId].overdueCount += 1;
+      }
+
+      return accumulator;
+    }, {}),
+  ).sort((left, right) => {
+    const leftWeight = left.submittedCount + left.overdueCount;
+    const rightWeight = right.submittedCount + right.overdueCount;
+    if (rightWeight !== leftWeight) {
+      return rightWeight - leftWeight;
+    }
+    return left.refereeName.localeCompare(right.refereeName);
+  });
+
+  return { availableReports, profiles };
+};
+
+const buildProfileSectionsFromReports = (items: ReportListItem[], reportMode: ReportMode, profileId: string): SelectedProfileData => {
+  const selectedProfileReports = items.filter((item) => item.reportMode === reportMode && item.refereeId === profileId);
+  return {
+    submittedReports: selectedProfileReports.filter((item) => isSubmittedReport(item) && !item.deadlineExceeded),
+    overdueReports: selectedProfileReports.filter((item) => isOverduePendingReport(item)),
+    reviewedReports: selectedProfileReports.filter((item) => isReviewedReport(item)),
+  };
+};
+
 const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard' as ReportMode }) => {
   const { language, t } = useI18n();
   const { activeSeasonId } = useSeason();
@@ -268,6 +317,24 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
     if (usesProfileOverview) {
       if (selectedProfile) {
         const response = await getReportProfile(user.id, selectedProfile.refereeId, currentReportMode, activeSeasonId);
+        const isEmptyProfilePayload =
+          response.submittedReports.length === 0 &&
+          response.overdueReports.length === 0 &&
+          response.reviewedReports.length === 0;
+
+        if (isEmptyProfilePayload) {
+          const fullResponse = await getReports(user.id, currentReportMode, activeSeasonId);
+          setReports(fullResponse.reports);
+          writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), fullResponse.reports);
+          const fallbackProfileData = buildProfileSectionsFromReports(fullResponse.reports, currentReportMode, selectedProfile.refereeId);
+          setSelectedProfileData(fallbackProfileData);
+          writeViewCache(
+            getReportProfileCacheKey(user.id, currentReportMode, activeSeasonId, selectedProfile.refereeId),
+            fallbackProfileData,
+          );
+          return;
+        }
+
         setSelectedProfileData(response);
         writeViewCache(
           getReportProfileCacheKey(user.id, currentReportMode, activeSeasonId, selectedProfile.refereeId),
@@ -287,6 +354,16 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
           overdueCount: profile.overdueCount,
         })),
       };
+      const isEmptyOverviewPayload = normalizedOverview.availableReports.length === 0 && normalizedOverview.profiles.length === 0;
+      if (isEmptyOverviewPayload) {
+        const fullResponse = await getReports(user.id, currentReportMode, activeSeasonId);
+        setReports(fullResponse.reports);
+        writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), fullResponse.reports);
+        const fallbackOverview = buildOverviewFromReports(fullResponse.reports, currentReportMode);
+        setOverviewData(fallbackOverview);
+        writeViewCache(getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId), fallbackOverview);
+        return;
+      }
       setOverviewData(normalizedOverview);
       writeViewCache(getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId), normalizedOverview);
       return;
