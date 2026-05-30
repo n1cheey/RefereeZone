@@ -2164,6 +2164,26 @@ const safeLoadReportsForPairs = async (admin, pairs) => {
   }
 };
 
+const listReportRowsByNominationIds = async (admin, nominationIds) => {
+  if (!nominationIds.length) {
+    return [];
+  }
+
+  const uniqueNominationIds = [...new Set(nominationIds.filter(Boolean))];
+  const responses = await Promise.all(
+    chunkArray(uniqueNominationIds).map(async (chunk) => {
+      const { data, error } = await admin
+        .from('reports')
+        .select('nomination_id, referee_id, author_id, author_role, status, score, report_deadline_at, google_drive_url, visible_to_referee_ids')
+        .in('nomination_id', chunk);
+
+      return ensureData(data || [], error, 'Failed to load reports.');
+    }),
+  );
+
+  return responses.flat();
+};
+
 const loadReportByAuthor = async (admin, nominationId, refereeId, authorId) =>
   maybeSingle(
     admin
@@ -5671,27 +5691,57 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
     const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id), { skipAutoAccept: true })).filter(
       (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
     );
+    const directReportRows = await listReportRowsByNominationIds(admin, nominations.map((nomination) => nomination.id));
+    const standardReportRows = directReportRows.filter((report) => report.referee_id);
+    const pairAssignmentMap = new Map(
+      assignments.map((assignment) => [`${assignment.nomination_id}:${assignment.referee_id}`, assignment]),
+    );
+    const pairKeys = new Set([
+      ...assignments.map((assignment) => `${assignment.nomination_id}:${assignment.referee_id}`),
+      ...standardReportRows.map((report) => `${report.nomination_id}:${report.referee_id}`),
+    ]);
+    const syntheticAssignments = [...pairKeys].map((pairKey) => {
+      const existingAssignment = pairAssignmentMap.get(pairKey);
+      if (existingAssignment) {
+        return existingAssignment;
+      }
 
-    if (!assignments.length) {
+      const [nominationId, refereeId] = pairKey.split(':');
+      const matchingReport = standardReportRows.find(
+        (report) => report.nomination_id === nominationId && report.referee_id === refereeId,
+      );
+
+      return {
+        nomination_id: nominationId,
+        referee_id: refereeId,
+        slot_number: 0,
+        report_deadline_at: matchingReport?.report_deadline_at || null,
+        status: ASSIGNMENT_STATUS.ACCEPTED,
+      };
+    });
+
+    if (!syntheticAssignments.length) {
       return [];
     }
 
     const referees = await listProfilesByIds(
       admin,
-      [...new Set(assignments.map((assignment) => assignment.referee_id))],
+      [...new Set(syntheticAssignments.map((assignment) => assignment.referee_id))],
     );
     const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
     const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
-    const reports = await safeLoadReportsForPairs(
-      admin,
-      assignments.map((assignment) => ({
-        nominationId: assignment.nomination_id,
-        refereeId: assignment.referee_id,
-      })),
-    );
+    const reports = directReportRows.length
+      ? directReportRows
+      : await safeLoadReportsForPairs(
+          admin,
+          syntheticAssignments.map((assignment) => ({
+            nominationId: assignment.nomination_id,
+            refereeId: assignment.referee_id,
+          })),
+        );
     const reportsByPairKey = groupReportsByPairKey(reports);
 
-    return assignments
+    return syntheticAssignments
       .map((assignment) => {
         const nomination = nominationMap.get(assignment.nomination_id);
         if (!nomination) {
@@ -5748,26 +5798,56 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
     const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id), { skipAutoAccept: true })).filter(
       (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
     );
+    const directReportRows = await listReportRowsByNominationIds(admin, nominations.map((nomination) => nomination.id));
+    const standardReportRows = directReportRows.filter((report) => report.referee_id);
+    const pairAssignmentMap = new Map(
+      assignments.map((assignment) => [`${assignment.nomination_id}:${assignment.referee_id}`, assignment]),
+    );
+    const pairKeys = new Set([
+      ...assignments.map((assignment) => `${assignment.nomination_id}:${assignment.referee_id}`),
+      ...standardReportRows.map((report) => `${report.nomination_id}:${report.referee_id}`),
+    ]);
+    const syntheticAssignments = [...pairKeys].map((pairKey) => {
+      const existingAssignment = pairAssignmentMap.get(pairKey);
+      if (existingAssignment) {
+        return existingAssignment;
+      }
 
-    if (!assignments.length) {
+      const [nominationId, refereeId] = pairKey.split(':');
+      const matchingReport = standardReportRows.find(
+        (report) => report.nomination_id === nominationId && report.referee_id === refereeId,
+      );
+
+      return {
+        nomination_id: nominationId,
+        referee_id: refereeId,
+        slot_number: 0,
+        report_deadline_at: matchingReport?.report_deadline_at || null,
+        status: ASSIGNMENT_STATUS.ACCEPTED,
+      };
+    });
+
+    if (!syntheticAssignments.length) {
       return [];
     }
 
-    const nominationIds = [...new Set(assignments.map((assignment) => assignment.nomination_id))];
-    const refereeIds = [...new Set(assignments.map((assignment) => assignment.referee_id))];
+    const nominationIds = [...new Set(syntheticAssignments.map((assignment) => assignment.nomination_id))];
+    const refereeIds = [...new Set(syntheticAssignments.map((assignment) => assignment.referee_id))];
     const referees = await listProfilesByIds(admin, refereeIds);
     const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
     const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
-    const reports = await safeLoadReportsForPairs(
-      admin,
-      assignments.map((assignment) => ({
-        nominationId: assignment.nomination_id,
-        refereeId: assignment.referee_id,
-      })),
-    );
+    const reports = directReportRows.length
+      ? directReportRows
+      : await safeLoadReportsForPairs(
+          admin,
+          syntheticAssignments.map((assignment) => ({
+            nominationId: assignment.nomination_id,
+            refereeId: assignment.referee_id,
+          })),
+        );
     const reportsByPairKey = groupReportsByPairKey(reports);
 
-    return assignments
+    return syntheticAssignments
       .map((assignment) => {
         const nomination = nominationMap.get(assignment.nomination_id);
         if (!nomination) {
@@ -5870,8 +5950,8 @@ const getTestReportTODetail = async (admin, currentUser, reportId) => {
 
 const getTOReportDetail = async (admin, currentUser, nominationId, toId) => {
   const assignment = await requireTOAssignment(admin, nominationId, toId);
-  const deadlineExceeded = isDeadlineExceeded(assignment);
-  const deadlineMessage = deadlineExceeded ? getDeadlineMessage(assignment) : null;
+  const rawDeadlineExceeded = isDeadlineExceeded(assignment);
+  const rawDeadlineMessage = rawDeadlineExceeded ? getDeadlineMessage(assignment) : null;
   const reportDeadlineAt = getReportDeadlineDate(assignment)?.toISOString() || null;
 
   if (currentUser.role === 'TO') {
@@ -5887,6 +5967,11 @@ const getTOReportDetail = async (admin, currentUser, nominationId, toId) => {
       loadReportByAuthor(admin, nominationId, toId, currentUser.id),
       loadVisibleInstructorReport(admin, nominationId, toId),
     ]);
+    const deadlineExceeded =
+      rawDeadlineExceeded &&
+      ownReport?.status !== REPORT_STATUS.SUBMITTED &&
+      supervisorReport?.status !== REPORT_STATUS.REVIEWED;
+    const deadlineMessage = deadlineExceeded ? rawDeadlineMessage : null;
 
     return {
       item: {
@@ -5930,6 +6015,11 @@ const getTOReportDetail = async (admin, currentUser, nominationId, toId) => {
       loadSubmittedRefereeReport(admin, nominationId, toId),
       loadReportByAuthor(admin, nominationId, toId, currentUser.id),
     ]);
+    const deadlineExceeded =
+      rawDeadlineExceeded &&
+      toReport?.status !== REPORT_STATUS.SUBMITTED &&
+      ownReport?.status !== REPORT_STATUS.REVIEWED;
+    const deadlineMessage = deadlineExceeded ? rawDeadlineMessage : null;
 
     return {
       item: {
@@ -5969,6 +6059,11 @@ const getTOReportDetail = async (admin, currentUser, nominationId, toId) => {
       loadSubmittedRefereeReport(admin, nominationId, toId),
       loadReportByAuthor(admin, nominationId, toId, assignment.assignedBy),
     ]);
+    const deadlineExceeded =
+      rawDeadlineExceeded &&
+      toReport?.status !== REPORT_STATUS.SUBMITTED &&
+      supervisorReport?.status !== REPORT_STATUS.REVIEWED;
+    const deadlineMessage = deadlineExceeded ? rawDeadlineMessage : null;
 
     return {
       item: {
@@ -6018,8 +6113,8 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId, repo
   }
 
   const assignment = await requireAssignment(admin, nominationId, refereeId);
-  const deadlineExceeded = isDeadlineExceeded(assignment);
-  const deadlineMessage = deadlineExceeded ? getDeadlineMessage(assignment) : null;
+  const rawDeadlineExceeded = isDeadlineExceeded(assignment);
+  const rawDeadlineMessage = rawDeadlineExceeded ? getDeadlineMessage(assignment) : null;
   const reportDeadlineAt = getReportDeadlineDate(assignment)?.toISOString() || null;
 
   if (currentUser.role === 'Referee') {
@@ -6035,6 +6130,11 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId, repo
       loadReportByAuthor(admin, nominationId, refereeId, currentUser.id),
       loadVisibleInstructorReport(admin, nominationId, refereeId),
     ]);
+    const deadlineExceeded =
+      rawDeadlineExceeded &&
+      ownReport?.status !== REPORT_STATUS.SUBMITTED &&
+      instructorReport?.status !== REPORT_STATUS.REVIEWED;
+    const deadlineMessage = deadlineExceeded ? rawDeadlineMessage : null;
 
     return {
       item: {
@@ -6082,6 +6182,11 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId, repo
       loadVisibleInstructorReport(admin, nominationId, refereeId),
     ]);
     const activeInstructorReport = isNominationOwner ? ownReport : visibleInstructorReport;
+    const deadlineExceeded =
+      rawDeadlineExceeded &&
+      refereeReport?.status !== REPORT_STATUS.SUBMITTED &&
+      activeInstructorReport?.status !== REPORT_STATUS.REVIEWED;
+    const deadlineMessage = deadlineExceeded ? rawDeadlineMessage : null;
 
     return {
       item: {
@@ -6122,6 +6227,11 @@ const getReportDetail = async (admin, currentUser, nominationId, refereeId, repo
       loadSubmittedRefereeReport(admin, nominationId, refereeId),
       loadVisibleInstructorReport(admin, nominationId, refereeId),
     ]);
+    const deadlineExceeded =
+      rawDeadlineExceeded &&
+      refereeReport?.status !== REPORT_STATUS.SUBMITTED &&
+      instructorReport?.status !== REPORT_STATUS.REVIEWED;
+    const deadlineMessage = deadlineExceeded ? rawDeadlineMessage : null;
 
     return {
       item: {
