@@ -2155,6 +2155,15 @@ const loadReportsForPairs = async (admin, pairs) => {
   return rows.filter((row) => pairSet.has(`${row.nomination_id}:${row.referee_id}`));
 };
 
+const safeLoadReportsForPairs = async (admin, pairs) => {
+  try {
+    return await loadReportsForPairs(admin, pairs);
+  } catch (error) {
+    console.error('[reports] Failed to load pair reports, continuing with empty statuses.', error);
+    return [];
+  }
+};
+
 const loadReportByAuthor = async (admin, nominationId, refereeId, authorId) =>
   maybeSingle(
     admin
@@ -5298,7 +5307,7 @@ const listTOReportItems = async (admin, currentUser, seasonId = null) => {
   const [nominations, toOfficials, reports] = await Promise.all([
     listNominationsByIds(admin, nominationIds),
     listProfilesByIds(admin, toIds),
-    loadReportsForPairs(
+    safeLoadReportsForPairs(
       admin,
       assignments.map((assignment) => ({
         nominationId: assignment.nomination_id,
@@ -5445,7 +5454,7 @@ const listMobileStandardReportItems = async (admin, currentUser, seasonId = null
   );
   const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
   const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
-  const reports = await loadReportsForPairs(
+  const reports = await safeLoadReportsForPairs(
     admin,
     assignments.map((assignment) => ({
       nominationId: assignment.nomination_id,
@@ -5516,7 +5525,7 @@ const listMobileTOReportItems = async (admin, currentUser, seasonId = null) => {
   const [nominations, toOfficials, reports] = await Promise.all([
     listNominationsByIds(admin, nominationIds),
     listProfilesByIds(admin, toIds),
-    loadReportsForPairs(
+    safeLoadReportsForPairs(
       admin,
       filteredAssignments.map((assignment) => ({
         nominationId: assignment.nomination_id,
@@ -5610,7 +5619,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
       (nomination) => nomination.match_date,
     );
     const nominationMap = new Map(filteredNominations.map((nomination) => [nomination.id, nomination]));
-    const reports = await loadReportsForPairs(
+    const reports = await safeLoadReportsForPairs(
       admin,
       assignments.map((assignment) => ({
         nominationId: assignment.nomination_id,
@@ -5673,7 +5682,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
     );
     const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
     const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
-    const reports = await loadReportsForPairs(
+    const reports = await safeLoadReportsForPairs(
       admin,
       assignments.map((assignment) => ({
         nominationId: assignment.nomination_id,
@@ -5749,7 +5758,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
     const referees = await listProfilesByIds(admin, refereeIds);
     const nominationMap = new Map(nominations.map((nomination) => [nomination.id, nomination]));
     const refereeMap = new Map(referees.map((referee) => [referee.id, referee]));
-    const reports = await loadReportsForPairs(
+    const reports = await safeLoadReportsForPairs(
       admin,
       assignments.map((assignment) => ({
         nominationId: assignment.nomination_id,
