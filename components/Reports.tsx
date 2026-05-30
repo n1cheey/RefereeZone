@@ -8,8 +8,6 @@ import {
   deleteReport,
   extendReportDeadline,
   getReportDetail,
-  getReportOverview,
-  getReportProfile,
   getReports,
   saveReport,
 } from '../services/reportsService';
@@ -26,7 +24,7 @@ interface ReportsProps {
 
 const FRESH_REPORTS_CACHE_WINDOW_MS = 20000;
 
-const REPORTS_CACHE_VERSION = 'v2';
+const REPORTS_CACHE_VERSION = 'v4';
 const getReportsCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
   `reports:${REPORTS_CACHE_VERSION}:${userId}:${reportMode}:${seasonId}`;
 const getReportOverviewCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
@@ -140,7 +138,8 @@ const buildFormDataFromDetail = (detail: ReportDetail, role: User['role']) => {
 
 const isReviewedReport = (item: ReportListItem) => item.instructorReportStatus === 'Reviewed';
 const isSubmittedReport = (item: ReportListItem) => item.refereeReportStatus === 'Submitted' && !isReviewedReport(item);
-const isOverduePendingReport = (item: ReportListItem) => item.deadlineExceeded && !isReviewedReport(item);
+const isOverduePendingReport = (item: ReportListItem) =>
+  item.deadlineExceeded && !isReviewedReport(item) && !item.refereeReportStatus;
 
 interface ReportProfileSummary {
   refereeId: string;
@@ -204,7 +203,7 @@ const buildOverviewFromReports = (items: ReportListItem[], reportMode: ReportMod
 const buildProfileSectionsFromReports = (items: ReportListItem[], reportMode: ReportMode, profileId: string): SelectedProfileData => {
   const selectedProfileReports = items.filter((item) => item.reportMode === reportMode && item.refereeId === profileId);
   return {
-    submittedReports: selectedProfileReports.filter((item) => isSubmittedReport(item) && !item.deadlineExceeded),
+    submittedReports: selectedProfileReports.filter((item) => isSubmittedReport(item)),
     overdueReports: selectedProfileReports.filter((item) => isOverduePendingReport(item)),
     reviewedReports: selectedProfileReports.filter((item) => isReviewedReport(item)),
   };
@@ -316,66 +315,24 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
   };
 
   const loadReports = useCallback(async () => {
+    const response = await getReports(user.id, currentReportMode, activeSeasonId);
+    setReports(response.reports);
+    writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), response.reports);
     if (usesProfileOverview) {
       if (selectedProfile) {
-        const response = await getReportProfile(user.id, selectedProfile.refereeId, currentReportMode, activeSeasonId);
-        const isEmptyProfilePayload =
-          response.submittedReports.length === 0 &&
-          response.overdueReports.length === 0 &&
-          response.reviewedReports.length === 0;
-
-        if (isEmptyProfilePayload) {
-          const fullResponse = await getReports(user.id, currentReportMode, activeSeasonId);
-          setReports(fullResponse.reports);
-          writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), fullResponse.reports);
-          const profileData = buildProfileSectionsFromReports(fullResponse.reports, currentReportMode, selectedProfile.refereeId);
-          setSelectedProfileData(profileData);
-          writeViewCache(
-            getReportProfileCacheKey(user.id, currentReportMode, activeSeasonId, selectedProfile.refereeId),
-            profileData,
-          );
-          return;
-        }
-
-        setSelectedProfileData(response);
+        const profileData = buildProfileSectionsFromReports(response.reports, currentReportMode, selectedProfile.refereeId);
+        setSelectedProfileData(profileData);
         writeViewCache(
           getReportProfileCacheKey(user.id, currentReportMode, activeSeasonId, selectedProfile.refereeId),
-          response,
+          profileData,
         );
         return;
       }
 
-      const response = await getReportOverview(user.id, currentReportMode, activeSeasonId);
-      const normalizedOverview: ReportOverviewData = {
-        availableReports: response.availableReports,
-        profiles: response.profiles.map((profile) => ({
-          refereeId: profile.id,
-          refereeName: profile.name,
-          photoUrl: profile.photoUrl || '',
-          submittedCount: profile.submittedCount,
-          overdueCount: profile.overdueCount,
-        })),
-      };
-      const isEmptyOverviewPayload = normalizedOverview.availableReports.length === 0 && normalizedOverview.profiles.length === 0;
-
-      if (isEmptyOverviewPayload) {
-        const fullResponse = await getReports(user.id, currentReportMode, activeSeasonId);
-        setReports(fullResponse.reports);
-        writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), fullResponse.reports);
-        const overview = buildOverviewFromReports(fullResponse.reports, currentReportMode);
-        setOverviewData(overview);
-        writeViewCache(getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId), overview);
-        return;
-      }
-
-      setOverviewData(normalizedOverview);
-      writeViewCache(getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId), normalizedOverview);
-      return;
+      const overview = buildOverviewFromReports(response.reports, currentReportMode);
+      setOverviewData(overview);
+      writeViewCache(getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId), overview);
     }
-
-    const response = await getReports(user.id, currentReportMode, activeSeasonId);
-    setReports(response.reports);
-    writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), response.reports);
   }, [activeSeasonId, currentReportMode, selectedProfile, user.id, usesProfileOverview]);
 
   useEffect(() => {
