@@ -8,7 +8,7 @@ import { ScreenShell, sharedStyles } from '@/src/components/screen-shell';
 import { useAuth } from '@/src/providers/auth-provider';
 import { useLanguage } from '@/src/providers/language-provider';
 import { useSeason } from '@/src/providers/season-provider';
-import { getMobileReportOverview, getMobileReports, getMobileReportProfile } from '@/src/services/modules-service';
+import { getMobileReports } from '@/src/services/modules-service';
 import { extendMobileReportDeadline } from '@/src/services/reports-service';
 import { theme } from '@/src/theme/theme';
 import { formatDateLabel, formatDateTimeLabel, formatTimeLabel } from '@/src/utils/format';
@@ -42,23 +42,7 @@ export default function ReportsScreen() {
   const reportsQuery = useQuery({
     queryKey: ['mobile-reports', user?.id, user?.role, seasonId, mode],
     queryFn: () => getMobileReports(user!, seasonId, mode),
-    enabled: Boolean(user) && !usesProfileOverview,
-    staleTime: 30_000,
-    retry: 2,
-  });
-
-  const reportOverviewQuery = useQuery({
-    queryKey: ['mobile-reports-overview', user?.id, user?.role, seasonId, mode],
-    queryFn: () => getMobileReportOverview(user!, seasonId, mode),
-    enabled: Boolean(user) && usesProfileOverview && !selectedProfileId,
-    staleTime: 30_000,
-    retry: 2,
-  });
-
-  const reportProfileQuery = useQuery({
-    queryKey: ['mobile-reports-profile', user?.id, user?.role, seasonId, mode, selectedProfileId],
-    queryFn: () => getMobileReportProfile(user!, selectedProfileId!, seasonId, mode),
-    enabled: Boolean(user) && usesProfileOverview && Boolean(selectedProfileId),
+    enabled: Boolean(user),
     staleTime: 30_000,
     retry: 2,
   });
@@ -67,29 +51,14 @@ export default function ReportsScreen() {
     mutationFn: ({ nominationId, refereeId }: { nominationId: string; refereeId: string }) =>
       extendMobileReportDeadline(user!, nominationId, refereeId, mode),
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['mobile-reports', user?.id, user?.role, seasonId, mode] }),
-        queryClient.invalidateQueries({ queryKey: ['mobile-reports-overview', user?.id, user?.role, seasonId, mode] }),
-        queryClient.invalidateQueries({ queryKey: ['mobile-reports-profile', user?.id, user?.role, seasonId, mode, selectedProfileId] }),
-      ]);
+      await queryClient.invalidateQueries({ queryKey: ['mobile-reports', user?.id, user?.role, seasonId, mode] });
     },
   });
 
   const reports = useMemo(() => reportsQuery.data?.reports || [], [reportsQuery.data?.reports]);
-  const availableReports = reportOverviewQuery.data?.availableReports || [];
-  const profiles = reportOverviewQuery.data?.profiles || [];
-  const selectedSubmitted = reportProfileQuery.data?.submittedReports || [];
-  const selectedOverdue = reportProfileQuery.data?.overdueReports || [];
-  const selectedReviewed = reportProfileQuery.data?.reviewedReports || [];
-  const activeError = reportProfileQuery.error || reportOverviewQuery.error || reportsQuery.error;
-  const activeLoading =
-    reportsQuery.isLoading ||
-    reportOverviewQuery.isLoading ||
-    reportProfileQuery.isLoading;
-  const activeRefetching =
-    reportsQuery.isRefetching ||
-    reportOverviewQuery.isRefetching ||
-    reportProfileQuery.isRefetching;
+  const activeError = reportsQuery.error;
+  const activeLoading = reportsQuery.isLoading;
+  const activeRefetching = reportsQuery.isRefetching;
 
   if (!user) {
     return <Redirect href="/login" />;
@@ -98,6 +67,53 @@ export default function ReportsScreen() {
   if (user.role === 'Financialist') {
     return <Redirect href="/home" />;
   }
+
+  const profileOverviewReports = reports.filter((item) => item.reportMode === mode);
+  const availableReports = profileOverviewReports.filter(
+    (item) => item.refereeReportStatus === 'Submitted' && item.instructorReportStatus !== 'Reviewed',
+  );
+  const profiles = Object.values(
+    profileOverviewReports.reduce<Record<string, { id: string; name: string; photoUrl?: string | null; submittedCount: number; overdueCount: number }>>(
+      (accumulator, item) => {
+        if (!accumulator[item.refereeId]) {
+          accumulator[item.refereeId] = {
+            id: item.refereeId,
+            name: item.refereeName,
+            photoUrl: item.photoUrl || null,
+            submittedCount: 0,
+            overdueCount: 0,
+          };
+        }
+
+        if (item.refereeReportStatus === 'Submitted' && item.instructorReportStatus !== 'Reviewed') {
+          accumulator[item.refereeId].submittedCount += 1;
+        }
+
+        if (item.deadlineExceeded && item.instructorReportStatus !== 'Reviewed') {
+          accumulator[item.refereeId].overdueCount += 1;
+        }
+
+        return accumulator;
+      },
+      {},
+    ),
+  ).sort((left, right) => {
+    const leftWeight = left.submittedCount + left.overdueCount;
+    const rightWeight = right.submittedCount + right.overdueCount;
+    if (rightWeight !== leftWeight) {
+      return rightWeight - leftWeight;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+  const selectedProfileReports = selectedProfileId ? profileOverviewReports.filter((item) => item.refereeId === selectedProfileId) : [];
+  const selectedSubmitted = selectedProfileReports.filter(
+    (item) => item.refereeReportStatus === 'Submitted' && item.instructorReportStatus !== 'Reviewed' && !item.deadlineExceeded,
+  );
+  const selectedOverdue = selectedProfileReports.filter(
+    (item) => item.deadlineExceeded && item.instructorReportStatus !== 'Reviewed',
+  );
+  const selectedReviewed = selectedProfileReports.filter((item) => item.instructorReportStatus === 'Reviewed');
 
   const renderReportCard = (report: any, allowAddTime = false) => {
     const visibleStatus = getVisibleStatus(report, user.role);
@@ -154,15 +170,6 @@ export default function ReportsScreen() {
       showSeasonSwitcher
       refreshing={activeRefetching}
       onRefresh={() => {
-        if (usesProfileOverview) {
-          if (selectedProfileId) {
-            void reportProfileQuery.refetch();
-            return;
-          }
-          void reportOverviewQuery.refetch();
-          return;
-        }
-
         void reportsQuery.refetch();
       }}
     >

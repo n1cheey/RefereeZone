@@ -743,11 +743,18 @@ const listProfilesByIds = async (admin, ids) => {
     return [];
   }
 
-  const { data, error } = await admin
-    .from('profiles')
-    .select('id, email, full_name, photo_url, license_number, role')
-    .in('id', ids);
-  return ensureData(data || [], error, 'Failed to load user profiles.').map(normalizeProfileRow);
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  const responses = await Promise.all(
+    chunkArray(uniqueIds).map(async (chunk) => {
+      const { data, error } = await admin
+        .from('profiles')
+        .select('id, email, full_name, photo_url, license_number, role')
+        .in('id', chunk);
+      return ensureData(data || [], error, 'Failed to load user profiles.');
+    }),
+  );
+
+  return responses.flat().map(normalizeProfileRow);
 };
 
 const listActiveProfilesByIds = async (admin, ids) =>
@@ -1421,6 +1428,14 @@ const clearChatBootstrapCache = () => {
   chatDirectoryCache.clear();
 };
 
+const chunkArray = (items = [], chunkSize = 150) => {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += chunkSize) {
+    chunks.push(items.slice(index, index + chunkSize));
+  }
+  return chunks;
+};
+
 const getTodayDateString = () => BAKU_DATE_FORMATTER.format(new Date());
 
 const getAvailabilityApproverRole = (role) =>
@@ -1782,8 +1797,14 @@ const listNominationsByIds = async (admin, ids) => {
     return [];
   }
 
-  const { data, error } = await admin.from('nominations').select('*').in('id', ids);
-  return ensureData(data || [], error, 'Failed to load nominations.');
+  const uniqueIds = [...new Set(ids.filter(Boolean))];
+  const responses = await Promise.all(
+    chunkArray(uniqueIds).map(async (chunk) => {
+      const { data, error } = await admin.from('nominations').select('*').in('id', chunk);
+      return ensureData(data || [], error, 'Failed to load nominations.');
+    }),
+  );
+  return responses.flat();
 };
 
 const autoAcceptPastAssignments = async (admin, nominationIds) => {
@@ -1837,13 +1858,20 @@ const listAssignmentsByNominationIds = async (admin, nominationIds) => {
 
   await autoAcceptPastAssignments(admin, nominationIds);
 
-  const { data, error } = await admin
-    .from('nomination_referees')
-    .select('*')
-    .in('nomination_id', nominationIds)
-    .order('slot_number', { ascending: true });
+  const uniqueNominationIds = [...new Set(nominationIds.filter(Boolean))];
+  const responses = await Promise.all(
+    chunkArray(uniqueNominationIds).map(async (chunk) => {
+      const { data, error } = await admin
+        .from('nomination_referees')
+        .select('*')
+        .in('nomination_id', chunk)
+        .order('slot_number', { ascending: true });
 
-  return ensureData(data || [], error, 'Failed to load nomination assignments.');
+      return ensureData(data || [], error, 'Failed to load nomination assignments.');
+    }),
+  );
+
+  return responses.flat();
 };
 
 const listTOAssignmentsByNominationIds = async (admin, nominationIds) => {
@@ -1853,13 +1881,20 @@ const listTOAssignmentsByNominationIds = async (admin, nominationIds) => {
 
   await autoAcceptPastAssignments(admin, nominationIds);
 
-  const { data, error } = await admin
-    .from('nomination_tos')
-    .select('*')
-    .in('nomination_id', nominationIds)
-    .order('slot_number', { ascending: true });
+  const uniqueNominationIds = [...new Set(nominationIds.filter(Boolean))];
+  const responses = await Promise.all(
+    chunkArray(uniqueNominationIds).map(async (chunk) => {
+      const { data, error } = await admin
+        .from('nomination_tos')
+        .select('*')
+        .in('nomination_id', chunk)
+        .order('slot_number', { ascending: true });
 
-  return ensureData(data || [], error, 'Failed to load TO assignments.');
+      return ensureData(data || [], error, 'Failed to load TO assignments.');
+    }),
+  );
+
+  return responses.flat();
 };
 
 const listTOAssignmentsByUserId = async (admin, toId) => {
@@ -2096,15 +2131,24 @@ const loadReportsForPairs = async (admin, pairs) => {
     return [];
   }
 
-  const nominationIds = [...new Set(pairs.map((pair) => pair.nominationId))];
-  const refereeIds = [...new Set(pairs.map((pair) => pair.refereeId))];
-  const { data, error } = await admin
-    .from('reports')
-    .select('id, nomination_id, referee_id, author_id, author_role, status, score, google_drive_url, visible_to_referee_ids, updated_at')
-    .in('nomination_id', nominationIds)
-    .in('referee_id', refereeIds);
+  const nominationIds = [...new Set(pairs.map((pair) => pair.nominationId).filter(Boolean))];
+  const refereeIds = [...new Set(pairs.map((pair) => pair.refereeId).filter(Boolean))];
+  const rows = (
+    await Promise.all(
+      chunkArray(nominationIds).flatMap((nominationChunk) =>
+        chunkArray(refereeIds).map(async (refereeChunk) => {
+          const { data, error } = await admin
+            .from('reports')
+            .select('id, nomination_id, referee_id, author_id, author_role, status, score, google_drive_url, visible_to_referee_ids, updated_at')
+            .in('nomination_id', nominationChunk)
+            .in('referee_id', refereeChunk);
 
-  const rows = ensureData(data || [], error, 'Failed to load reports.');
+          return ensureData(data || [], error, 'Failed to load reports.');
+        }),
+      ),
+    )
+  ).flat();
+
   const pairSet = new Set(pairs.map((pair) => `${pair.nominationId}:${pair.refereeId}`));
   return rows.filter((row) => pairSet.has(`${row.nomination_id}:${row.referee_id}`));
 };

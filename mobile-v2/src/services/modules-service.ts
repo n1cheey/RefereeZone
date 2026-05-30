@@ -240,7 +240,7 @@ export function getMobileRanking(user: User, seasonId?: string | null, options?:
 export function getMobileReports(user: User, seasonId?: string | null, modeOverride?: 'standard' | 'to') {
   const mode = modeOverride || (user.role === 'TO' || user.role === 'TO Supervisor' ? 'to' : 'standard');
   return apiRequest<{ reports: ReportsListItem[] }>(
-    `/api/mobile/reports?userId=${encodeURIComponent(user.id)}&mode=${mode}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
+    `/api/reports?userId=${encodeURIComponent(user.id)}&mode=${mode}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
   );
 }
 
@@ -250,7 +250,7 @@ export function getMobileReportOverview(user: User, seasonId?: string | null, mo
     availableReports: ReportsListItem[];
     profiles: { id: string; name: string; photoUrl?: string | null; submittedCount: number; overdueCount: number }[];
   }>(
-    `/api/mobile/reports?userId=${encodeURIComponent(user.id)}&mode=${mode}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
+    `/api/reports?userId=${encodeURIComponent(user.id)}&mode=${mode}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
   );
 }
 
@@ -266,7 +266,7 @@ export function getMobileReportProfile(
     overdueReports: ReportsListItem[];
     reviewedReports: ReportsListItem[];
   }>(
-    `/api/mobile/reports?userId=${encodeURIComponent(user.id)}&mode=${mode}&profileId=${encodeURIComponent(profileId)}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
+    `/api/reports?userId=${encodeURIComponent(user.id)}&mode=${mode}${seasonId ? `&seasonId=${encodeURIComponent(seasonId)}` : ''}`,
   );
 }
 
