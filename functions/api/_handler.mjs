@@ -1851,12 +1851,15 @@ const autoAcceptPastAssignments = async (admin, nominationIds) => {
   }
 };
 
-const listAssignmentsByNominationIds = async (admin, nominationIds) => {
+const listAssignmentsByNominationIds = async (admin, nominationIds, options = {}) => {
+  const { skipAutoAccept = false } = options;
   if (!nominationIds.length) {
     return [];
   }
 
-  await autoAcceptPastAssignments(admin, nominationIds);
+  if (!skipAutoAccept) {
+    await autoAcceptPastAssignments(admin, nominationIds);
+  }
 
   const uniqueNominationIds = [...new Set(nominationIds.filter(Boolean))];
   const responses = await Promise.all(
@@ -1874,12 +1877,15 @@ const listAssignmentsByNominationIds = async (admin, nominationIds) => {
   return responses.flat();
 };
 
-const listTOAssignmentsByNominationIds = async (admin, nominationIds) => {
+const listTOAssignmentsByNominationIds = async (admin, nominationIds, options = {}) => {
+  const { skipAutoAccept = false } = options;
   if (!nominationIds.length) {
     return [];
   }
 
-  await autoAcceptPastAssignments(admin, nominationIds);
+  if (!skipAutoAccept) {
+    await autoAcceptPastAssignments(admin, nominationIds);
+  }
 
   const uniqueNominationIds = [...new Set(nominationIds.filter(Boolean))];
   const responses = await Promise.all(
@@ -5263,6 +5269,8 @@ const listTestReportTOItems = async (admin, currentUser, seasonId = null) => {
 
 const listTOReportItems = async (admin, currentUser, seasonId = null) => {
   const normalizedSeasonId = normalizeSeasonId(seasonId);
+  const seasonNominations = await listSeasonNominationsMinimal(admin, seasonId);
+  const seasonNominationIds = new Set(seasonNominations.map((nomination) => nomination.id));
   let assignmentsQuery = admin.from('nomination_tos').select('*').order('created_at', { ascending: false });
 
   if (currentUser.role === 'TO') {
@@ -5274,14 +5282,13 @@ const listTOReportItems = async (admin, currentUser, seasonId = null) => {
   }
 
   const { data, error } = await assignmentsQuery;
-  const initialAssignments = ensureData(data || [], error, 'Failed to load TO reports.');
-  await autoAcceptPastAssignments(
-    admin,
-    initialAssignments.map((assignment) => assignment.nomination_id),
+  const initialAssignments = ensureData(data || [], error, 'Failed to load TO reports.').filter(
+    (assignment) => !normalizedSeasonId || seasonNominationIds.has(assignment.nomination_id),
   );
   const assignments = (await listTOAssignmentsByNominationIds(
     admin,
     [...new Set(initialAssignments.map((assignment) => assignment.nomination_id))],
+    { skipAutoAccept: true },
   )).filter(
     (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
   );
@@ -5428,8 +5435,7 @@ const listMobileStandardReportItems = async (admin, currentUser, seasonId = null
     return [];
   }
 
-  await expirePendingAssignments(admin, nominations.map((nomination) => nomination.id));
-  const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id))).filter(
+  const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id), { skipAutoAccept: true })).filter(
     (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
   );
 
@@ -5496,7 +5502,7 @@ const listMobileTOReportItems = async (admin, currentUser, seasonId = null) => {
       .order('created_at', { ascending: false });
     assignments = ensureData(data || [], error, 'Failed to load TO reports.');
   } else {
-    assignments = await listTOAssignmentsByNominationIds(admin, seasonNominations.map((nomination) => nomination.id));
+    assignments = await listTOAssignmentsByNominationIds(admin, seasonNominations.map((nomination) => nomination.id), { skipAutoAccept: true });
   }
 
   const filteredAssignments = assignments.filter(
@@ -5591,14 +5597,6 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
   if (currentUser.role === 'Referee') {
     const assignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', currentUser.id);
     const initialAssignments = ensureData(assignmentsResponse.data || [], assignmentsResponse.error, 'Failed to load reports.');
-    await expirePendingAssignments(
-      admin,
-      [...new Set(initialAssignments.map((assignment) => assignment.nomination_id))],
-    );
-    await autoAcceptPastAssignments(
-      admin,
-      initialAssignments.map((assignment) => assignment.nomination_id),
-    );
     const refreshedAssignmentsResponse = await admin.from('nomination_referees').select('*').eq('referee_id', currentUser.id);
     const assignments = ensureData(refreshedAssignmentsResponse.data || [], refreshedAssignmentsResponse.error, 'Failed to load reports.')
       .filter((assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED);
@@ -5665,8 +5663,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
       return [];
     }
 
-    await expirePendingAssignments(admin, nominations.map((nomination) => nomination.id));
-    const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id))).filter(
+    const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id), { skipAutoAccept: true })).filter(
       (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
     );
 
@@ -5743,8 +5740,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
       return [];
     }
 
-    await expirePendingAssignments(admin, nominations.map((nomination) => nomination.id));
-    const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id))).filter(
+    const assignments = (await listAssignmentsByNominationIds(admin, nominations.map((nomination) => nomination.id), { skipAutoAccept: true })).filter(
       (assignment) => assignment.status !== ASSIGNMENT_STATUS.DECLINED,
     );
 
