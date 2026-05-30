@@ -2256,6 +2256,25 @@ const groupReportsByPairKey = (reports = []) => {
   return grouped;
 };
 
+const findSubjectSubmittedReport = (reports = [], subjectId) =>
+  reports.find(
+    (report) =>
+      report.author_id === subjectId &&
+      report.status === REPORT_STATUS.SUBMITTED,
+  ) ||
+  reports.find(
+    (report) =>
+      report.author_role === 'Referee' &&
+      report.status === REPORT_STATUS.SUBMITTED,
+  );
+
+const findReviewedResponseReport = (reports = [], subjectId) =>
+  reports.find(
+    (report) =>
+      report.author_id !== subjectId &&
+      report.status === REPORT_STATUS.REVIEWED,
+  );
+
 const loadTestReportByAuthor = async (admin, nominationId, refereeId, authorId) =>
   maybeSingle(
     admin
@@ -5417,7 +5436,7 @@ const buildMobileProfilePayload = (items, profileId = null) => {
         (item) => item.refereeReportStatus === REPORT_STATUS.SUBMITTED && item.instructorReportStatus !== REPORT_STATUS.REVIEWED && !item.deadlineExceeded,
       ),
       overdueReports: selectedItems.filter(
-        (item) => item.deadlineExceeded && item.instructorReportStatus !== REPORT_STATUS.REVIEWED,
+        (item) => item.deadlineExceeded && item.instructorReportStatus !== REPORT_STATUS.REVIEWED && !item.refereeReportStatus,
       ),
       reviewedReports: selectedItems.filter((item) => item.instructorReportStatus === REPORT_STATUS.REVIEWED),
     };
@@ -5442,7 +5461,7 @@ const buildMobileProfilePayload = (items, profileId = null) => {
         accumulator[item.refereeId].submittedCount += 1;
       }
 
-      if (item.deadlineExceeded && item.instructorReportStatus !== REPORT_STATUS.REVIEWED) {
+      if (item.deadlineExceeded && item.instructorReportStatus !== REPORT_STATUS.REVIEWED && !item.refereeReportStatus) {
         accumulator[item.refereeId].overdueCount += 1;
       }
 
@@ -5498,12 +5517,8 @@ const listMobileStandardReportItems = async (admin, currentUser, seasonId = null
         }
 
         const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.referee_id}`) || [];
-        const refereeReport = pairReports.find(
-          (report) => report.author_role === 'Referee' && report.status === REPORT_STATUS.SUBMITTED,
-        );
-      const instructorReport = pairReports.find(
-        (report) => report.author_role === 'Instructor' && report.status === REPORT_STATUS.REVIEWED,
-      );
+        const refereeReport = findSubjectSubmittedReport(pairReports, assignment.referee_id);
+        const instructorReport = findReviewedResponseReport(pairReports, assignment.referee_id);
 
         return buildReportListItem({
           nomination,
@@ -5734,22 +5749,14 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
         }
 
         const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.referee_id}`) || [];
-        const refereeReport = pairReports.find(
-          (report) =>
-            report.author_role === 'Referee' &&
-            report.status === REPORT_STATUS.SUBMITTED,
-        );
+        const refereeReport = findSubjectSubmittedReport(pairReports, assignment.referee_id);
         const ownReport = pairReports.find(
           (report) =>
             report.author_id === currentUser.id,
         );
         const visibleInstructorReport =
-          ownReport ||
-          pairReports.find(
-            (report) =>
-              report.author_role === 'Instructor' &&
-              report.status === REPORT_STATUS.REVIEWED,
-          );
+          findReviewedResponseReport(pairReports, assignment.referee_id) ||
+          (ownReport?.author_id !== assignment.referee_id ? ownReport : null);
 
         return buildReportListItem({
           nomination,
@@ -5814,14 +5821,12 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
         }
 
         const pairReports = reportsByPairKey.get(`${assignment.nomination_id}:${assignment.referee_id}`) || [];
-        const refereeReport = pairReports.find(
-          (report) =>
-            report.author_role === 'Referee',
-        );
-        const instructorReport = pairReports.find(
-          (report) =>
-            report.author_role === 'Instructor',
-        );
+        const refereeReport =
+          findSubjectSubmittedReport(pairReports, assignment.referee_id) ||
+          pairReports.find((report) => report.author_id === assignment.referee_id);
+        const instructorReport =
+          findReviewedResponseReport(pairReports, assignment.referee_id) ||
+          pairReports.find((report) => report.author_id !== assignment.referee_id);
 
         return buildReportListItem({
           nomination,
