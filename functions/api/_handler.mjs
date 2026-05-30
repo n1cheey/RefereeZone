@@ -5391,19 +5391,18 @@ const shouldUseMobileReportProfiles = (currentUser, reportMode = REPORT_MODE.STA
 };
 
 const listSeasonNominationsMinimal = async (admin, seasonId = null) => {
-  let query = admin
+  const query = admin
     .from('nominations')
     .select('id, game_code, teams, match_date, match_time, venue')
     .order('match_date', { ascending: false })
     .order('match_time', { ascending: false });
-
-  const dateRange = getSeasonDateRange(seasonId);
-  if (dateRange) {
-    query = query.gte('match_date', dateRange.start).lte('match_date', dateRange.end);
-  }
-
   const { data, error } = await query;
-  return ensureData(data || [], error, 'Failed to load reports.');
+  return filterRowsBySeason(
+    ensureData(data || [], error, 'Failed to load reports.'),
+    seasonId,
+    () => null,
+    (nomination) => nomination.match_date,
+  );
 };
 
 const buildMobileProfilePayload = (items, profileId = null) => {
