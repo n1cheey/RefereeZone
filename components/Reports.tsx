@@ -22,9 +22,9 @@ interface ReportsProps {
   reportMode?: ReportMode;
 }
 
-const FRESH_REPORTS_CACHE_WINDOW_MS = 20000;
+const FRESH_REPORTS_CACHE_WINDOW_MS = 120000;
 
-const REPORTS_CACHE_VERSION = 'v4';
+const REPORTS_CACHE_VERSION = 'v5';
 const getReportsCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
   `reports:${REPORTS_CACHE_VERSION}:${userId}:${reportMode}:${seasonId}`;
 const getReportOverviewCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
@@ -136,10 +136,11 @@ const buildFormDataFromDetail = (detail: ReportDetail, role: User['role']) => {
   };
 };
 
-const isReviewedReport = (item: ReportListItem) => item.instructorReportStatus === 'Reviewed';
-const isSubmittedReport = (item: ReportListItem) => item.refereeReportStatus === 'Submitted' && !isReviewedReport(item);
+const normalizeReportStatus = (status?: ReportStatus | string | null) => String(status || '').trim().toLowerCase();
+const isReviewedReport = (item: ReportListItem) => normalizeReportStatus(item.instructorReportStatus) === 'reviewed';
+const isSubmittedReport = (item: ReportListItem) => normalizeReportStatus(item.refereeReportStatus) === 'submitted' && !isReviewedReport(item);
 const isOverduePendingReport = (item: ReportListItem) =>
-  item.deadlineExceeded && !isReviewedReport(item) && !item.refereeReportStatus;
+  item.deadlineExceeded && !isReviewedReport(item) && !normalizeReportStatus(item.refereeReportStatus);
 
 interface ReportProfileSummary {
   refereeId: string;
@@ -147,6 +148,7 @@ interface ReportProfileSummary {
   photoUrl?: string;
   submittedCount: number;
   overdueCount: number;
+  reviewedCount: number;
 }
 
 interface ReportOverviewData {
@@ -172,6 +174,7 @@ const buildOverviewFromReports = (items: ReportListItem[], reportMode: ReportMod
           photoUrl: item.photoUrl || '',
           submittedCount: 0,
           overdueCount: 0,
+          reviewedCount: 0,
         };
       }
       if (!accumulator[item.refereeId].photoUrl && item.photoUrl) {
@@ -186,11 +189,21 @@ const buildOverviewFromReports = (items: ReportListItem[], reportMode: ReportMod
         accumulator[item.refereeId].overdueCount += 1;
       }
 
+      if (isReviewedReport(item)) {
+        accumulator[item.refereeId].reviewedCount += 1;
+      }
+
       return accumulator;
     }, {}),
   ).sort((left, right) => {
-    const leftWeight = left.submittedCount + left.overdueCount;
-    const rightWeight = right.submittedCount + right.overdueCount;
+    const leftActiveWeight = left.submittedCount + left.overdueCount;
+    const rightActiveWeight = right.submittedCount + right.overdueCount;
+    if (rightActiveWeight !== leftActiveWeight) {
+      return rightActiveWeight - leftActiveWeight;
+    }
+
+    const leftWeight = leftActiveWeight + left.reviewedCount;
+    const rightWeight = rightActiveWeight + right.reviewedCount;
     if (rightWeight !== leftWeight) {
       return rightWeight - leftWeight;
     }
@@ -314,7 +327,21 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
     };
   };
 
-  const loadReports = useCallback(async () => {
+  const loadReports = useCallback(async (force = false) => {
+    if (!force && usesProfileOverview && selectedProfile) {
+      const cachedReportItems = readViewCache<ReportListItem[]>(getReportsCacheKey(user.id, currentReportMode, activeSeasonId));
+      if (cachedReportItems?.length) {
+        setReports(cachedReportItems);
+        const profileData = buildProfileSectionsFromReports(cachedReportItems, currentReportMode, selectedProfile.refereeId);
+        setSelectedProfileData(profileData);
+        writeViewCache(
+          getReportProfileCacheKey(user.id, currentReportMode, activeSeasonId, selectedProfile.refereeId),
+          profileData,
+        );
+        return;
+      }
+    }
+
     const response = await getReports(user.id, currentReportMode, activeSeasonId);
     setReports(response.reports);
     writeViewCache(getReportsCacheKey(user.id, currentReportMode, activeSeasonId), response.reports);
@@ -512,7 +539,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         response.report,
       );
       setIsEditingCurrentReport(false);
-      await loadReports();
+      await loadReports(true);
       setSuccessMessage(
         action === 'Draft'
           ? 'Report saved as draft.'
@@ -546,7 +573,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         mode: selectedDetail.item.reportMode,
         seasonId: activeSeasonId,
       });
-      await loadReports();
+      await loadReports(true);
       window.sessionStorage.removeItem(
         getReportDetailCacheKey(user.id, selectedDetail.item.reportMode, selectedDetail.item.nominationId, selectedDetail.item.refereeId, activeSeasonId),
       );
@@ -571,7 +598,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         nominationId,
         refereeId,
       });
-      await loadReports();
+      await loadReports(true);
       if (selectedDetail?.item.nominationId === nominationId && selectedDetail.item.refereeId === refereeId) {
         setSelectedDetail(response.report);
       }
@@ -1146,6 +1173,9 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
             <span className="rounded-full border border-white/15 bg-white/10 px-4 py-2 font-bold">
               Deadlines: {selectedProfile.overdueCount}
             </span>
+            <span className="rounded-full border border-white/15 bg-white/10 px-4 py-2 font-bold">
+              Reviewed: {selectedProfile.reviewedCount}
+            </span>
           </div>
           <button
             type="button"
@@ -1301,6 +1331,9 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
                       </span>
                       <span className="rounded-full bg-red-50 px-3 py-1 font-bold text-red-700">
                         Deadlines: {profile.overdueCount}
+                      </span>
+                      <span className="rounded-full bg-emerald-50 px-3 py-1 font-bold text-emerald-700">
+                        Reviewed: {profile.reviewedCount}
                       </span>
                     </div>
                     <div className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-[#57131b]">

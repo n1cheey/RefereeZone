@@ -29,6 +29,9 @@ const REPORT_STATUS = {
   SUBMITTED: 'Submitted',
   REVIEWED: 'Reviewed',
 };
+const normalizeReportStatusValue = (status) => String(status || '').trim().toLowerCase();
+const isSubmittedReportStatus = (status) => normalizeReportStatusValue(status) === normalizeReportStatusValue(REPORT_STATUS.SUBMITTED);
+const isReviewedReportStatus = (status) => normalizeReportStatusValue(status) === normalizeReportStatusValue(REPORT_STATUS.REVIEWED);
 const REPORT_MODE = {
   STANDARD: 'standard',
   TO: 'to',
@@ -622,8 +625,8 @@ const buildReportListItem = ({
   const rawDeadlineExceeded = isDeadlineExceeded(deadlineContext);
   const deadlineExceeded =
     rawDeadlineExceeded &&
-    instructorReportStatus !== REPORT_STATUS.REVIEWED &&
-    !refereeReportStatus;
+    !isReviewedReportStatus(instructorReportStatus) &&
+    !normalizeReportStatusValue(refereeReportStatus);
 
   return {
     nominationId: nomination.id,
@@ -2260,19 +2263,19 @@ const findSubjectSubmittedReport = (reports = [], subjectId) =>
   reports.find(
     (report) =>
       report.author_id === subjectId &&
-      report.status === REPORT_STATUS.SUBMITTED,
+      isSubmittedReportStatus(report.status),
   ) ||
   reports.find(
     (report) =>
       report.author_role === 'Referee' &&
-      report.status === REPORT_STATUS.SUBMITTED,
+      isSubmittedReportStatus(report.status),
   );
 
 const findReviewedResponseReport = (reports = [], subjectId) =>
   reports.find(
     (report) =>
       report.author_id !== subjectId &&
-      report.status === REPORT_STATUS.REVIEWED,
+      isReviewedReportStatus(report.status),
   );
 
 const loadTestReportByAuthor = async (admin, nominationId, refereeId, authorId) =>
@@ -5433,17 +5436,17 @@ const buildMobileProfilePayload = (items, profileId = null) => {
     const selectedItems = items.filter((item) => item.refereeId === profileId);
     return {
       submittedReports: selectedItems.filter(
-        (item) => item.refereeReportStatus === REPORT_STATUS.SUBMITTED && item.instructorReportStatus !== REPORT_STATUS.REVIEWED && !item.deadlineExceeded,
+        (item) => isSubmittedReportStatus(item.refereeReportStatus) && !isReviewedReportStatus(item.instructorReportStatus) && !item.deadlineExceeded,
       ),
       overdueReports: selectedItems.filter(
-        (item) => item.deadlineExceeded && item.instructorReportStatus !== REPORT_STATUS.REVIEWED && !item.refereeReportStatus,
+        (item) => item.deadlineExceeded && !isReviewedReportStatus(item.instructorReportStatus) && !normalizeReportStatusValue(item.refereeReportStatus),
       ),
-      reviewedReports: selectedItems.filter((item) => item.instructorReportStatus === REPORT_STATUS.REVIEWED),
+      reviewedReports: selectedItems.filter((item) => isReviewedReportStatus(item.instructorReportStatus)),
     };
   }
 
   const availableReports = items.filter(
-    (item) => item.refereeReportStatus === REPORT_STATUS.SUBMITTED && item.instructorReportStatus !== REPORT_STATUS.REVIEWED,
+    (item) => isSubmittedReportStatus(item.refereeReportStatus) && !isReviewedReportStatus(item.instructorReportStatus),
   );
   const profiles = Object.values(
     items.reduce((accumulator, item) => {
@@ -5454,15 +5457,20 @@ const buildMobileProfilePayload = (items, profileId = null) => {
           photoUrl: item.photoUrl || null,
           submittedCount: 0,
           overdueCount: 0,
+          reviewedCount: 0,
         };
       }
 
-      if (item.refereeReportStatus === REPORT_STATUS.SUBMITTED && item.instructorReportStatus !== REPORT_STATUS.REVIEWED) {
+      if (isSubmittedReportStatus(item.refereeReportStatus) && !isReviewedReportStatus(item.instructorReportStatus)) {
         accumulator[item.refereeId].submittedCount += 1;
       }
 
-      if (item.deadlineExceeded && item.instructorReportStatus !== REPORT_STATUS.REVIEWED && !item.refereeReportStatus) {
+      if (item.deadlineExceeded && !isReviewedReportStatus(item.instructorReportStatus) && !normalizeReportStatusValue(item.refereeReportStatus)) {
         accumulator[item.refereeId].overdueCount += 1;
+      }
+
+      if (isReviewedReportStatus(item.instructorReportStatus)) {
+        accumulator[item.refereeId].reviewedCount += 1;
       }
 
       return accumulator;
