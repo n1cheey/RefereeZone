@@ -30,8 +30,9 @@ const REPORT_STATUS = {
   REVIEWED: 'Reviewed',
 };
 const normalizeReportStatusValue = (status) => String(status || '').trim().toLowerCase();
-const isSubmittedReportStatus = (status) => normalizeReportStatusValue(status) === normalizeReportStatusValue(REPORT_STATUS.SUBMITTED);
-const isReviewedReportStatus = (status) => normalizeReportStatusValue(status) === normalizeReportStatusValue(REPORT_STATUS.REVIEWED);
+const isSubmittedReportStatus = (status) => normalizeReportStatusValue(status).startsWith('submit');
+const isReviewedReportStatus = (status) => normalizeReportStatusValue(status).includes('review');
+const isCompletedSubjectReportStatus = (status) => isSubmittedReportStatus(status) || isReviewedReportStatus(status);
 const REPORT_MODE = {
   STANDARD: 'standard',
   TO: 'to',
@@ -2263,12 +2264,12 @@ const findSubjectSubmittedReport = (reports = [], subjectId) =>
   reports.find(
     (report) =>
       report.author_id === subjectId &&
-      isSubmittedReportStatus(report.status),
+      isCompletedSubjectReportStatus(report.status),
   ) ||
   reports.find(
     (report) =>
       report.author_role === 'Referee' &&
-      isSubmittedReportStatus(report.status),
+      isCompletedSubjectReportStatus(report.status),
   );
 
 const findReviewedResponseReport = (reports = [], subjectId) =>

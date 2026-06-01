@@ -24,7 +24,7 @@ interface ReportsProps {
 
 const FRESH_REPORTS_CACHE_WINDOW_MS = 120000;
 
-const REPORTS_CACHE_VERSION = 'v6';
+const REPORTS_CACHE_VERSION = 'v7';
 const getReportsCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
   `reports:${REPORTS_CACHE_VERSION}:${userId}:${reportMode}:${seasonId}`;
 const getReportOverviewCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
@@ -137,8 +137,10 @@ const buildFormDataFromDetail = (detail: ReportDetail, role: User['role']) => {
 };
 
 const normalizeReportStatus = (status?: ReportStatus | string | null) => String(status || '').trim().toLowerCase();
-const isReviewedReport = (item: ReportListItem) => normalizeReportStatus(item.instructorReportStatus) === 'reviewed';
-const isSubmittedReport = (item: ReportListItem) => normalizeReportStatus(item.refereeReportStatus) === 'submitted' && !isReviewedReport(item);
+const isReviewedStatus = (status?: ReportStatus | string | null) => normalizeReportStatus(status).includes('review');
+const isSubmittedStatus = (status?: ReportStatus | string | null) => normalizeReportStatus(status).startsWith('submit');
+const isReviewedReport = (item: ReportListItem) => isReviewedStatus(item.instructorReportStatus);
+const isSubmittedReport = (item: ReportListItem) => isSubmittedStatus(item.refereeReportStatus) && !isReviewedReport(item);
 const isOverduePendingReport = (item: ReportListItem) =>
   item.deadlineExceeded && !isReviewedReport(item) && !normalizeReportStatus(item.refereeReportStatus);
 
@@ -366,28 +368,28 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
     let isMounted = true;
     const reportsCacheKey = getReportsCacheKey(user.id, currentReportMode, activeSeasonId);
     const overviewCacheKey = getReportOverviewCacheKey(user.id, currentReportMode, activeSeasonId);
-    const profileCacheKey =
-      usesProfileOverview && selectedProfile
-        ? getReportProfileCacheKey(user.id, currentReportMode, activeSeasonId, selectedProfile.refereeId)
-        : null;
 
-    const cachedReports = !usesProfileOverview ? readViewCache<ReportListItem[]>(reportsCacheKey) : null;
+    const cachedReports = readViewCache<ReportListItem[]>(reportsCacheKey);
     const cachedOverview = usesProfileOverview && !selectedProfile ? readViewCache<ReportOverviewData>(overviewCacheKey) : null;
-    const cachedProfile = profileCacheKey ? readViewCache<SelectedProfileData>(profileCacheKey) : null;
 
-    if (cachedReports) {
+    if (usesProfileOverview && selectedProfile && cachedReports?.length) {
+      setReports(cachedReports);
+      setSelectedProfileData(buildProfileSectionsFromReports(cachedReports, currentReportMode, selectedProfile.refereeId));
+      setIsLoading(false);
+    } else if (usesProfileOverview && !selectedProfile && cachedReports?.length) {
+      setReports(cachedReports);
+      setOverviewData(buildOverviewFromReports(cachedReports, currentReportMode));
+      setIsLoading(false);
+    } else if (!usesProfileOverview && cachedReports) {
       setReports(cachedReports);
       setIsLoading(false);
     } else if (cachedOverview) {
       setOverviewData(cachedOverview);
       setIsLoading(false);
-    } else if (cachedProfile) {
-      setSelectedProfileData(cachedProfile);
-      setIsLoading(false);
     }
 
     const load = async () => {
-      if (!cachedReports && !cachedOverview && !cachedProfile) {
+      if (!cachedReports && !cachedOverview) {
         setIsLoading(true);
       }
       try {
@@ -397,7 +399,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
         }
       } catch (error) {
         if (isMounted) {
-          if (!usesProfileOverview && !cachedReports?.length && !cachedOverview && !cachedProfile) {
+          if (!usesProfileOverview && !cachedReports?.length && !cachedOverview) {
             setErrorMessage(error instanceof Error ? error.message : 'Failed to load reports.');
           }
         }
@@ -412,9 +414,7 @@ const Reports: React.FC<ReportsProps> = ({ user, onBack, reportMode = 'standard'
       ? isViewCacheFresh(reportsCacheKey, FRESH_REPORTS_CACHE_WINDOW_MS)
       : cachedOverview
         ? isViewCacheFresh(overviewCacheKey, FRESH_REPORTS_CACHE_WINDOW_MS)
-        : cachedProfile && profileCacheKey
-          ? isViewCacheFresh(profileCacheKey, FRESH_REPORTS_CACHE_WINDOW_MS)
-          : false;
+        : false;
 
     if (!isFresh) {
       void load();
