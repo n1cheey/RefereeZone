@@ -2278,6 +2278,48 @@ const findReviewedResponseReport = (reports = [], subjectId) =>
       isReviewedReportStatus(report.status),
   );
 
+const getAssignmentReviewKey = (subjectId, nomination) =>
+  `${String(subjectId || '')}:${String(nomination?.game_code || '')}:${String(nomination?.match_date || '')}`;
+
+const loadReviewedPerformanceKeysForAssignments = async ({
+  admin,
+  assignments = [],
+  nominationMap,
+  subjectIdKey = 'referee_id',
+  performanceTable = 'ranking_match_performance',
+  performanceSubjectColumn = 'referee_id',
+}) => {
+  const subjectIds = [...new Set(assignments.map((assignment) => assignment[subjectIdKey]).filter(Boolean))];
+  if (!subjectIds.length) {
+    return new Set();
+  }
+
+  const rows = (
+    await Promise.all(
+      chunkArray(subjectIds).map(async (subjectChunk) => {
+        const { data, error } = await admin
+          .from(performanceTable)
+          .select(`${performanceSubjectColumn}, game_code, evaluation_date`)
+          .in(performanceSubjectColumn, subjectChunk);
+
+        return ensureData(data || [], error, 'Failed to load reviewed report performance.');
+      }),
+    )
+  ).flat();
+
+  const assignmentKeys = new Set(
+    assignments
+      .map((assignment) => getAssignmentReviewKey(assignment[subjectIdKey], nominationMap.get(assignment.nomination_id)))
+      .filter(Boolean),
+  );
+
+  return new Set(
+    rows
+      .map((row) => `${String(row[performanceSubjectColumn] || '')}:${String(row.game_code || '')}:${String(row.evaluation_date || '')}`)
+      .filter((key) => assignmentKeys.has(key)),
+  );
+};
+
 const loadTestReportByAuthor = async (admin, nominationId, refereeId, authorId) =>
   maybeSingle(
     admin
@@ -5681,6 +5723,11 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
       })),
     );
     const reportsByPairKey = groupReportsByPairKey(reports);
+    const reviewedPerformanceKeys = await loadReviewedPerformanceKeysForAssignments({
+      admin,
+      assignments,
+      nominationMap,
+    });
 
     return assignments
       .map((assignment) => {
@@ -5697,8 +5744,9 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
         const instructorReport = pairReports.find(
           (report) =>
             report.author_role === 'Instructor' &&
-            report.status === REPORT_STATUS.REVIEWED,
+            isReviewedReportStatus(report.status),
         );
+        const hasReviewedPerformance = reviewedPerformanceKeys.has(getAssignmentReviewKey(assignment.referee_id, nomination));
 
         return buildReportListItem({
           nomination,
@@ -5706,7 +5754,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
           refereeName: currentUser.full_name,
           photoUrl: currentUser.photo_url || DEFAULT_PHOTO_URL,
           refereeReportStatus: ownReport?.status || null,
-          instructorReportStatus: instructorReport?.status || null,
+          instructorReportStatus: instructorReport?.status || (hasReviewedPerformance ? REPORT_STATUS.REVIEWED : null),
           reviewScore: instructorReport?.score ?? null,
           currentUserRole: currentUser.role,
         });
@@ -5744,6 +5792,11 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
       })),
     );
     const reportsByPairKey = groupReportsByPairKey(reports);
+    const reviewedPerformanceKeys = await loadReviewedPerformanceKeysForAssignments({
+      admin,
+      assignments,
+      nominationMap,
+    });
 
     return assignments
       .map((assignment) => {
@@ -5765,6 +5818,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
         const visibleInstructorReport =
           findReviewedResponseReport(pairReports, assignment.referee_id) ||
           (ownReport?.author_id !== assignment.referee_id ? ownReport : null);
+        const hasReviewedPerformance = reviewedPerformanceKeys.has(getAssignmentReviewKey(assignment.referee_id, nomination));
 
         return buildReportListItem({
           nomination,
@@ -5772,7 +5826,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
           refereeName: refereeProfile.full_name || 'Unknown referee',
           photoUrl: refereeProfile.photo_url || DEFAULT_PHOTO_URL,
           refereeReportStatus: refereeReport?.status || null,
-          instructorReportStatus: visibleInstructorReport?.status || null,
+          instructorReportStatus: visibleInstructorReport?.status || (hasReviewedPerformance ? REPORT_STATUS.REVIEWED : null),
           reviewScore: visibleInstructorReport?.score ?? null,
           currentUserRole: currentUser.role,
         });
@@ -5816,6 +5870,11 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
       })),
     );
     const reportsByPairKey = groupReportsByPairKey(reports);
+    const reviewedPerformanceKeys = await loadReviewedPerformanceKeysForAssignments({
+      admin,
+      assignments,
+      nominationMap,
+    });
 
     return assignments
       .map((assignment) => {
@@ -5835,6 +5894,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
         const instructorReport =
           findReviewedResponseReport(pairReports, assignment.referee_id) ||
           pairReports.find((report) => report.author_id !== assignment.referee_id);
+        const hasReviewedPerformance = reviewedPerformanceKeys.has(getAssignmentReviewKey(assignment.referee_id, nomination));
 
         return buildReportListItem({
           nomination,
@@ -5842,7 +5902,7 @@ const listReportItems = async (admin, currentUser, reportMode = REPORT_MODE.STAN
           refereeName: refereeProfile.full_name || 'Unknown referee',
           photoUrl: refereeProfile.photo_url || DEFAULT_PHOTO_URL,
           refereeReportStatus: refereeReport?.status || null,
-          instructorReportStatus: instructorReport?.status || null,
+          instructorReportStatus: instructorReport?.status || (hasReviewedPerformance ? REPORT_STATUS.REVIEWED : null),
           reviewScore: instructorReport?.score ?? null,
           currentUserRole: currentUser.role,
         });

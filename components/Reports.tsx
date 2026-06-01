@@ -24,7 +24,7 @@ interface ReportsProps {
 
 const FRESH_REPORTS_CACHE_WINDOW_MS = 120000;
 
-const REPORTS_CACHE_VERSION = 'v5';
+const REPORTS_CACHE_VERSION = 'v6';
 const getReportsCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
   `reports:${REPORTS_CACHE_VERSION}:${userId}:${reportMode}:${seasonId}`;
 const getReportOverviewCacheKey = (userId: string, reportMode: ReportMode, seasonId: string) =>
